@@ -1,3 +1,10 @@
+---
+title: "README"
+output:
+  md_document:
+    variant: markdown
+---
+
 # MTA 2025
 
 <!-- rmarkdown::render("README.Rmd", output_format = "md_document", output_file = "README.md") -->
@@ -12,8 +19,7 @@
 
     -   full year amounts, say 2025
 
-    -   wage growth scenarios (just the wages, not the revenue) going
-        out years - eea growth
+    -   wage growth scenarios (just the wages, not the revenue) going out years - eea growth
 
 -   Corporate surcharge
 
