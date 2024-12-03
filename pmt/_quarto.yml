@@ -18,6 +18,9 @@ book:
   date-format: long
   chapters:
     - index.qmd
+    - part: "Prepare data"
+      chapters:    
+      - get_econ_data.qmd
     # - intro.qmd
     # - part: "Policy Analysis"
     #   chapters:    
