@@ -1,0 +1,712 @@
+---
+output: html_document
+editor_options: 
+  chunk_output_type: console
+---
+
+# Get and clean tax data
+
+```{r}
+#| label: setup
+#| include: false
+
+source(here::here("r", "libraries.r"))
+source(here::here("r", "libraries_ts.r"))
+source(here::here("r", "constants.r"))
+source(here::here("r", "functions.r"))
+
+```
+
+```{=html}
+<!-- links
+
+Tax Dept montly data on OpenData
+https://data.ny.gov/Government-Finance/New-York-State-Local-and-Local-Purpose-Taxes-and-F/2vni-8tmb
+
+Contact: OTPA.OpenNYData@tax.ny.gov
+
+Spreadsheets with monthly collections:
+https://www.tax.ny.gov/research/collections/monthly_tax_collections.htm
+
+
+-->
+```
+## Monthly Tax Department collections data
+
+The Tax Department reports monthly collections for each state tax on two state websites that do not appear to be integrated (that is, they need not be consistent with each other):
+
+-   Spreadsheets: A single spreadsheet for each month, with all taxes, is [here](https://www.tax.ny.gov/research/collections/monthly_tax_collections.htm). These spreadsheets provide a bit more detail (e.g., they have gross collections, refunds, and net; and they have monthly and fiscal year to date collections). They do not appear to have internal consistency controls (e.g., YTD collections may not equal the sum of monthly collections across separate spreadsheets).
+
+-   OpenData single data file: Monthly Tax Department collections data for most state taxes are [here](https://data.ny.gov/Government-Finance/New-York-State-Local-and-Local-Purpose-Taxes-and-F/2vni-8tmb) on the OpenData site. This is far more convenient to work with than spreadsheet data.
+
+As discussed below, there are errors in both data sets - some of the errors are the same in each data set and some are unique to one data set or the other.
+
+I suspect that they must keep one master correct data set internally that is not published; as time permits I will inquire and verify.
+
+### OpenData data
+
+#### About the data
+
+-   The site contains links to several documentation files. Here are a few relevant excerpts:
+
+> The Department of Taxation and Finance monthly produces a compilation of those state and local and local purpose taxes and fees collected by the Department. The taxes and fees information provided in this data set are primarily taxes imposed by the Tax Law, but also includes fees that are imposed by other state laws but are administered and collected by the Department. Collections are net of refunds and other processing and accounting adjustments. The data set provides a history of these collections by month beginning with April 1996.
+>
+> Taxes and fees collections reflected in this data set are compiled from net collections reported monthly by the Accounting Bureau of the Office of Processing and Taxpayer Services, New York State Department of Taxation and Finance.
+>
+> The collections information reflected in this data set is prior to disposition to specific dedicated revenue funds where required by statute and are comparable to the "all government funds" or "all funds" categorization of revenues by the New York State Division of Budget and the New York State Office of the State Comptroller. However, timing differences on the part of the Accounting Bureau and the Comptroller may give rise to small variations for some of the taxes and fees amounts presented in this dataset.
+
+-   A changelog on the site available for Feb 2023 forward shows when they change data and how many rows they inserted. Based on this:
+
+    -   The data appear to be updated in the 3rd week of the month, for collections in the prior month.
+
+    -   The data as it stood after the update can be downloaded from the changelog area of the site.
+
+    -   As of May 26, 2023, all but one of the Feb 2023+ updates appears to be insertion of data for a new month.
+
+    -   The exception is Apr 20, 2023 when they inserted 2 rows, copied below.
+
+    > month_of_collections,tax_type,tax_or_fee,amount_collected_in_thousands
+    >
+    > October 2022,Local/local purpose taxes,MCTD Mobility Tax,120513
+    >
+    > November 2022,Local/local purpose taxes,MCTD Mobility Tax,138102
+
+-   Thus, they appear to have corrected 2 rows in the entire database (which includes all state taxes) for the payroll mobility tax. This is consistent with my Apr 19 email conversation with Aysegul Kocer, which included information from her correspondence with the Tax Department:
+
+![](images/image-1755562616.png)
+
+-   Note, however, that they do not appear to have updated the total MCTD (which is the sum of the wage tax and the net earnings from self-employment tax) - I'll have to check that.
+-   The contact email is [here](OTPA.OpenNYData@tax.ny.gov). I will reach out to them with some additional corrections.
+
+#### Initial look at the data
+
+-   The data are in thousands of dollars.
+
+-   I'm constructing a corrected data subset that has data relevant to the MTA and to forecasting MTA taxes -- that is, the MTA taxes plus any counterparts that might yield insights into these taxes, such as state income tax withholding.
+
+-   Here is what the documentation says about these taxes. Note that the documentation may not be up to date with 2023 law changes, but the data should be.
+
+![](images/image-893522319.png)
+
+![](images/image-933809457.png)
+
+![](images/image-960328823.png)
+
+```{r}
+#| label: ONETIME-OpenData-download
+#| eval: false
+#| include: false
+
+# Download based on data updated: May 17, 2023
+
+# https://data.ny.gov/Government-Finance/New-York-State-Local-and-Local-Purpose-Taxes-and-F/2vni-8tmb
+url <- "https://data.ny.gov/api/views/2vni-8tmb/rows.csv?accessType=DOWNLOAD&sorting=true"
+fn <- "New_York_State__Local__and_Local_Purpose_Taxes_and_Fees_Collected_Monthly_by_the_Department_of_Taxation_and_Finance__Beginning_April_1996.csv"
+
+# fpath <- file.path(here::here("data", "dtf", fn))
+fpath <- path(here::here("data", "dtf", "monthly", fn))
+
+download.file(url, destfile=fpath, mode="wb")
+
+```
+
+```{r}
+#| label: ONETIME-spreadsheet-downloads
+#| eval: false
+#| include: false
+
+# landing page:
+#   https://www.tax.ny.gov/research/collections/monthly_tax_collections.htm
+
+# https://www.tax.ny.gov/research/collections/february-2023-tax-collections.xls
+
+# create bulk filenames
+
+# representative file names for each fiscal year: ----
+
+# 2024
+# march 2024
+# https://www.tax.ny.gov/research/collections/april-2023-tax-collections.xls
+
+# 2023
+#  https://www.tax.ny.gov/research/collections/march-2023-tax-collections.xls
+#  https://www.tax.ny.gov/research/collections/april-2022-tax-collections.xls
+
+# 2022
+#  https://www.tax.ny.gov/research/collections/March_2022_tax_collections.xls
+#  https://www.tax.ny.gov/research/collections/january_2022_tax_collections.xls
+#  https://www.tax.ny.gov/research/collections/September_2021_tax_collections.xls
+#  https://www.tax.ny.gov/research/collections/August_2021_tax_collections.xls
+#  https://www.tax.ny.gov/research/collections/SFY21_22/July_2021_tax_collections.xls
+#  https://www.tax.ny.gov/research/collections/SFY21_22/May_2021_tax_collections.xls
+#  https://www.tax.ny.gov/research/collections/SFY21_22/April_2021_tax_collections.xls
+
+# 2021
+#  https://www.tax.ny.gov/research/collections/sfy20-21/March_2021_tax_collections.xls
+#  https://www.tax.ny.gov/research/collections/sfy20-21/October_2020_tax_collections.xls
+#  https://www.tax.ny.gov/research/collections/sfy20-21/september_2020_tax_collections.xls
+#  https://www.tax.ny.gov/pdf/stats/collections/FY20-21/august_2020_tax_collections.xls
+#  https://www.tax.ny.gov/pdf/stats/collections/FY20-21/july_2020_tax_collections.xls
+#  https://www.tax.ny.gov/pdf/stats/collections/FY20-21/april_2020_tax_collections.xls
+
+# 2020
+#  https://www.tax.ny.gov/pdf/stats/collections/FY19_20/march_2020_tax_collections.xls
+#  https://www.tax.ny.gov/pdf/stats/collections/FY19_20/april_2019_tax_collections.xls
+
+# 2019
+#  https://www.tax.ny.gov/pdf/stats/collections/FY18-19/march_2019_tax_collections.xls
+#  https://www.tax.ny.gov/pdf/stats/collections/FY18-19/april_2018_tax_collections.xls
+
+# 2018
+# https://www.tax.ny.gov/pdf/stats/collections/sfy17-18/march_2018_tax_collections.xls
+# https://www.tax.ny.gov/research/collections/sfy17-18/january_2018_tax_collections.xls
+# https://www.tax.ny.gov/pdf/stats/collections/sfy17-18/december_2017_tax_collections.xls
+# https://www.tax.ny.gov/pdf/stats/collections/november_2017_tax_collections.xls
+# https://www.tax.ny.gov/pdf/stats/collections/october_2017_tax_collections.xls
+# https://www.tax.ny.gov/pdf/stats/collections/sfy17-18/september_2017_tax_collections.xls
+# https://www.tax.ny.gov/pdf/stats/collections/sfy17-18/april_2017_tax_collections.xls
+
+# 2017
+# https://www.tax.ny.gov/pdf/stats/collections/sfy16_17/march_2017_tax_collections.xls
+# https://www.tax.ny.gov/pdf/stats/collections/sfy16_17/april_2016_tax_collections.xls
+
+# 2016
+# https://www.tax.ny.gov/pdf/stats/collections/sfy15_16/march_2016_tax_collections.xls
+# https://www.tax.ny.gov/pdf/stats/collections/sfy15_16/april_2015_tax_collections.xls
+
+# 2015
+# https://www.tax.ny.gov/pdf/stats/collections/sfy14_15/march_2015_tax_collections.xls
+# https://www.tax.ny.gov/pdf/stats/collections/sfy14_15/april_2014_tax_collections.xls
+
+# 2014
+# https://www.tax.ny.gov/pdf/stats/collections/sfy13_14/march_2014_tax_collections.xls
+# https://www.tax.ny.gov/pdf/stats/collections/sfy13_14/april_2013_tax_collections.xls
+
+# 2013
+# https://www.tax.ny.gov/pdf/stats/collections/sfy12_13/march_2013_tax_collections.xls
+# https://www.tax.ny.gov/pdf/stats/collections/sfy12_13/april_2012_tax_collections.xls
+
+# 2012
+# https://www.tax.ny.gov/pdf/stats/collections/sfy11_12/march_2012_tax_collections.xls
+# https://www.tax.ny.gov/pdf/stats/collections/sfy11_12/april_2011_tax_collections.xls
+
+# 2011
+# https://www.tax.ny.gov/pdf/stats/collections/sfy10_11/march_2011_tax_collections.xls
+# https://www.tax.ny.gov/pdf/stats/collections/sfy10_11/april_2010_tax_collections.xls
+
+# 2010
+# https://www.tax.ny.gov/pdf/stats/collections/sfy09_10/march_2010_tax_collections.xls
+# https://www.tax.ny.gov/pdf/stats/collections/sfy09_10/april_2009_tax_collections.xls
+
+# 2009
+# https://www.tax.ny.gov/pdf/stats/collections/sfy08_09/april_2008_tax_collections.xls
+# https://www.tax.ny.gov/pdf/stats/collections/sfy08_09/march_2009_tax_collections.xls
+
+
+# calc https://www.tax.ny.gov/pdf/stats/collections/sfy16-17/april_2016_tax_collections.xls
+# true https://www.tax.ny.gov/pdf/stats/collections/sfy16_17/april_2016_tax_collections.xls
+
+geturl <- function(date){
+  # date <- as.Date(date)
+  year <- year(date)
+  month <- month(date)
+  fyear <- ifelse(month < 4, year, year + 1)
+  
+  ystart <- str_sub(fyear -1, 3, 4)
+  yend <- str_sub(fyear, 3, 4)
+  
+  # parts to the url base (before the file name)
+  urlstart <- "https://www.tax.ny.gov/"
+  
+  urlmid <- case_when(
+    # put exceptions at the top
+    date %in% as.Date("2018-01-01") ~ "research/collections/",
+    
+    date >= "2008-04-01" &
+      date <= "2020-08-01" ~ "pdf/stats/collections/",
+    
+    date >= "2020-09-01" &
+      date <= "2024-03-01" ~ "research/collections/",
+    
+    TRUE ~ "ERROR")
+  
+  fyfolder <- case_when(
+    # put the major exceptions first so they bypass other steps
+    
+    date >= "2021-08-01" &
+      date <= "2024-03-01" ~ "",  
+    
+    date %in% as.Date(c("2017-10-01",
+                "2017-11-01")) ~ "",
+    
+    # now give rules for fiscal years
+    date >= "2008-04-01" &
+      date <= "2017-03-01" ~ paste0("sfy", ystart, "_", yend, "/"),
+    
+    date >= "2017-04-01" &
+      date <= "2018-03-01" ~ paste0("sfy", ystart, "-", yend, "/"),
+      
+    date >= "2018-04-01" &
+      date <= "2019-03-01" ~ paste0("FY", ystart, "-", yend, "/"),
+    
+    date >= "2019-04-01" &
+      date <= "2020-03-01" ~ paste0("FY", ystart, "_", yend, "/"),
+    
+    date >= "2020-04-01" &
+      date <= "2020-08-01" ~ paste0("FY", ystart, "-", yend, "/"),
+    
+    date >= "2020-09-01" &
+      date <= "2021-03-01" ~ paste0("sfy", ystart, "-", yend, "/"),
+    
+    date >= "2021-04-01" &
+      date <= "2021-07-01" ~ paste0("SFY", ystart, "_", yend, "/"),
+    
+    TRUE ~ "ERROR")
+  
+  mname <- month.name[month]
+  
+  # fname <- paste0(mname, "_", year, "_tax_collections.xls")
+  ftype <- ifelse(date <= "2023-07-01", "xls", "xlsx")
+  fname <- paste0(mname, "_", year, "_tax_collections.", ftype)
+  
+  fname <- ifelse(date >= "2022-04-01",
+                  str_replace_all(fname, "_", "-"),
+                  fname)
+
+  fname <- case_when(
+    # exceptions first
+    # date == as.Date("2022-04-01") ~ "april-2022_tax_collections.xls", # WOW - dash and underscore
+    
+    date %in% as.Date(c("2022-01-01")) |
+      (date < "2020-10-01") | (date > "2022-03-01") ~ str_to_lower(fname),
+    
+    TRUE ~ fname
+  )
+  
+  paste0(urlstart, urlmid, fyfolder, fname)
+  }
+  
+
+f <- function(date){
+  url <- geturl(date)
+  fn <- path_file(url)
+  print(date)
+  print(fn)
+  fpath <- path(here::here("data", "dtf", "bulk", fn))
+  print(fpath)
+  download.file(url, destfile=fpath, mode="wb")
+  print("    ----    ")
+}
+
+# dates <- seq.Date(as.Date("2008-04-01"), as.Date("2023-03-01"), "1 month")
+dates <- seq.Date(as.Date("2023-07-01"), as.Date("2023-09-01"), "1 month")
+
+purrr::walk(dates, f)
+# purrr::walk(dates[1:36], f)
+
+# f(as.Date("2022-05-01"))
+# 
+# dates <- seq.Date(as.Date("2017-04-01"), as.Date("2023-03-01"), "1 month")
+# geturl(dates[1])
+
+
+```
+
+```{r}
+#| label: ONETIME-read-spreadsheets
+#| eval: false
+#| include: false
+
+dir <- path(here::here("data", "dtf", "bulk"))
+dir_ls(dir)
+
+files <- dir_ls(dir) |> path_file()
+files
+
+filedf <- tibble(path=dir_ls(dir)) |> 
+  mutate(file=path_file(path)) |> 
+  separate(file, into = c("month_name", "year"), remove=FALSE, extra="drop") |> 
+  mutate(year=as.integer(year),
+         month_name=str_to_lower(month_name),
+         month=match(month_name, str_to_lower(month.name)),
+         date=ymd(paste(year,month, "01"))) |> 
+  mutate(sheets=purrr::map(path, excel_sheets)) |> 
+  select(date, year, month, month_name, file, path, sheets) |> 
+  arrange(date)
+glimpse(filedf)
+count(filedf, month, month_name)
+count(filedf, year)
+
+filedfl <- filedf |> 
+  unnest_wider(col=sheets, names_sep = "_") |> 
+  pivot_longer(starts_with("sheets"),
+               names_to = "sheetnum",
+               values_to = "sheet") |> 
+  mutate(sheetnum=str_extract_after_last(sheetnum, "_") |> as.integer())
+
+count(filedfl, sheetnum, sheet)
+
+get_fname <- function(year, month){
+  filedf |> 
+    filter(year==!!year, month==!!month) |> 
+    pull(file)
+}
+
+get_fpath <- function(year, month){
+  filedf |> 
+    filter(year==!!year, month==!!month) |> 
+    pull(path)
+}
+
+(fn <- get_fname(2022, 3))
+# fpath <- path(here::here("data", "dtf", "bulk", fn))
+(fpath <- get_fpath(2023, 9))
+excel_sheets(fpath)
+read_excel(fpath)
+
+df <- read_excel(fpath, sheet=1)
+
+# get all the data in character form, raw
+
+f <- function(date){
+  print(date)
+  date <- as.Date(date)
+  year <- year(date)
+  month <- month(date)
+  fpath <- get_fpath(year, month)
+  if(date <= as.Date("2023-06-01")){
+    cnames <- c("item", "gross", "refunds", "net", "junk", "fygross", "fyrefunds", "fynet")
+  } else {
+    cnames <- c("item", "gross", "refunds", "net", "junk", "junk2", "fygross", "fyrefunds", "fynet")
+  }
+  df1 <- read_excel(fpath, sheet=1, col_names = FALSE, col_types = "text")
+  df2 <- df1 |> 
+    select(1:length(cnames)) |> 
+    setNames(cnames) |> 
+    mutate(row=row_number(), date=date, year=year, month=month) |> 
+    filter(!is.na(item), !is.na(fynet), fynet!="Net") |> 
+    filter(!if_all(c(gross, refunds, net, fygross, fyrefunds, fynet), is.na)) |> 
+    filter(fynet != "Monthly Gross and  Net  Tax Collections") |> 
+    relocate(date, year, month, row)
+  df2
+}
+
+check <- f(fpath)
+
+check <- f("2023-06-01")
+check <- f("2023-08-01")
+date <- "2023-09-01"
+check <- f(date)
+# date <- "2023-08-01"
+
+df <- purrr:::map(filedf$date, f, .progress=TRUE)
+
+df2 <- df |> 
+  list_rbind() |> 
+  filter(fynet != "Monthly Gross and  Net  Tax Collections") |> 
+  select(date:fynet) |> 
+  select(-junk)
+
+saveRDS(df2, here::here("data", "monthly_raw.rds"))
+
+```
+
+```{r}
+#| label: explore-spreadsheets
+#| eval: false
+#| include: false
+
+mtax <- readRDS(here::here("data", "monthly_raw.rds"))
+
+mtax |> 
+  filter(date %in% as.Date(c("2023-08-01")))
+
+check <- count(mtax, item)
+
+mtavars <- check |> 
+  filter(str_detect(item, "M.C.T.") |
+           str_detect(item, "MCTM") |
+           str_detect(item, "M.T.A."))
+
+mtavars
+
+mta1 <- mtax |> 
+  filter(item %in% mtavars$item)
+
+mta1 |> 
+  filter(date %in% as.Date(c("2023-07-01", "2023-08-01", "2023-09-01")))
+
+
+pmt <- mta1 |> 
+  filter(str_detect(item, "Mobil")) |> 
+  pivot_longer(cols=gross:fynet) |> 
+  select(-item) |> 
+  mutate(value=as.numeric(value)) |> 
+  arrange(name, date)
+
+pmt |> 
+  filter(name=="net", year>=2010) |> 
+  ggplot(aes(date, value)) +
+  geom_line() +
+  geom_point()
+
+```
+
+```{r}
+#| label: get-OpenData
+#| eval: true
+#| include: false
+
+fn <- "New_York_State__Local__and_Local_Purpose_Taxes_and_Fees_Collected_Monthly_by_the_Department_of_Taxation_and_Finance__Beginning_April_1996.csv"
+
+fpath <- path(here::here("data", "dtf", "monthly", fn))
+
+df <- vroom(fpath)
+glimpse(df)
+skim(df)
+count(df, `Month of Collections`) |> ht()
+count(df |> filter(str_detect(`Month of Collections`, "2022")), `Month of Collections`)
+
+df |> filter(`Fiscal Year Ending`==2024, str_detect(`Month of Collections`, "Nov"))
+df |> filter(`Fiscal Year Ending`==2010, str_detect(`Month of Collections`, "Jun"))
+df |> filter(`Fiscal Year Ending`==2010, str_detect(`Tax or Fee`, "Mobility")) |> 
+  arrange(`Month of Collections Sort Order`)
+
+## CAUTION: verify that column names are consistent with the new variable names being given below ----
+names(df)
+df2 <- df |> 
+  setNames(c("sfy", "monthyear", "type", "tax", "value", "fymonth", "typesort", "taxsort")) |> 
+  mutate(month=ifelse(fymonth <= 9, fymonth + 3, fymonth - 9),
+         year=ifelse(month > 3, sfy - 1, sfy),
+         date=as.Date(paste0(year, "/", month, "/", 1))) |> 
+  arrange(date)
+max(df2$date)
+names(df)
+names(df2)
+cbind(names(df2)[1:length(names(df))], names(df))
+
+count(df2, fymonth, month)
+count(df2, month, fymonth)
+
+saveRDS(df2, here::here("data", "monthly_collections.rds"))
+
+```
+
+```{r}
+#| label: ONETIME-clean-vnames-save-mta
+#| eval: false
+#| include: false
+
+# create vnames and unique vnames ------------------------------------------------------------------
+# CAUTION: DTF did not keep one-one correspondence between type-tax and typesort-taxsort -- uniqueness appears to be tax names!!!
+
+taxnames <- count(df2, type, tax)
+
+taxoi <- taxnames |> 
+  filter(tax %in% c("Withholding Tax", "MCTD Mobility Tax") |
+           str_detect(tax, "MCTMT Personal")) |> 
+  mutate(vname=case_when(tax=="Withholding Tax" ~ "whnys",
+                         tax=="MCTD Mobility Tax" ~ "pmt_wage",
+                         str_detect(tax, "MCTMT") &
+                           str_detect(tax, "Gross") ~ "pmt_nese_gross",
+                         str_detect(tax, "MCTMT") &
+                           str_detect(tax, "Net") ~ "pmt_nese_net",
+                         str_detect(tax, "MCTMT") &
+                           str_detect(tax, "Refund") ~ "pmt_nese_refunds",
+                         str_detect(tax, "MCTMT") &
+                           str_detect(tax, "Offset") ~ "pmt_nese_offset"))
+
+mta1 <- df2 |> 
+  filter(tax %in% taxoi$tax) |> 
+  left_join(taxoi |> select(tax, vname),
+            by = join_by(tax)) |> 
+  select(date, year, month, vname, tax, value) |> 
+  arrange(vname, date)
+
+count(mta1, vname, tax)
+
+mta1 |> 
+  filter(vname=="pmt_wage", year(date) >= 2010) |> 
+  ggplot(aes(date, value)) +
+  geom_line() +
+  geom_point()
+
+fixes_mobility <- read_csv(
+  "date, vname, fixval
+2016-11-01, pmt_wage, 96840
+2017-11-01, pmt_wage, 96741
+2018-11-01, pmt_wage, 99141
+2019-10-01, pmt_wage, 125215
+2019-11-01, pmt_wage, 102558
+2021-07-01, pmt_wage, 111347
+")
+fixes_mobility
+
+mta1 |> 
+  filter(vname=="pmt_wage", date %in% fixes_mobility$date)
+
+
+mta2 <- mta1 |> 
+  left_join(fixes_mobility,
+            by = join_by(date, vname)) |> 
+  mutate(value_original=value,
+         value=ifelse(!is.na(fixval), fixval, value)) |> 
+  select(date, year, month, vname, tax, value_original, fixval, value)
+
+mta2 |> 
+  filter(vname=="pmt_wage", year(date) >= 2010) |> 
+  ggplot(aes(date, value)) +
+  geom_line() +
+  geom_point()
+
+skim(mta2)
+
+saveRDS(mta2, here::here("data", "mta_pmt_collections.rds"))
+
+
+```
+
+## Fixes to the tax data
+
+```{r}
+#| label: fix-get
+#| eval: true
+#| include: false
+
+pmtfixed <- readRDS(here::here("data", "mta_pmt_collections.rds"))
+summary(pmtfixed)
+
+
+
+```
+
+Here are the values I changed in the Tax Department's OpenData file, all pertaining to the payroll tax. The fixes are based on comparisons to the Tax Department's spreadsheets.
+
+```{r}
+#| label: fix-compare
+#| eval: true
+#| include: true
+
+pmtfixed |> 
+  filter(value != value_original)
+
+```
+
+Here is what the original and fixed data look like.
+
+```{r}
+#| label: fix-plot
+#| eval: true
+#| include: true
+
+pmtfixed |> 
+  filter(vname=="pmt_wage", year >= 2010) |> 
+  select(date, original=value_original, adjusted=value) |> 
+  pivot_longer(cols = c(original, adjusted)) |> 
+  mutate(name=factor(name, levels=c("original", "adjusted"))) |> 
+  ggplot(aes(date, value, colour=name)) +
+  geom_line() +
+  geom_point() +
+  scale_colour_manual(values=c("darkgreen", "blue")) +
+  scale_y_continuous(name="$ millions", labels = label_comma(scale=1e-3)) +
+  ggtitle("Original and adjusted values of the PMT wage tax") +
+  theme_bw()
+
+```
+
+## Compare to MTA's pmt data
+
+Comparison to data in workbook received from David Keller on June 5, 2023 that had actual MTA receipts of PMT by month.
+
+```{r}
+#| label: comparison
+#| eval: true
+#| include: false
+
+
+# read the time series of tax receipts data.
+# I received a workbook from David Keller on June 5, 2023 that  had actual MTA receipts of PMT by month, which I transposed and stacked to create a time series.
+
+fn <- "PMT Forecast 23JFP_djb.xlsx"
+receipts1 <- read_excel(here::here("data", "mta", fn),
+                        sheet="PMT 2023",
+                        range="B64:D117")
+receipts2 <- receipts1 |> 
+  mutate(date=paste0(year, "-", mabbr, "-", "01") |> as.Date(format="%Y-%b-%d"))
+
+
+pmt1 <- readRDS(here::here("data", "mta_pmt_collections.rds"))
+count(pmt1, vname)
+
+pmt2 <- pmt1 |> 
+  filter(vname %in% c("pmt_nese_net", "pmt_wage")) |> 
+  select(date, vname, value) |> 
+  pivot_wider(names_from = vname) |> 
+  select(date, pmtwage=pmt_wage, pmtnese=pmt_nese_net) |> 
+  arrange(date) |> 
+  mutate(pmttot=pmtwage + pmtnese,
+         pmttotlag=lag(pmttot))
+
+pmt3 <- pmt2 |> 
+  filter(date %in% receipts2$date) |> 
+  pivot_longer(-date) |> 
+  mutate(type="collections",
+         value=value / 1000)
+
+comp <- receipts2 |>
+  select(date, value=pmt) |> 
+  mutate(name="pmttot", type="receipts") |> 
+  bind_rows(pmt3)
+
+comp |> 
+  filter(name=="pmttot") |> 
+  pivot_wider(names_from = "type") |> 
+  arrange(date)
+
+```
+
+```{r}
+#| label: comparison-results
+#| eval: true
+#| include: true
+
+comp |> 
+  filter(name=="pmttot") |> 
+  ggplot(aes(date, value, colour=type)) +
+  geom_line(linewidth=.75) +
+  geom_point() +
+  scale_y_continuous(name="$ millions", limits = c(0, 225)) +
+  scale_x_date(name="Year-month", date_labels = "%Y-%b", breaks="3 months") +
+  ggtitle("MTA PMT receipts and Tax Department total PMT collections (wage tax + self-employment earnings tax)",
+          subtitle = "Vertical axis truncated to exclude Dec 2020 receipts of $614m") +
+  theme_bw() +
+  x90
+
+comp |> 
+  filter((name=="pmttot" & type=="receipts") |
+           (name=="pmttotlag" & type=="collections")) |> 
+  ggplot(aes(date, value, colour=type)) +
+  geom_line(linewidth=.75) +
+  geom_point() +
+  scale_y_continuous(name="$ millions", limits = c(0, 225)) +
+  scale_x_date(name="Year-month", date_labels = "%Y-%b", breaks="3 months") +
+  ggtitle("MTA PMT receipts and 1-month lag of Tax Department total PMT collections (wage tax + self-employment earnings tax)",
+          subtitle = "Vertical axis truncated to exclude Dec 2020 receipts of $614m") +
+  theme_bw() +
+  x90
+
+comp |> 
+  filter(month(date) %in% c(12, 1) & name=="pmttot" & type=="receipts" |
+           month(date) %in% c(11, 12) & name=="pmttot" & type=="collections",
+         date != "2019-01-01") |> 
+  select(-name) |> 
+  mutate(type=ifelse(type=="receipts", "rec", "coll"),
+         year=ifelse(month(date)==1, year(date) -1, year(date)),
+         month=month.abb[month(date)] |> str_to_lower()) |> 
+  select(-date) |> 
+  pivot_wider(names_from = c(type, month)) |> 
+  mutate(rec_decjan=rec_dec + rec_jan,
+         coll_novdec=coll_nov + coll_dec)
+
+
+```

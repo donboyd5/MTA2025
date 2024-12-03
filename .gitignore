@@ -2,3 +2,11 @@
 .Rhistory
 .RData
 .Ruserdata
+
+# file types
+*.zip
+
+# folders
+_web/
+data/
+!data_raw/
