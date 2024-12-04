@@ -9,5 +9,6 @@
 # folders
 _freeze/
 _web/
+
 data/
 !data_raw/
