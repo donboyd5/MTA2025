@@ -20,11 +20,12 @@ source(here::here("R", "functions.r"))
 
 ```{r}
 #| label: get-data
+#| output: false
 
-qcew <- readRDS(fs::path(PMTDINTERMEDIATE, "qcewstco"))
+qcew1 <- readRDS(fs::path(PMTDINTERMEDIATE, "qcewstco"))
 
-count(qcew |> filter(areatype=="state"), area)
-count(qcew |> filter(areatype=="county"), area)
+count(qcew1 |> filter(areatype=="state"), area)
+count(qcew1 |> filter(areatype=="county"), area)
 # 65: 57 + 5 NYC +
 #     Locations Statewide (16) + Out of State Locations (2) + Unknown Locations (16)
 
