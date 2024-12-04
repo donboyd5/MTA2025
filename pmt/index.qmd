@@ -7,4 +7,3 @@ editor_options:
 # Preface {.unnumbered}
 
 Analysis of MTA PMT 2025
-
