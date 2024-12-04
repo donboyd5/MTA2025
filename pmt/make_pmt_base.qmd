@@ -31,9 +31,110 @@ count(qcew1 |> filter(areatype=="county"), area)
 
 ```
 
+
+```{r}
+#| label: make-factors
+#| output: false
+
+# I don't know what codes NYSDOL uses so make my own
+ownf <- c(`0`="Total Private and Government",
+          `1`="Private",
+          `2`="Total Government",
+          `3`="Federal Government",
+          `4`="State Government",
+          `5`="Local Government")
+
+qcew <- qcew1 |> 
+  mutate(ownerf = factor(owner,
+                         levels = ownf,
+                         labels = names(ownf)))
+
+count(qcew, ownerf, owner)
+levels(qcew$ownerf)
+
+qcew |> filter(areatype=="state", year==2022, ownerf==0)
+
+```
+
+
 ## Fill in gaps
 
-qcew data have gaps
+qcew data have gaps in that the sums for levels do not equal level totals. Thus, I'll create all-other naics info to make sure it works.
+
+```{r}
+#| label: explore-state
+#| eval: false
+#| output: false
+
+tmp <- qcew |> filter(areatype=="state", year==2022) # 4529 obs
+glimpse(tmp)
+
+count(tmp, naics_level)
+#   naics_level     n
+#         <dbl> <int>
+# 1           2    86
+# 2           3   262
+# 3           4   716
+# 4           5  1446
+# 5           6  2019
+
+count(tmp, naics_level, title)
+# level 2 without counts
+# naics_level title                                      
+# 2 NAICS 00: Total, All Industries                   
+# 2 NAICS 11: Agriculture, Forestry, Fishing & Hunting
+# 2 NAICS 21: Mining                                  
+# 2 NAICS 22: Utilities                               
+# 2 NAICS 23: Construction                            
+# 2 NAICS 31-33: Manufacturing                        
+# 2 NAICS 42: Wholesale Trade                         
+# 2 NAICS 44-45: Retail Trade                         
+# 2 NAICS 48-49: Transportation and Warehousing       
+# 2 NAICS 51: Information                             
+# 2 NAICS 52: Finance and Insurance                   
+# 2 NAICS 53: Real Estate and Rental and Leasing      
+# 2 NAICS 54: Professional and Technical Services     
+# 2 NAICS 55: Management of Companies and Enterprises 
+# 2 NAICS 56: Administrative and Waste Services       
+# 2 NAICS 61: Educational Services                    
+# 2 NAICS 62: Health Care and Social Assistance       
+# 2 NAICS 71: Arts, Entertainment, and Recreation     
+# 2 NAICS 72: Accommodation and Food Services         
+# 2 NAICS 81: Other Services, Ex. Public Admin        
+# 2 Public Administration                             
+# 2 Unclassified                                      
+
+# totals for naics 00 ----
+tmp |> 
+  filter(naics_level==2, naics=="00") |> 
+  select(area, naics, naics_level, owner, estab, avgemp, totwage, annavgsal) |> 
+  mutate(calc=totwage / avgemp)
+
+#   area           naics naics_level owner                         estab  avgemp      totwage annavgsal    calc
+#   <chr>          <chr>       <dbl> <chr>                         <dbl>   <dbl>        <dbl>     <dbl>   <dbl>
+# 1 New York State 00              2 Total Government              16331 1356540 113031749586     83324  83324.
+# 2 New York State 00              2 Federal Government             2774  113401   9999869182     88181  88181.
+# 3 New York State 00              2 State Government               3759  210850  22974885534    108963 108963.
+# 4 New York State 00              2 Private                      671449 7907843 716692334441     90631  90631.
+# 5 New York State 00              2 Total Private and Government 687780 9264384 829724084027     89561  89561.
+# 6 New York State 00              2 Local Government               9799 1032290  80056994870     77553  77553.
+
+# do the owners add to the total? ----
+tmp |> 
+  filter(naics_level==2, naics=="00") |> 
+  filter(owner != "Total Government") |> 
+  mutate(total=owner=="Total Private and Government") |> 
+  summarise(across(c(estab, avgemp, totwage), sum), .by=total)
+# yes, if we exclude total government double-count they add
+#   total  estab  avgemp      totwage
+#   <lgl>  <dbl>   <dbl>        <dbl>
+# 1 FALSE 687781 9264384 829724084027
+# 2 TRUE  687780 9264384 829724084027
+
+# how far off are the 2-digit totals? ----
+
+
+```
 
 
 ## OLD QCEW STUFF
