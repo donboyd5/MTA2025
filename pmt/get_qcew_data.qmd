@@ -53,6 +53,7 @@ download.file(url, zpath, mode="wb")
 
 ```{r}
 #| label: read-save-qcew
+#| eval: false
 #| output: false
 
 zfiles <- zip::zip_list(zpath)
