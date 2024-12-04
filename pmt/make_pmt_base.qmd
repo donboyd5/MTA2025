@@ -1,14 +1,14 @@
 ---
-title: "make_pmt_base"
-format: html
-editor: visual
+output: html_document
+editor_options: 
+  chunk_output_type: console
 ---
 
 # Make PMT tax base data
 
 ```{r}
 #| label: setup
-#| output: false
+#| include: false
 
 source(here::here("R", "libraries.r"))
 source(here::here("R", "libraries_ts.r"))
