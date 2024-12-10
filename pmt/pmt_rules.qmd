@@ -1,0 +1,88 @@
+---
+output: html_document
+editor_options: 
+  chunk_output_type: console
+---
+
+# PMT tax base and rate rules
+
+Tax & Finance - [employers](https://www.tax.ny.gov/bus/mctmt/emp.htm),
+
+## Tax base and taxpayers
+
+Taxpayers (7/1/2023+) do NOT include:
+
+-   an agency or instrumentality of the United States;\
+    **Note:** For an employer to be an agency or instrumentality of the United States, there must be (1) a federal law specifically stating the employer is an agency or instrumentality of the United States, or (2) a decision in a federal court case which specifically states that the employer is an agency or instrumentality of the United States. 
+
+-   the United Nations;
+
+-   an interstate agency or public corporation created pursuant to an agreement or compact with another state or Canada;
+
+-   a federally chartered credit union;
+
+-   a household employer on wages paid to household employees; or
+
+-   any eligible educational institution including:
+
+    -   a public school district,
+
+    -   Board of Cooperative Educations Services (BOCES),
+
+    -   a public elementary or secondary school,
+
+    -   a school that serves students with disabilities of school age as defined in Article 85 or 89 of the Education Law,
+
+    -   a nonpublic elementary or secondary school that provides instruction in grade one or above, or
+
+    -   all public library systems \[as defined by section 272(1) of the Education Law\] and all public and free association libraries \[as defined by section 253(2) of the Education Law\] beginning with the first quarter of 2016.
+
+## Tax rates
+
+Rates July 1, 2023+:
+
+## Tax calculation
+
+For purposes of calculating the MCTMT, the MCTD is divided into two zones:
+
+-   **Zone 1 (NYC)** includes the counties of New York (Manhattan), Bronx, Kings (Brooklyn), Queens, and Richmond (Staten Island).
+
+-   **Zone 2 (suburban counties)** includes the counties of Rockland, Nassau, Suffolk, Orange, Putnam, Dutchess, and Westchester.
+
+Your MCTMT due for a calendar quarter is the sum of:
+
+1.  your [payroll expense](https://www.tax.ny.gov/bus/mctmt/def_ps.htm#pe) in the calendar quarter for all [covered employees](https://www.tax.ny.gov/bus/mctmt/def_ce.htm) in Zone 1 multiplied by the applicable MCTMT rate from Table 1 below, **and**
+
+2.  your payroll expense in the calendar quarter for all covered employees in Zone 2 multiplied by the applicable MCTMT rate from Table 2 below.
+
+**Note:** In order to be subject to the MCTMT for the quarter, the employer must have payroll expense in the entire MCTD (both Zone 1 and Zone 2) greater than \$312,500.
+
+**Example:** *An employer has payroll expense within the MCTD of \$650,000. \$450,000 of that payroll expense is attributable to Zone 1 and \$200,000 of that payroll expense is attributable to Zone 2. The employer’s MCTMT liability is \$2,920 (\[\$450,000 x 0.60%\] + \[\$200,000 x 0.11%\]).*
+
+![](images/clipboard-1600659582.png)
+
+## The 2023 increase
+
+NYS increased the PMT as follows (see [transportation bill](https://legislation.nysenate.gov/pdf/bills/2023/S4008C))
+
+-   Payroll tax rate on NYC employers with quarterly payroll greater than \$437,500 (annual rate of \$1.75 million)
+
+    -   increased from 0.34% to 0.60% (+76.47%).
+
+    -   payroll tax provisions take effect immediately and “shall apply to tax quarters beginning on or after July 1, 2023”
+
+-   Self-employment net earnings tax rate on NYC net earnings was increased:
+
+    -   from 0.34% to 0.47% (+38.24%) for TY beginning in 2023 (because most taxpayers are calendar-year taxpayers, this mostly will apply to net self-employment earnings earned in calendar year 2023)
+
+    -   from 0.34% to 0.60% (+76.47%) for TY beginning in 2024+.
+
+The \$50,000 threshold for taxability was not changed
+
+### When to file and pay
+
+![](images/clipboard-3225590464.png)
+
+## Links and guides
+
+[Publication 420](https://www.tax.ny.gov/pdf/publications/mctmt/pub420.pdf)

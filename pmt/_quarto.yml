@@ -18,13 +18,13 @@ book:
   date-format: long
   chapters:
     - index.qmd
+    - part: "PMT rules"
+      chapters:    
+      - pmt_rules.qmd
     - part: "Prepare data"
       chapters:    
       - get_qcew_data.qmd
       - make_pmt_base.qmd
-    # - intro.qmd
-    # - part: "Policy Analysis"
-    #   chapters:    
     #   - what_is_policy_analysis.qmd 
     # - part: "Appendices"
     #   chapters:    
