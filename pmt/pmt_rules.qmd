@@ -79,9 +79,41 @@ NYS increased the PMT as follows (see [transportation bill](https://legislation.
 
 The \$50,000 threshold for taxability was not changed
 
-### When to file and pay
+## **Fiscal impact estimates for the 2023 increase**
+
+During budget process:
+
+-   Full-year \~\$1.1 billion
+
+-   First year: DOB estimate was \~\$460m, KW believes
+
+Boyd estimates in June 2023
+
+-   2023 (conservative to optimistic) \$407-419m – (\$381-393 wages, \~\$26 self-employment)
+
+-   2024 (conservative to optimistic) \$1,038-1089m - (\$979-1,024 wages, \~\$59-66 self-employment)
+
+MTA July Financial Plan (July 2023 estimates, prepared a bit earlier)
+
+-   2023: \$419m
+
+-   2024: \$1,112m (+ \~4% annually in later years)
+
+## When to file and pay
 
 ![](images/clipboard-3225590464.png)
+
+## Professional employer organizations (PEOs)
+
+The guidance on this page applies to tax quarters beginning on or after 7/1/23. 
+
+For guidance on the return due 7/31/23, for the quarter ending 6/30/23, see [Publication 420](https://www.tax.ny.gov/pdf/publications/mctmt/pub420.pdf), *Guide to the Metropolitan Commuter Transportation Mobility Tax*. 
+
+If you are a PEO (as defined in section 916 of the Labor Law; see [TSB-M-12(2)MCTMT](https://www.tax.ny.gov/pdf/memos/mta_mobility/m12_2mctmt.pdf), *Computation of the Metropolitan Commuter Transportation Mobility Tax for Professional Employer Organizations)* you must calculate your MCTMT due based separately on:
+
+-   the payroll expense of your own organization; **and**
+
+-   the payroll expense of each client with whom you have entered into a professional employer agreement.
 
 ## Links and guides
 

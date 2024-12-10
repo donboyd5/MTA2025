@@ -1,4 +1,4 @@
 - source: project
   netlify:
     - id: 187e65ec-8dea-40f4-8ca8-b3bee437a213
-      url: https://boyd-mta2025-pmt.netlify.app/
+      url: https://boyd-mta2025-pmt.netlify.app
