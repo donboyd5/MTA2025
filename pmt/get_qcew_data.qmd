@@ -6,6 +6,10 @@ editor_options:
 
 # Get qcew data
 
+- [NYSDOL QCEW landing page](https://dol.ny.gov/quarterly-census-employment-and-wages)
+- [direct zip link](https://statistics.labor.ny.gov/qcew.zip)
+- [technical notes](https://dol.ny.gov/qcew-technical-notes)
+
 ```{r}
 #| label: setup
 #| include: false
@@ -78,7 +82,7 @@ df3 <- df2 |>
   mutate(mta=area %in% constants$mtaregion$area,
          nyc=area %in% constants$nyc$area)
 
-saveRDS(df3, fs::path(PMTDINTERMEDIATE, "qcewstco"))
+saveRDS(df3, fs::path(PMTDINTERMEDIATE, "qcewstco.rds"))
 
 rm(df, df2, df3)
 
@@ -90,7 +94,7 @@ rm(df, df2, df3)
 ```{r}
 #| label: explore
 
-qcew <- readRDS(fs::path(PMTDINTERMEDIATE, "qcewstco"))
+qcew <- readRDS(fs::path(PMTDINTERMEDIATE, "qcewstco.rds"))
 
 count(qcew |> filter(areatype=="state"), area)
 count(qcew |> filter(areatype=="county"), area)

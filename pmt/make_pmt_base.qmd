@@ -19,18 +19,18 @@ source(here::here("R", "functions.r"))
 
 ```
 
+## Read qcew and do initial cleaning
+
 ```{r}
 #| label: get-data
 #| output: false
 
-qcew1 <- readRDS(fs::path(PMTDINTERMEDIATE, "qcewstco"))
+qcew1 <- readRDS(fs::path(PMTDINTERMEDIATE, "qcewstco.rds"))
 
-count(qcew1 |> filter(areatype=="state"), area)
-count(qcew1 |> filter(areatype=="county"), area)
-# 65: 57 + 5 NYC +
-#     Locations Statewide (16) + Out of State Locations (2) + Unknown Locations (16)
+glimpse(qcew1)
 
 ```
+
 
 ```{r}
 #| label: make-factors
@@ -44,17 +44,64 @@ ownf <- c(`0`="Total Private and Government",
           `4`="State Government",
           `5`="Local Government")
 
-qcew <- qcew1 |> 
+qcew2 <- qcew1 |> 
   mutate(ownerf = factor(owner,
                          levels = ownf,
-                         labels = names(ownf)))
+                         labels = names(ownf),
+                         ordered = TRUE))
 
-count(qcew, ownerf, owner)
-levels(qcew$ownerf)
+count(qcew2, ownerf, owner)
+levels(qcew2$ownerf)
 
-qcew |> filter(areatype=="state", year==2022, ownerf==0)
+qcew2 |> filter(areatype=="state", year==2022, ownerf==0)
 
 ```
+
+
+```{r}
+#| label: explore-data
+#| eval: false
+#| output: false
+
+glimpse(qcew2)
+
+#.. areas ----
+count(qcew2, areatype)
+#   areatype       n
+#   <chr>      <int>
+# 1 county   2066833
+# 2 state     112968
+
+count(qcew2 |> filter(areatype=="state"), area)
+count(qcew2 |> filter(areatype=="county"), area)
+# 65: 57 + 5 NYC +
+#     Locations Statewide (16) + Out of State Locations (2) + Unknown Locations (16)
+
+#.. industries ----
+count(qcew2, naics_level) # 5 categories -- 2-6
+count(qcew2, naics) # 2,572 categories
+count(qcew2, title) # 2,532 categories
+count(qcew2 |> mutate(naics2=str_sub(naics, 1, 2)), naics2) # 26 2-digit categories
+
+count(qcew2, naics_level, naics) # 2,572
+
+# owners ----
+count(qcew2, ownerf, owner) # 6 categories but total government and total private and government arews sums of 4 atomic categories
+#   ownerf owner                              n
+#   <ord>  <chr>                          <int>
+# 1 0      Total Private and Government 1098617
+# 2 1      Private                       948883
+# 3 2      Total Government               71480
+# 4 3      Federal Government             15387
+# 5 4      State Government               15494
+# 6 5      Local Government               29940
+
+# major industry by owner ----
+
+
+
+```
+
 
 ## Fill in gaps
 
