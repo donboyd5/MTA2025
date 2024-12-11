@@ -63,6 +63,13 @@ saveRDS(qcew2, fs::path(PDINTERMEDIATE, "qcewstco_clean.rds"))
 
 ## Explore categorical variables
 
+Notes:
+
+-   2000-2023; 2023 looks like a full year (but perhaps preliminary)
+-   areatypes county and state
+-   NAICS level is the number of digits
+-   65 counties: 57 + 5 NYC + 1 each for: Locations Statewide (16), Out of State Locations (2), Unknown Locations (16)   
+
 ```{r}
 #| label: explore-categories
 #| eval: false
@@ -101,7 +108,7 @@ count(qcew2, areatype)
 count(qcew2 |> filter(areatype=="state"), area)
 count(qcew2 |> filter(areatype=="county"), area)
 # 65: 57 + 5 NYC +
-#     Locations Statewide (16) + Out of State Locations (2) + Unknown Locations (16)
+#     1 each for Locations Statewide (16) + Out of State Locations (2) + Unknown Locations (16)
 
 # mta and nyc indicators ---
 count(qcew2 |> filter(mta), nyc, area)
@@ -128,6 +135,12 @@ count(qcew2, title) # 2,532 categories
 count(qcew2 |> mutate(naics2=str_sub(naics, 1, 2)), naics2) # 26 2-digit categories
 
 count(qcew2, naics_level, naics) # 2,572
+tmp <- count(qcew2, naics_level, naics, title) # 2,572
+
+# NAICS level is the number of digits
+tmp |> mutate(nchar=nchar(naics)) |> 
+  relocate(nchar, .after=naics) |> 
+  filter(nchar != naics_level)
 
 #.. owners ----
 count(qcew2, ownerf, owner) # 6 categories but total government and total private and government arews sums of 4 atomic categories
@@ -142,6 +155,8 @@ count(qcew2, ownerf, owner) # 6 categories but total government and total privat
 
 #.. major industry by owner ----
 count(qcew2, ownerf, owner, naics_level) # all combinations are in the data
+
+#.. industry codes ----
 
 
 ```
@@ -235,48 +250,50 @@ tabdata |>
 
 ### Industries
 
+Statewide, all owners, 2022 -- industry detail very close to grand total wages.
+
+MTA region -- close, but not as close
 
 ```{r}
 #| label: industry-sums-statewide
 
 tabdata <- qcew2 |> 
-  filter(areatype=="state", year==2022) |> 
+  filter(areatype=="state", year==2022, ownerf==0) |> 
+  mutate(naics_level2=ifelse(naics_level==2 & naics=="00",
+                       1,
+                       naics_level)) |> 
   summarise(totwage=sum(totwage),
-            .by=c(ownerf, owner)) |>
-  arrange(ownerf) |> 
-  mutate(check=case_when(ownerf==0 ~ 
-                           totwage[ownerf==1] + 
-                           totwage[ownerf==2],
-                         ownerf==2 ~ 
-                           totwage[ownerf==3] +
-                           totwage[ownerf==4] +
-                           totwage[ownerf==5]),
-         pct=check / totwage)
+            .by=c(naics_level2)) |>
+  mutate(pct=totwage / totwage[naics_level2==1])
 
 tabdata |> 
-  mutate(across(c(totwage, check), \(x) scales::label_comma()(x)),
+  mutate(across(c(totwage), \(x) scales::label_comma()(x)),
          pct=scales::label_percent(accuracy = .01)(pct)) |> 
   kable()
 
-# |ownerf |owner                        |totwage           |check             |pct    |
-# |:------|:----------------------------|:-----------------|:-----------------|:------|
-# |0      |Total Private and Government |4,936,013,939,388 |4,926,553,544,118 |99.81% |
-# |1      |Private                      |4,282,211,154,460 |NA                |NA     |
-# |2      |Total Government             |644,342,389,658   |594,463,067,947   |92.26% |
-# |3      |Federal Government           |59,999,215,092    |NA                |NA     |
-# |4      |State Government             |128,095,947,960   |NA                |NA     |
-# |5      |Local Government             |406,367,904,895   |NA                |NA     |
-
-# tabdata |> 
-#   gt() |> 
-#   fmt_number(columns=c(totwage, check), decimals=0) |> 
-#   fmt_percent(columns = pct, decimals = 2)
+```
 
 
-  # kable(digits = 2,
-  #       format.args = list(big.mark = ",", scientific = FALSE))
+
+```{r}
+#| label: industry-sums-mta
+
+tabdata <- qcew2 |> 
+  filter(areatype=="county", year==2022, ownerf==0, mta) |> 
+  mutate(naics_level2=ifelse(naics_level==2 & naics=="00",
+                       1,
+                       naics_level)) |> 
+  summarise(totwage=sum(totwage),
+            .by=c(naics_level2)) |>
+  mutate(pct=totwage / totwage[naics_level2==1])
+
+tabdata |> 
+  mutate(across(c(totwage), \(x) scales::label_comma()(x)),
+         pct=scales::label_percent(accuracy = .01)(pct)) |> 
+  kable()
 
 ```
+
 
 
 
