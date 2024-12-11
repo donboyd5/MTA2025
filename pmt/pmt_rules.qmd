@@ -8,6 +8,14 @@ editor_options:
 
 Tax & Finance - [employers](https://www.tax.ny.gov/bus/mctmt/emp.htm),
 
+## Overview of changes over time
+
+-   **2009**: Enacted, effective March 1, 2009 (September 1, 2009 for public school districts). self-employment tax effective for tax years beginning in 2009. **Flat rate 0.34%**. Employers excluded if MTA quarterly payroll \<= \$2.5k; NESE taxpayers excluded if MTA annual NESE \<= \$10k. Taxpayers above threshold pay from dollar 1. Federal-related entities exempt; school districts taxed but reimbursed.
+
+-   **2011**: Effective April 2012: (1) raised MTA quarterly payroll threshold from \$2.5k to \$312.5k and annual MTA NESE threshold to \$50k; (2) **0.11% for MTA Q payroll \<= \$375k, 0.23% for \<= \$437.5k, 0.34% above**; (3) exempted public school districts and certain other educational institutions
+
+-   **2023**: July 2023+, top rate in NYC PMT raised to 0.60%; SENET rate raised pro-rata for TY beginning 2023; raised to 0.60% for TY beginning 2024+.
+
 ## Tax base and taxpayers
 
 Taxpayers (7/1/2023+) do NOT include:
@@ -79,7 +87,7 @@ Part B of Chapter 56 of the Laws of 2011, obtainable [here](http://public.leginf
 
 -   exempted public school districts and certain other educational institutions
 
-The changes took effect for the quarter beginning April 2012. The bill was signed on December 11, 2012, meaning the Tax Department, employers, and tax advisors had approximately 3 months to prepare for implementation and response. As a tax reduction, employers had greater incentive to comply quickly with the changes than they do for the 2023 increase.
+The changes took effect for the quarter beginning April 2012. The bill was signed on December 11, 2011, meaning the Tax Department, employers, and tax advisors had approximately 3 months to prepare for implementation and response. As a tax reduction, employers had greater incentive to comply quickly with the changes than for the 2023 increase.
 
 ## The 2023 increase
 

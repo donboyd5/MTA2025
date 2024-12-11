@@ -25,10 +25,6 @@ book:
       chapters:    
       - get_qcew_data.qmd
       - make_pmt_base.qmd
-    #   - what_is_policy_analysis.qmd 
-    # - part: "Appendices"
-    #   chapters:    
-    #   - appendix/resources.qmd
 
 # bibliography: references.bib
 
