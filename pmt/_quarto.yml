@@ -24,7 +24,9 @@ book:
     - part: "Prepare data"
       chapters:    
       - get_qcew_data.qmd
-      - explore_and_update.qmd
+      - explore_and_update_qcew.qmd
+      - cbp_data.qmd
+      - susb_data.qmd      
       - make_pmt_base.qmd
 
 # bibliography: references.bib

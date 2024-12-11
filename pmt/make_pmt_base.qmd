@@ -31,3 +31,11 @@ glimpse(qcew2)
 
 ```
 
+## Excluded industries
+
+```{r}
+
+```
+
+
+

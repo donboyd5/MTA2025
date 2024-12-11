@@ -4,7 +4,7 @@ editor_options:
   chunk_output_type: console
 ---
 
-# Make PMT tax base data
+# Explore QCEW data
 
 ## Setup
 
@@ -171,6 +171,7 @@ For state:
 
 For MTA region, they are 97% and 91%
 
+#### Statewide
 
 ```{r}
 #| label: owner-sums-statewide
@@ -214,6 +215,7 @@ tabdata |>
 
 ```
 
+#### MTA region
 
 ```{r}
 #| label: owner-sums-mta
@@ -254,6 +256,8 @@ Statewide, all owners, 2022 -- industry detail very close to grand total wages.
 
 MTA region -- close, but not as close
 
+#### Statewide
+
 ```{r}
 #| label: industry-sums-statewide
 
@@ -273,7 +277,7 @@ tabdata |>
 
 ```
 
-
+#### MTA region
 
 ```{r}
 #| label: industry-sums-mta

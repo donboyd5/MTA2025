@@ -1,0 +1,79 @@
+---
+output: html_document
+editor_options: 
+  chunk_output_type: console
+---
+
+# County Business Patterns (CBP)
+
+CBP links
+
+-   [landing page](https://www.census.gov/programs-surveys/cbp.html)
+-   [csv data files](https://www.census.gov/data/datasets/2022/econ/cbp/2022-cbp.html)
+-   [county file for 2022](https://www2.census.gov/programs-surveys/cbp/datasets/2022/cbp22co.zip)
+
+
+## Setup
+
+```{r}
+#| label: setup
+#| include: false
+
+source(here::here("R", "libraries.r"))
+source(here::here("R", "libraries_ts.r"))
+source(here::here("R", "constants.r"))
+source(here::here("R", "functions.r"))
+
+```
+
+## Get data
+
+```{r}
+#| label: get-data
+#| output: false
+
+fpath <- fs::path(PDRAW, "cbp", "cbp22co.zip")
+cbp1 <- vroom(fpath, col_types = cols(.default = col_character()))
+glimpse(cbp1)
+
+# character columns
+# FIPSTATE        C       FIPS State Code
+# FIPSCTY         C       FIPS County Code
+# NAICS           C       Industry Code - 6-digit NAICS code.
+# EMP_NF          C       Total Mid-March Employees Noise Flag (See all Noise Flag definitions at the end of this record layout)
+# QP1_NF          C       Total First Quarter Payroll Noise Flag
+# AP_NF           C       Total Annual Payroll Noise Flag
+
+# Noise Flag definitions (fields ending in _NF) are:
+#         G       0 to < 2% noise (low noise)
+#         H       2 to < 5% noise (medium noise)
+#         J	>= 5% noise (high noise)
+# Flag definition for Establishment by Employment Size Class fields (N<5, N5_9, etc.):
+#         N	Not available or not comparable
+
+# Noteworthy variables:
+#   NAICS           C       Industry Code - 6-digit NAICS code.
+#   EMP             N       Total Mid-March Employees with Noise
+#   QP1             N       Total First Quarter Payroll ($1,000) with Noise
+#   AP              N       Total Annual Payroll ($1,000) with Noise
+#   EST             N       Total Number of Establishments
+#   N1000           N       Number of Establishments: 1,000 or More Employee Size Class
+#   N1000_1         N       Number of Establishments: Employment Size Class: 1,000-1,499 Employees
+
+```
+
+```{r}
+#| label: clean-cbp
+
+char_cols <- c("fipstate", "fipscty", "naics", "emp_nf", "qp1_nf", "ap_nf")
+
+cbp2 <- cbp1 |> 
+  mutate(across(-all_of(char_cols), as.numeric)) |> 
+  rename(nlt_5=`n<5`)
+glimpse(cbp2)
+
+saveRDS(cbp2, fs::path(PDINTERMEDIATE, "cbp_clean.rds"))
+
+
+```
+
