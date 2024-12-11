@@ -82,7 +82,7 @@ df3 <- df2 |>
   mutate(mta=area %in% constants$mtaregion$area,
          nyc=area %in% constants$nyc$area)
 
-saveRDS(df3, fs::path(PMTDINTERMEDIATE, "qcewstco.rds"))
+saveRDS(df3, fs::path(PDINTERMEDIATE, "qcewstco.rds"))
 
 rm(df, df2, df3)
 
@@ -93,8 +93,9 @@ rm(df, df2, df3)
 
 ```{r}
 #| label: explore
+#| output: false
 
-qcew <- readRDS(fs::path(PMTDINTERMEDIATE, "qcewstco.rds"))
+qcew <- readRDS(fs::path(PDINTERMEDIATE, "qcewstco.rds"))
 
 count(qcew |> filter(areatype=="state"), area)
 count(qcew |> filter(areatype=="county"), area)
