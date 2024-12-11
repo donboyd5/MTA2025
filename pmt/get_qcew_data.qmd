@@ -30,8 +30,8 @@ The New York State Department of Labor (NYSDOL) provides a version of the BLS Qu
 
 url <- "https://statistics.labor.ny.gov/qcew.zip"
 fname <- fs::path_file(url)
-zpath <- fs::path(PMTDATARAW, fname)
-zpath <- paste0(PMTDATARAW, "/", fname)
+zpath <- fs::path(PDRAW, fname)
+zpath <- paste0(PDRAW, "/", fname)
 
 ```
 
