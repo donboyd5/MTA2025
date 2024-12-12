@@ -170,7 +170,13 @@ lb_avgemp <- c(0, 5, 10, 20, 50, 100, 250, 500, 1000)
 ub_avgemp <- c(4, 9, 19, 49, 99, 249, 499, 599, Inf)
 
 # call auglag ----
-res <- ests_env$get_estabs_avgemp(est, emp, estknown, lb_avgemp, ub_avgemp, threshold=.5)
+# res <- ests_env$get_estabs_avgemp(est, emp, estknown, lb_avgemp, ub_avgemp, threshold=.5)
+res <- ests_env$get_estabs_avgemp(est, emp, estknown, lb_avgemp, ub_avgemp, threshold=.5, trace=TRUE)
+# res <- ests_env$get_estabs_avgemp(est, emp, estknown, lb_avgemp, ub_avgemp, threshold=.5, trace=TRUE, itmax=200, eps=1e-15)
+
+# res <- get_estabs_avgemp(est, emp, estknown, lb_avgemp, ub_avgemp, threshold=.5, trace=TRUE)
+
+res$convergence
 
 # examine results ----
 n <- length(estknown)
@@ -185,6 +191,12 @@ tibble(lbemp=lb_avgemp, ubemp=ub_avgemp,
        estabs=estabs_solution) |>
   mutate(emp=estabs * avgemp) |> 
   janitor::adorn_totals("row") |>
+  mutate(estabs_true = ifelse(row_number()==max(row_number()),
+                           est,
+                           NA_real_),
+         emp_true = ifelse(row_number()==max(row_number()),
+                           .GlobalEnv$emp,
+                           NA_real_)) |> 
   kable(digits=1, format.args = list(big.mark = ",", scientific = FALSE))
 
 

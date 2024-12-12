@@ -95,7 +95,7 @@ hin.jac <- function(params, n, ...) {
 }
 
 # main calling function ----
-get_estabs_avgemp <- function(est, emp, estknown, lb_avgemp, ub_avgemp, threshold=1){
+get_estabs_avgemp <- function(est, emp, estknown, lb_avgemp, ub_avgemp, threshold=1, trace=FALSE, itmax=50, eps=1e-7){
   
   n <- length(estknown)
   
@@ -115,7 +115,9 @@ get_estabs_avgemp <- function(est, emp, estknown, lb_avgemp, ub_avgemp, threshol
                    hin = hin,
                    hin.jac = hin.jac,
                    # options
-                   control.outer = list(trace = FALSE),
+                   control.outer = list(trace = trace,
+                                        itmax = itmax,
+                                        eps=eps),
                    # possible additional arguments to the functions above
                    n = n, 
                    est = est,
