@@ -427,13 +427,17 @@ emp <- 879
 est <- 461
 estknown <- c(444, 11, 0, 0, 0, 0, 0, 0, 0)
 lb <- c(0, 5, 10, 20, 50, 100, 250, 500, 1000)
-ub <- c(4, 9, 19, 49, 99, 249, 499, 599, 10000)
+ub <- c(4, 9, 19, 49, 99, 249, 499, 599, 100000)
+avgb <- (lb + ub) / 2
 n <- length(estknown)
 
 # Define bounds
 lower_bounds <- c(estknown, lb)
 upper_bounds <- c(estknown[1:2], rep(Inf, 7), ub)
 cbind(lower_bounds, start_params, upper_bounds)
+
+start_params <- c(estknown, # initial estabs
+                 (lb + ub)/2) # initial avgemp
 
 
 obj <- function(params) {
@@ -462,7 +466,7 @@ gradient <- function(params) {
 
 
 # Define separate constraint function
-constraint_fun <- function(params) {
+heq <- function(params) {
     estabs <- params[1:n]
     avgemp <- params[(n+1):(2*n)]
     
@@ -475,19 +479,89 @@ constraint_fun <- function(params) {
     ))
 }
 
+heq.jac <- function(params) {
+    n <- length(params)/2
+    estabs <- params[1:n]
+    avgemp <- params[(n+1):(2*n)]
+    
+    # Initialize Jacobian matrix (2 constraints x 2n variables)
+    jacobian <- matrix(0, nrow = 2, ncol = 2*n)
+    
+    # Derivatives for first constraint: sum(estabs) - est
+    jacobian[1, 1:n] <- 1        # d/d_estabs
+    jacobian[1, (n+1):(2*n)] <- 0  # d/d_avgemp
+    
+    # Derivatives for second constraint: sum(estabs * avgemp) - emp
+    jacobian[2, 1:n] <- avgemp         # d/d_estabs
+    jacobian[2, (n+1):(2*n)] <- estabs # d/d_avgemp
+    
+    return(jacobian)
+}
+
+hin <- function(params) {
+    estabs <- params[1:n]
+    avgemp <- params[(n+1):(2*n)]
+    return(c(
+      avgemp - lb,
+      ub - avgemp
+      ))
+}
+
+hin.jac <- function(params) {
+    n <- length(params)/2
+    estabs <- params[1:n]
+    avgemp <- params[(n+1):(2*n)]
+    
+    # Initialize Jacobian matrix (2n constraints x 2n variables)
+    jacobian <- matrix(0, nrow = 2*n, ncol = 2*n)
+    
+    # Derivatives for first n constraints: avgemp - lb
+    jacobian[1:n, 1:n] <- 0                # d/d_estabs
+    jacobian[1:n, (n+1):(2*n)] <- diag(n)  # d/d_avgemp
+    
+    # Derivatives for second n constraints: ub - avgemp
+    jacobian[(n+1):(2*n), 1:n] <- 0                # d/d_estabs
+    jacobian[(n+1):(2*n), (n+1):(2*n)] <- -diag(n) # d/d_avgemp
+    
+    return(jacobian)
+}
+
+
+
 result <- auglag(par = start_params,
                 fn = obj,
                 gr = gradient,
-                heq = constraint_fun)
-
+                heq = heq,
+                heq.jac = heq.jac,
+                hin = hin,
+                hin.jac = hin.jac)
 
 # Extract results
 estabs_solution <- result$par[1:n]
 avgemp_solution <- result$par[(n+1):(2*n)]
 
-cbind(estknown, estabs_solution)
+cbind(estknown, estabs_solution) |> kable()
+cbind(lb, avgemp_solution, ub) |> kable()
 est; sum(estabs_solution)
 emp; sum(estabs_solution * avgemp_solution)
+# calc max avg emp for top group
+
+library(microbenchmark)
+speed <- microbenchmark(
+  auglag(par = start_params,
+                fn = obj,
+                heq = constraint_fun),
+  auglag(par = start_params,
+                fn = obj,
+                gr = gradient,
+                heq = constraint_fun,
+                heq.jac = jacobian_constraint),
+  times=100
+)
+
+speed
+
+
 
 # END alabama ----
 
