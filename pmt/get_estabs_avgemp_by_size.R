@@ -1,4 +1,4 @@
-obj <- function(params, n, estknown, threshold = 1, ...) {
+obj <- function(params, n, estknown, threshold, ...) {
   estabs <- params[1:n]
   avgemp <- params[(n+1):(2*n)]
   
@@ -9,7 +9,7 @@ obj <- function(params, n, estknown, threshold = 1, ...) {
   sum((estabs_thresh - estknown)^2)
 }
 
-gr <- function(params, n, estknown, threshold = 1, ...) {
+gr <- function(params, n, estknown, threshold, ...) {
   estabs <- params[1:n]
   
   # Initialize gradient vector
@@ -92,9 +92,8 @@ hin.jac <- function(params, n, ...) {
   return(jacobian)
 }
 
-
 # main calling function ----
-call_auglag <- function(est, emp, estknown, lb_avgemp, ub_avgemp){
+call_auglag <- function(est, emp, estknown, lb_avgemp, ub_avgemp, threshold=1){
   
   n <- length(estknown)
   
@@ -121,7 +120,8 @@ call_auglag <- function(est, emp, estknown, lb_avgemp, ub_avgemp){
                    lb_estabs = lb_estabs,
                    ub_estabs = ub_estabs,
                    lb_avgemp = lb_avgemp,
-                   ub_avgemp = ub_avgemp)
+                   ub_avgemp = ub_avgemp,
+                   threshold = threshold)
   result
 }
 
@@ -131,10 +131,10 @@ emp <- 879
 est <- 461
 estknown <- c(444, 11, 0, 0, 0, 0, 0, 0, 0)
 lb_avgemp <- c(0, 5, 10, 20, 50, 100, 250, 500, 1000)
-ub_avgemp <- c(4, 9, 19, 49, 99, 249, 499, 599, 100e3)
+ub_avgemp <- c(4, 9, 19, 49, 99, 249, 499, 599, Inf)
 
 # call auglag ----
-res <- call_auglag(est, emp, estknown, lb_avgemp, ub_avgemp)
+res <- call_auglag(est, emp, estknown, lb_avgemp, ub_avgemp, threshold=1)
 
 # examine results ----
 n <- length(estknown)
