@@ -24,59 +24,6 @@ gr <- function(params, n, estknown, threshold = 1, ...) {
   return(grad)
 }
 
-
-# obj <- function(params, n, estknown, lb_estabs, penalty_weight, ...) {
-#   estabs <- params[1:n]
-#   avgemp <- params[(n+1):(2*n)]
-#   
-#   # Original objective
-#   main_obj <- sum((estabs - estknown)^2)
-#   
-#   # Penalty term for differences from lb_estabs
-#   penalty <- penalty_weight * sum((estabs - lb_estabs)^2)
-#   
-#   return(main_obj + penalty)
-# }
-# 
-# gr <- function(params, n, estknown, lb_estabs, penalty_weight, ...) {
-#   estabs <- params[1:n]
-#   
-#   # Initialize gradient vector
-#   grad <- numeric(2*n)
-#   
-#   # Gradient with respect to estabs (including penalty term)
-#   grad[1:n] <- 2 * (estabs - estknown) + 
-#     2 * penalty_weight * (estabs - lb_estabs)
-#   
-#   # Gradient with respect to avgemp
-#   grad[(n+1):(2*n)] <- 0
-#   
-#   return(grad)
-# }
-
-
-# obj <- function(params, n, estknown, ...) {
-#   estabs <- params[1:n]
-#   avgemp <- params[(n+1):(2*n)]
-#   sum((estabs - estknown)^2)
-# }
-# 
-# gr <- function(params, n, estknown, ...) {
-#   estabs <- params[1:n]
-#   # avgemp <- params[(n+1):(2*n)]
-#   
-#   # Initialize gradient vector
-#   grad <- numeric(2*n)
-#   
-#   # Gradient with respect to estabs
-#   grad[1:n] <- 2 * (estabs - estknown)
-#   
-#   # Gradient with respect to avgemp
-#   grad[(n+1):(2*n)] <- 0  # derivative is zero as avgemp doesn't appear in objective
-#   
-#   return(grad)
-# }
-
 heq <- function(params, n, est, emp, ...) {
   # Equality constraints
   estabs <- params[1:n]
