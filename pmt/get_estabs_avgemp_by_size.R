@@ -22,7 +22,7 @@ gr <- function(params, n, estknown) {
   return(grad)
 }
 
-heq <- function(params, n, estknown) {
+heq <- function(params, n, ...) {
   # Equality constraints
   estabs <- params[1:n]
   avgemp <- params[(n+1):(2*n)]
@@ -34,7 +34,7 @@ heq <- function(params, n, estknown) {
   ))
 }
 
-heq.jac <- function(params, n, estknown) {
+heq.jac <- function(params, n, ...) {
   estabs <- params[1:n]
   avgemp <- params[(n+1):(2*n)]
   
@@ -61,7 +61,7 @@ hin <- function(params, n, estknown) {
   ))
 }
 
-hin.jac <- function(params, n, estknown) {
+hin.jac <- function(params, n, ...) {
   # n <- length(params)/2
   estabs <- params[1:n]
   avgemp <- params[(n+1):(2*n)]
@@ -123,6 +123,7 @@ cbind(estknown, estabs_solution) |> kable()
 cbind(lb, avgemp_solution, ub) |> kable()
 est; sum(estabs_solution)
 emp; sum(estabs_solution * avgemp_solution)
+
 # calc max avg emp for top group
 
 
