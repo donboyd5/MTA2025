@@ -1,14 +1,12 @@
 
 
 obj <- function(params, n, estknown) {
-  # n <- length(estknown)
   estabs <- params[1:n]
   avgemp <- params[(n+1):(2*n)]
   sum((estabs - estknown)^2)
 }
 
 gr <- function(params, n, estknown) {
-  # n <- length(estknown)
   estabs <- params[1:n]
   avgemp <- params[(n+1):(2*n)]
   
@@ -37,7 +35,6 @@ heq <- function(params, n, estknown) {
 }
 
 heq.jac <- function(params, n, estknown) {
-  # n <- length(params)/2
   estabs <- params[1:n]
   avgemp <- params[(n+1):(2*n)]
   
