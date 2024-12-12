@@ -1,26 +1,81 @@
-
-
-obj <- function(params, n, estknown, ...) {
+obj <- function(params, n, estknown, threshold = 1, ...) {
   estabs <- params[1:n]
   avgemp <- params[(n+1):(2*n)]
-  sum((estabs - estknown)^2)
+  
+  # Apply threshold
+  estabs_thresh <- ifelse(estabs < threshold, 0, estabs)
+  
+  # Original objective with thresholded values
+  sum((estabs_thresh - estknown)^2)
 }
 
-gr <- function(params, n, estknown, ...) {
+gr <- function(params, n, estknown, threshold = 1, ...) {
   estabs <- params[1:n]
-  # avgemp <- params[(n+1):(2*n)]
   
   # Initialize gradient vector
   grad <- numeric(2*n)
   
   # Gradient with respect to estabs
-  grad[1:n] <- 2 * (estabs - estknown)
+  grad[1:n] <- 2 * (ifelse(estabs < threshold, 0, estabs) - estknown)
   
   # Gradient with respect to avgemp
-  grad[(n+1):(2*n)] <- 0  # derivative is zero as avgemp doesn't appear in objective
+  grad[(n+1):(2*n)] <- 0
   
   return(grad)
 }
+
+
+# obj <- function(params, n, estknown, lb_estabs, penalty_weight, ...) {
+#   estabs <- params[1:n]
+#   avgemp <- params[(n+1):(2*n)]
+#   
+#   # Original objective
+#   main_obj <- sum((estabs - estknown)^2)
+#   
+#   # Penalty term for differences from lb_estabs
+#   penalty <- penalty_weight * sum((estabs - lb_estabs)^2)
+#   
+#   return(main_obj + penalty)
+# }
+# 
+# gr <- function(params, n, estknown, lb_estabs, penalty_weight, ...) {
+#   estabs <- params[1:n]
+#   
+#   # Initialize gradient vector
+#   grad <- numeric(2*n)
+#   
+#   # Gradient with respect to estabs (including penalty term)
+#   grad[1:n] <- 2 * (estabs - estknown) + 
+#     2 * penalty_weight * (estabs - lb_estabs)
+#   
+#   # Gradient with respect to avgemp
+#   grad[(n+1):(2*n)] <- 0
+#   
+#   return(grad)
+# }
+
+
+# obj <- function(params, n, estknown, ...) {
+#   estabs <- params[1:n]
+#   avgemp <- params[(n+1):(2*n)]
+#   sum((estabs - estknown)^2)
+# }
+# 
+# gr <- function(params, n, estknown, ...) {
+#   estabs <- params[1:n]
+#   # avgemp <- params[(n+1):(2*n)]
+#   
+#   # Initialize gradient vector
+#   grad <- numeric(2*n)
+#   
+#   # Gradient with respect to estabs
+#   grad[1:n] <- 2 * (estabs - estknown)
+#   
+#   # Gradient with respect to avgemp
+#   grad[(n+1):(2*n)] <- 0  # derivative is zero as avgemp doesn't appear in objective
+#   
+#   return(grad)
+# }
 
 heq <- function(params, n, est, emp, ...) {
   # Equality constraints
@@ -92,7 +147,7 @@ hin.jac <- function(params, n, ...) {
 
 
 # main calling function ----
-call_auglag <- function(est, emp, estknown, lb_avgemp, ub_avgemp){
+call_auglag <- function(est, emp, estknown, lb_avgemp, ub_avgemp, penalty_weight=1000){
   
   n <- length(estknown)
   
@@ -119,7 +174,8 @@ call_auglag <- function(est, emp, estknown, lb_avgemp, ub_avgemp){
                    lb_estabs = lb_estabs,
                    ub_estabs = ub_estabs,
                    lb_avgemp = lb_avgemp,
-                   ub_avgemp = ub_avgemp)
+                   ub_avgemp = ub_avgemp,
+                   penalty_weight = penalty_weight)
   result
 }
 
@@ -132,7 +188,7 @@ lb_avgemp <- c(0, 5, 10, 20, 50, 100, 250, 500, 1000)
 ub_avgemp <- c(4, 9, 19, 49, 99, 249, 499, 599, 100e3)
 
 # call auglag ----
-res <- call_auglag(est, emp, estknown, lb_avgemp, ub_avgemp)
+res <- call_auglag(est, emp, estknown, lb_avgemp, ub_avgemp, penalty_weight=0)
 
 # examine results ----
 n <- length(estknown)
