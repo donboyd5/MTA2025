@@ -8,7 +8,7 @@ obj <- function(params, n, estknown, ...) {
 
 gr <- function(params, n, estknown, ...) {
   estabs <- params[1:n]
-  avgemp <- params[(n+1):(2*n)]
+  # avgemp <- params[(n+1):(2*n)]
   
   # Initialize gradient vector
   grad <- numeric(2*n)
@@ -22,7 +22,7 @@ gr <- function(params, n, estknown, ...) {
   return(grad)
 }
 
-heq <- function(params, n, ...) {
+heq <- function(params, n, est, emp, ...) {
   # Equality constraints
   estabs <- params[1:n]
   avgemp <- params[(n+1):(2*n)]
@@ -84,9 +84,6 @@ call_auglag <- function(est, emp, estknown, lb_avgemp, ub_avgemp){
   
   n <- length(estknown)
   
-  lower_bounds <- c(estknown, lb_avgemp)
-  upper_bounds <- c(estknown[1:2], rep(Inf, 7), ub_avgemp)
-  
   start_params <- c(estknown, # initial estabs
                     lb_avgemp) # initial avgemp -- (lb_avgemp + ub_avgemp) / 2
   
@@ -98,6 +95,8 @@ call_auglag <- function(est, emp, estknown, lb_avgemp, ub_avgemp){
                    hin = hin,
                    hin.jac = hin.jac,
                    n = n, 
+                   est = est,
+                   emp = emp,
                    estknown = estknown,
                    lb_avgemp = lb_avgemp,
                    ub_avgemp = ub_avgemp)
@@ -129,33 +128,6 @@ emp; sum(estabs_solution * avgemp_solution)
 
 # calc max avg emp for top group
 
-
-
-
-
-lb <- c(0, 5, 10, 20, 50, 100, 250, 500, 1000)
-ub <- c(4, 9, 19, 49, 99, 249, 499, 599, 100000)
-avgb <- (lb + ub) / 2
-n <- length(estknown)
-
-# Define bounds
-lower_bounds <- c(estknown, lb)
-upper_bounds <- c(estknown[1:2], rep(Inf, 7), ub)
-cbind(lower_bounds, start_params, upper_bounds)
-
-start_params <- c(estknown, # initial estabs
-                  (lb + ub)/2) # initial avgemp
-
-
-
-
-result <- auglag(par = start_params,
-                 fn = obj,
-                 gr = gr,
-                 heq = heq,
-                 heq.jac = heq.jac,
-                 hin = hin,
-                 hin.jac = hin.jac)
 
 # Return vector of constraint values
 # Each element should be >= 0 for inequality constraints
