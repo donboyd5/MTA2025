@@ -1,3 +1,5 @@
+library(alabama)
+
 obj <- function(params, n, estknown, threshold, ...) {
   estabs <- params[1:n]
   avgemp <- params[(n+1):(2*n)]
@@ -93,7 +95,7 @@ hin.jac <- function(params, n, ...) {
 }
 
 # main calling function ----
-call_auglag <- function(est, emp, estknown, lb_avgemp, ub_avgemp, threshold=1){
+get_estabs_avgemp <- function(est, emp, estknown, lb_avgemp, ub_avgemp, threshold=1){
   
   n <- length(estknown)
   
@@ -112,6 +114,8 @@ call_auglag <- function(est, emp, estknown, lb_avgemp, ub_avgemp, threshold=1){
                    heq.jac = heq.jac,
                    hin = hin,
                    hin.jac = hin.jac,
+                   # options
+                   control.outer = list(trace = FALSE),
                    # possible additional arguments to the functions above
                    n = n, 
                    est = est,
@@ -125,41 +129,3 @@ call_auglag <- function(est, emp, estknown, lb_avgemp, ub_avgemp, threshold=1){
   result
 }
 
-
-# inputs
-emp <- 879
-est <- 461
-estknown <- c(444, 11, 0, 0, 0, 0, 0, 0, 0)
-lb_avgemp <- c(0, 5, 10, 20, 50, 100, 250, 500, 1000)
-ub_avgemp <- c(4, 9, 19, 49, 99, 249, 499, 599, Inf)
-
-# call auglag ----
-res <- call_auglag(est, emp, estknown, lb_avgemp, ub_avgemp, threshold=1)
-
-# examine results ----
-n <- length(estknown)
-
-# scales::label_comma(accuracy=.1)(res$par)
-estabs_solution <- res$par[1:n]
-avgemp_solution <- res$par[(n+1):(2*n)]
-
-cbind(estknown, estabs_solution) |> kable(digits=2, format.args = list(big.mark = ",", scientific = FALSE))
-cbind(lb_avgemp, avgemp_solution, ub_avgemp) |> kable(digits=2, format.args = list(big.mark = ",", scientific = FALSE))
-
-tibble(lbemp=lb_avgemp, ubemp=ub_avgemp, 
-       avgemp=avgemp_solution, 
-       estknown=estknown, 
-       estabs=estabs_solution) |>
-  mutate(emp=estabs * avgemp) |> 
-  janitor::adorn_totals("row") |>
-  kable(digits=1, format.args = list(big.mark = ",", scientific = FALSE))
-
-est; sum(estabs_solution)
-emp; sum(estabs_solution * avgemp_solution)
-
-# calc max avg emp for top group
-
-
-# Return vector of constraint values
-# Each element should be >= 0 for inequality constraints
-# or = 0 for equality constraints

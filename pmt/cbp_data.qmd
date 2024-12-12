@@ -23,6 +23,9 @@ source(here::here("R", "libraries_ts.r"))
 source(here::here("R", "constants.r"))
 source(here::here("R", "functions.r"))
 
+ests_env <- new.env()
+source(here::here("pmt", "get_estabs_avgemp_by_size.R"), local=ests_env)
+
 ```
 
 ## Get data
@@ -117,6 +120,94 @@ saveRDS(cbp3, fs::path(PDINTERMEDIATE, "cbpny.rds"))
 
 ```
 
+
+## Allocate missing estabs and then compute shares
+
+put the unallocated estabs into the group that has varage employment
+
+```{r}
+#| label: allocate
+
+avgemp1 <- read_csv("
+name, lb, ub
+nlt_5, 0, 4
+n5_9, 5, 9
+n10_19, 10, 19
+n20_49, 20, 49
+n50_99, 50, 99
+n100_249, 100, 249
+n250_499, 250, 499
+n500_999, 500, 599
+n1000, 1000, 1000")
+avgemp1
+
+shares <- cbpny2 |> 
+  select(fipstate, fipscty, state, county, mta, nyc, naics, description, emp, ap, est, nmiss, nlt_5:n1000) |> 
+  pivot_longer(nlt_5:n1000, values_to = "known") |> 
+  left_join(avgemp1, by = join_by(name)) |> 
+  mutate(avgemp1=case_when(name=="n1000" ~ 0,
+                           .default = (lb + ub) / 2),
+         emp1 = known * avgemp1) |> 
+  mutate(empsum1 = sum(emp1),
+         diff1=emp - empsum1[name=="n1000"],
+         avgdiff1=ifelse(name=="n1000", diff1 / known, NA_real_),
+         .by=c(fipstate, fipscty, naics)) 
+  # we want every emp amount in each range to fall within its bounds, and the total to hit the known employment
+shares
+
+
+tmp <- shares |> 
+  filter(nmiss > 5)
+
+tmp |> filter(fipscty=="047", naics=="484121")
+
+
+# inputs
+emp <- 879
+est <- 461
+estknown <- c(444, 11, 0, 0, 0, 0, 0, 0, 0)
+lb_avgemp <- c(0, 5, 10, 20, 50, 100, 250, 500, 1000)
+ub_avgemp <- c(4, 9, 19, 49, 99, 249, 499, 599, Inf)
+
+# call auglag ----
+res <- ests_env$get_estabs_avgemp(est, emp, estknown, lb_avgemp, ub_avgemp, threshold=.5)
+
+# examine results ----
+n <- length(estknown)
+
+# scales::label_comma(accuracy=.1)(res$par)
+estabs_solution <- res$par[1:n]
+avgemp_solution <- res$par[(n+1):(2*n)]
+
+tibble(lbemp=lb_avgemp, ubemp=ub_avgemp, 
+       avgemp=avgemp_solution, 
+       estknown=estknown, 
+       estabs=estabs_solution) |>
+  mutate(emp=estabs * avgemp) |> 
+  janitor::adorn_totals("row") |>
+  kable(digits=1, format.args = list(big.mark = ",", scientific = FALSE))
+
+
+# calc max avg emp for top group
+
+
+# Return vector of constraint values
+# Each element should be >= 0 for inequality constraints
+# or = 0 for equality constraints
+
+
+
+# shares <- cbpny2 |> 
+#   mutate(across(nlt_5:n1000, \(x) x / est)) |> 
+#   select(fipstate, fipscty, state, county, mta, nyc, naics, description, emp, ap, est, nlt_5:n1000) |> 
+#   pivot_longer(nlt_5:n1000, values_to = "share") |> 
+#   mutate(share_adj=share / sum(share), 
+#          .by=c(fipstate, fipscty, naics))
+
+```
+
+
+
 ```{r}
 #| label: cbp-explore
 
@@ -201,377 +292,3 @@ df |>
 
 
 ```
-
-
-## Allocate missing estabs and then compute shares
-
-put the unallocated estabs into the group that has varage employment
-
-```{r}
-#| label: allocate
-
-avgemp1 <- read_csv("
-name, lb, ub
-nlt_5, 0, 4
-n5_9, 5, 9
-n10_19, 10, 19
-n20_49, 20, 49
-n50_99, 50, 99
-n100_249, 100, 249
-n250_499, 250, 499
-n500_999, 500, 599
-n1000, 1000, 1000")
-avgemp1
-
-shares <- cbpny2 |> 
-  select(fipstate, fipscty, state, county, mta, nyc, naics, description, emp, ap, est, nmiss, nlt_5:n1000) |> 
-  pivot_longer(nlt_5:n1000, values_to = "known") |> 
-  left_join(avgemp1, by = join_by(name)) |> 
-  mutate(avgemp1=case_when(name=="n1000" ~ 0,
-                           .default = (lb + ub) / 2),
-         emp1 = known * avgemp1) |> 
-  mutate(empsum1 = sum(emp1),
-         diff1=emp - empsum1[name=="n1000"],
-         avgdiff1=ifelse(name=="n1000", diff1 / known, NA_real_),
-         .by=c(fipstate, fipscty, naics)) 
-  # we want every emp amount in each range to fall within its bounds, and the total to hit the known employment
-shares
-
-
-tmp <- shares |> 
-  filter(nmiss > 5)
-
-tmp |> filter(fipscty=="047", naics=="484121")
-
-# optimize using data for 36, 001, ------
-
-library(CVXR)
-
-avgemp <- (lb + ub) / 2
-empestimated <- estknown * avgemp
-(sumempestimated <- sum(empestimated)) # 178480
-
-emp <- 176385
-estknown <- c(4686, 1769, 1272, 1001, 369, 224, 40, 24, 9) # 9 groups
-lb <- c(0, 5, 10, 20, 50, 100, 250, 500, 1000) # 9 groups
-ub <- c(4, 9, 19, 49, 99, 249, 499, 599, 1e9) # 9 groups
-
- #             [,1]
- # [1,]    4.000001
- # [2,]    9.000000
- # [3,]   16.702829
- # [4,]   21.224774
- # [5,]   57.577232
- # [6,]  100.000000
- # [7,]  499.000000
- # [8,]  599.000000
- # [9,] 2360.666517
-
-
-# allocate emp to the groups st each > lb, < ub, min diff from avg emp ^ 2
-# Your data
-emp <- 176385
-estknown <- c(4686, 1769, 1272, 1001, 369, 224, 40, 24, 9)
-lb <- c(0, 5, 10, 20, 50, 100, 250, 500, 1000)
-ub <- c(4, 9, 19, 49, 99, 249, 499, 599, 1e9)
-
-# Define variables
-x <- Variable(9)
-
-# Define objective function directly within CVXR
-objective <- Minimize(sum_squares(x * estknown - emp))
-
-# Define constraints
-constraints <- list(
-    x >= lb,
-    x <= ub,
-    sum(x * estknown) == emp  # Add constraint to ensure total matches
-)
-
-# Solve the problem
-prob <- Problem(objective, constraints)
-result <- solve(prob)
-
-# Get solution
-solution <- result$getValue(x)
-
-sum(as.vector(solution) * estknown)
-
-
-## version 2 ----
-fvec <- function(vec) cat("c(", paste0(vec, collapse=", "), ")", sep="")
-
-v2 <- shares |> 
-  filter(fipscty=="047", naics=="484121")
-v2
-v2$emp[1]
-v2$est[1]
-fvec(v2$known)
-fvec(v2$lb)
-
-emp <- 879
-est <- 461
-estknown <- c(444, 11, 0, 0, 0, 0, 0, 0, 0)
-lb <- c(0, 5, 10, 20, 50, 100, 250, 500, 1000)
-ub <- c(4, 9, 19, 49, 99, 249, 499, 599, 1e9)
-
-# Define variables
-estabs <- Variable(9)
-avgemp <- Variable(9)
-
-constraints <- list(
-    avgemp >= lb,
-    avgemp <= ub,
-    sum(avgemp * estabs) == emp
-)
-
-objective <- Minimize(sum_squares(estabs - estknown))
-prob <- Problem(objective, constraints)
-result <- solve(prob)
-
-
-# Define constraints
-constraints <- list(
-    x >= lb,
-    x <= ub,
-    sum(x * estknown) == emp  # Add constraint to ensure total matches
-)
-
-# Solve the problem
-prob <- Problem(objective, constraints)
-result <- solve(prob)
-
-# Get solution
-solution <- result$getValue(x)
-
-
-# version 3 ----
-fvec <- function(vec) cat("c(", paste0(vec, collapse=", "), ")", sep="")
-
-v3 <- shares |> 
-  filter(fipscty=="047", naics=="484121")
-v3
-v3$emp[1]
-v3$est[1]
-fvec(v3$known)
-fvec(v3$lb)
-
-emp <- 879
-est <- 461
-estknown <- c(444, 11, 0, 0, 0, 0, 0, 0, 0)
-lb <- c(0, 5, 10, 20, 50, 100, 250, 500, 1000)
-ub <- c(4, 9, 19, 49, 99, 249, 499, 599, 10000)
-
-# Define objective function
-obj <- function(params) {
-    n <- length(estknown)
-    estabs <- params[1:n]
-    avgemp <- params[(n+1):(2*n)]
-    sum((estabs * avgemp - emp + estabs - estknown)^2)
-    # sum((estabs * avgemp - emp)^2) + sum((estabs - estknown)^2)
-}
-
-# Initial values
-n <- length(estknown)
-start_params <- c(estknown, # initial estabs
-                 (lb + ub)/2) # initial avgemp
-obj(start_params)
-
-
-# Define bounds
-lower_bounds <- c(estknown, lb)
-upper_bounds <- c(estknown[1:2], rep(Inf, 7), ub)
-cbind(lower_bounds, start_params, upper_bounds)
-
-# Solve
-result <- nlminb(start_params, 
-                 obj, 
-                 lower = lower_bounds, 
-                 upper = upper_bounds,
-                 control=list(eval.max=5000,
-                              iter.max=5000,
-                              abs.tol=1e-20,
-                              rel.tol=1e-12))
-result
-
-# Extract results
-estabs_solution <- result$par[1:n]
-avgemp_solution <- result$par[(n+1):(2*n)]
-
-cbind(estknown, estabs_solution)
-est; sum(estabs_solution)
-emp; sum(estabs_solution * avgemp_solution)
-
-
-result <- optim(start_params,
-                obj,
-                method = "L-BFGS-B", # only L-BFGS-B for these
-                lower = lower_bounds,
-                upper = upper_bounds)
-
-
-# alabama YES! ----
-
-library(alabama)
-fvec <- function(vec) cat("c(", paste0(vec, collapse=", "), ")", sep="")
-
-v3 <- shares |> 
-  filter(fipscty=="047", naics=="484121")
-v3
-v3$emp[1]
-v3$est[1]
-fvec(v3$known)
-fvec(v3$lb)
-
-emp <- 879
-est <- 461
-estknown <- c(444, 11, 0, 0, 0, 0, 0, 0, 0)
-lb <- c(0, 5, 10, 20, 50, 100, 250, 500, 1000)
-ub <- c(4, 9, 19, 49, 99, 249, 499, 599, 100000)
-avgb <- (lb + ub) / 2
-n <- length(estknown)
-
-# Define bounds
-lower_bounds <- c(estknown, lb)
-upper_bounds <- c(estknown[1:2], rep(Inf, 7), ub)
-cbind(lower_bounds, start_params, upper_bounds)
-
-start_params <- c(estknown, # initial estabs
-                 (lb + ub)/2) # initial avgemp
-
-
-obj <- function(params) {
-    n <- length(estknown)
-    estabs <- params[1:n]
-    avgemp <- params[(n+1):(2*n)]
-    sum((estabs - estknown)^2)
-}
-
-gradient <- function(params) {
-    n <- length(estknown)
-    estabs <- params[1:n]
-    avgemp <- params[(n+1):(2*n)]
-    
-    # Initialize gradient vector
-    grad <- numeric(2*n)
-    
-    # Gradient with respect to estabs
-    grad[1:n] <- 2 * (estabs - estknown)
-    
-    # Gradient with respect to avgemp
-    grad[(n+1):(2*n)] <- 0  # derivative is zero as avgemp doesn't appear in objective
-    
-    return(grad)
-}
-
-
-# Define separate constraint function
-heq <- function(params) {
-    estabs <- params[1:n]
-    avgemp <- params[(n+1):(2*n)]
-    
-    # Return vector of constraint values
-    # Each element should be >= 0 for inequality constraints
-    # or = 0 for equality constraints
-    return(c(
-        sum(estabs) - est,        # equality: sum(estabs) = est
-        sum(estabs * avgemp) - emp  # equality: sum(estabs * avgemp) = emp
-    ))
-}
-
-heq.jac <- function(params) {
-    n <- length(params)/2
-    estabs <- params[1:n]
-    avgemp <- params[(n+1):(2*n)]
-    
-    # Initialize Jacobian matrix (2 constraints x 2n variables)
-    jacobian <- matrix(0, nrow = 2, ncol = 2*n)
-    
-    # Derivatives for first constraint: sum(estabs) - est
-    jacobian[1, 1:n] <- 1        # d/d_estabs
-    jacobian[1, (n+1):(2*n)] <- 0  # d/d_avgemp
-    
-    # Derivatives for second constraint: sum(estabs * avgemp) - emp
-    jacobian[2, 1:n] <- avgemp         # d/d_estabs
-    jacobian[2, (n+1):(2*n)] <- estabs # d/d_avgemp
-    
-    return(jacobian)
-}
-
-hin <- function(params) {
-    estabs <- params[1:n]
-    avgemp <- params[(n+1):(2*n)]
-    return(c(
-      avgemp - lb,
-      ub - avgemp
-      ))
-}
-
-hin.jac <- function(params) {
-    n <- length(params)/2
-    estabs <- params[1:n]
-    avgemp <- params[(n+1):(2*n)]
-    
-    # Initialize Jacobian matrix (2n constraints x 2n variables)
-    jacobian <- matrix(0, nrow = 2*n, ncol = 2*n)
-    
-    # Derivatives for first n constraints: avgemp - lb
-    jacobian[1:n, 1:n] <- 0                # d/d_estabs
-    jacobian[1:n, (n+1):(2*n)] <- diag(n)  # d/d_avgemp
-    
-    # Derivatives for second n constraints: ub - avgemp
-    jacobian[(n+1):(2*n), 1:n] <- 0                # d/d_estabs
-    jacobian[(n+1):(2*n), (n+1):(2*n)] <- -diag(n) # d/d_avgemp
-    
-    return(jacobian)
-}
-
-
-
-result <- auglag(par = start_params,
-                fn = obj,
-                gr = gradient,
-                heq = heq,
-                heq.jac = heq.jac,
-                hin = hin,
-                hin.jac = hin.jac)
-
-# Extract results
-estabs_solution <- result$par[1:n]
-avgemp_solution <- result$par[(n+1):(2*n)]
-
-cbind(estknown, estabs_solution) |> kable()
-cbind(lb, avgemp_solution, ub) |> kable()
-est; sum(estabs_solution)
-emp; sum(estabs_solution * avgemp_solution)
-# calc max avg emp for top group
-
-library(microbenchmark)
-speed <- microbenchmark(
-  auglag(par = start_params,
-                fn = obj,
-                heq = constraint_fun),
-  auglag(par = start_params,
-                fn = obj,
-                gr = gradient,
-                heq = constraint_fun,
-                heq.jac = jacobian_constraint),
-  times=100
-)
-
-speed
-
-
-
-# END alabama ----
-
-cbpny2
-
-shares <- cbpny2 |> 
-  mutate(across(nlt_5:n1000, \(x) x / est)) |> 
-  select(fipstate, fipscty, state, county, mta, nyc, naics, description, emp, ap, est, nlt_5:n1000) |> 
-  pivot_longer(nlt_5:n1000, values_to = "share") |> 
-  mutate(share_adj=share / sum(share), 
-         .by=c(fipstate, fipscty, naics))
-```
-
