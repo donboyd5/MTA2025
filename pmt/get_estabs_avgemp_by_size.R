@@ -1,14 +1,14 @@
 
 
-obj <- function(params) {
-  n <- length(estknown)
+obj <- function(params, n, estknown) {
+  # n <- length(estknown)
   estabs <- params[1:n]
   avgemp <- params[(n+1):(2*n)]
   sum((estabs - estknown)^2)
 }
 
-gr <- function(params) {
-  n <- length(estknown)
+gr <- function(params, n, estknown) {
+  # n <- length(estknown)
   estabs <- params[1:n]
   avgemp <- params[(n+1):(2*n)]
   
@@ -24,7 +24,7 @@ gr <- function(params) {
   return(grad)
 }
 
-heq <- function(params) {
+heq <- function(params, n, estknown) {
   # Equality constraints
   estabs <- params[1:n]
   avgemp <- params[(n+1):(2*n)]
@@ -36,8 +36,8 @@ heq <- function(params) {
   ))
 }
 
-heq.jac <- function(params) {
-  n <- length(params)/2
+heq.jac <- function(params, n, estknown) {
+  # n <- length(params)/2
   estabs <- params[1:n]
   avgemp <- params[(n+1):(2*n)]
   
@@ -55,7 +55,7 @@ heq.jac <- function(params) {
   return(jacobian)
 }
 
-hin <- function(params) {
+hin <- function(params, n, estknown) {
   estabs <- params[1:n]
   avgemp <- params[(n+1):(2*n)]
   return(c(
@@ -64,8 +64,8 @@ hin <- function(params) {
   ))
 }
 
-hin.jac <- function(params) {
-  n <- length(params)/2
+hin.jac <- function(params, n, estknown) {
+  # n <- length(params)/2
   estabs <- params[1:n]
   avgemp <- params[(n+1):(2*n)]
   
@@ -83,14 +83,13 @@ hin.jac <- function(params) {
   return(jacobian)
 }
 
-
-
-
-
+# main calling function ----
 call_auglag <- function(est, emp, estknown){
   
+  n <- length(estknown)
+  
   lb <- c(0, 5, 10, 20, 50, 100, 250, 500, 1000)
-  ub <- c(4, 9, 19, 49, 99, 249, 499, 599, 1000)
+  ub <- c(4, 9, 19, 49, 99, 249, 499, 599, 1e9)
   
   lower_bounds <- c(estknown, lb)
   upper_bounds <- c(estknown[1:2], rep(Inf, 7), ub)
@@ -104,17 +103,34 @@ call_auglag <- function(est, emp, estknown){
                    heq = heq,
                    heq.jac = heq.jac,
                    hin = hin,
-                   hin.jac = hin.jac)
+                   hin.jac = hin.jac,
+                   n = n, 
+                   estknown = estknown)
   result
 }
 
 
-res <- call_auglag(est, emp, estknown)
-
-
+# inputs
 emp <- 879
 est <- 461
 estknown <- c(444, 11, 0, 0, 0, 0, 0, 0, 0)
+
+# call auglag ----
+res <- call_auglag(est, emp, estknown)
+
+# examine results
+estabs_solution <- res$par[1:n]
+avgemp_solution <- res$par[(n+1):(2*n)]
+
+cbind(estknown, estabs_solution) |> kable()
+cbind(lb, avgemp_solution, ub) |> kable()
+est; sum(estabs_solution)
+emp; sum(estabs_solution * avgemp_solution)
+# calc max avg emp for top group
+
+
+
+
 
 lb <- c(0, 5, 10, 20, 50, 100, 250, 500, 1000)
 ub <- c(4, 9, 19, 49, 99, 249, 499, 599, 100000)
