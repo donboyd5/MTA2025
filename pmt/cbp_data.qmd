@@ -16,7 +16,7 @@ CBP links
 
 ```{r}
 #| label: setup
-#| include: false
+#| output: false
 
 source(here::here("R", "libraries.r"))
 source(here::here("R", "libraries_ts.r"))
@@ -93,6 +93,7 @@ inds2 <- inds |>
 
 ```{r}
 #| label: clean-cbp
+#| output: false
 
 char_cols <- c("fipstate", "fipscty", "naics", "emp_nf", "qp1_nf", "ap_nf")
 
@@ -120,46 +121,53 @@ saveRDS(cbp3, fs::path(PDINTERMEDIATE, "cbpny.rds"))
 
 ```
 
-
-## Estimate number of establishments, average employment per establishment, and total employment by establishment size range
+## Estimate number of establishments and average employment by establishment size
 
 Solve for number of establishments and average employment per establishment by establishment size range, within county and industry group. Use these results to derive total employment by county-naics-size group.
 
 Use CBP data for each county-naics group on:
 
--   Total employment for the group
--   Total # establishments for the group
--   # of establishments for each of 9 establishment-size groups (based on # of employees in the specific establishment - not the same as size definitions for the PMT, which are based on the firm -- thus, we will more more small establishments than there are small firms). Census injects some disclosure-avoidance noise in the data, suppressing number of establishments in groups that have small numbers. Thus the sum of # of establishments over the establishment size ranges may fall short of the total number of establishments.
+-   total employment for the group
+-   Total \# of establishments for the group
+-   number of establishments for each of 9 establishment-size groups (based on \# of employees in the specific establishment)
+
+Note that this is not the same as size definitions for the PMT, which are based on the firm -- thus, we will more more small establishments than there are small firms.
+
+Census injects some disclosure-avoidance noise in the data, suppressing number of establishments in groups that have small numbers. Thus the sum of \# of establishments over the establishment size ranges may fall short of the total number of establishments.
 
 Note that the data also have total annual payroll and first-quarter payroll for the group. We don't use it to estimate establishments and employment by establishment size but will use it later to estimate total wages and wages per employee by establishment size.
 
-
 Run a constrained nonlinear opimization for each naics group within county. with the following characteristics:
 
--   Equality constraints: 
-    - sum of # establishments within county-naics group = reported total establishments
+-   Equality constraints:
+    - sum of \# establishments within county-naics group = reported total establishments
     - sum of establishments x average employment per establishment = reported total employment
-    - # of establishments in an establishment-size range must = what is reported by Census for the county-naics group if they reported a nonzero amount (note: this is implemented via inequality constraints but is set to enforce equality)
-    
+    - \# of establishments in an establishment-size range must = what is reported by Census for the county-naics group if they reported a nonzero amount (note: this is implemented via inequality constraints but is set to enforce equality)
+
 -   Inequality constraints:
-    - # of employeees in an establishment-size range (e.g., 5-9 employees per establishment) must be >= the bottom of the range (e.g., 5 in this example)
-    - # of employees in an establishment-size range (e.g., 5-9 employees per establishment) must be <= the top of the range (e.g., 9 in this example)
-    - # of establishments in an establishment-size range must be >= 0 if Census reported zero or missing
-
+    - \# of employeees in an establishment-size range (e.g., 5-9 employees per establishment) must be \>= the bottom of the range (e.g., 5 in this example)
+    - \# of employees in an establishment-size range (e.g., 5-9 employees per establishment) must be \<= the top of the range (e.g., 9 in this example)
+    - \# of establishments in an establishment-size range must be \>= 0 if Census reported zero or missing
+    
 -   Objective function:
-    - minimize sum of squared differences between estimated and reported number of establishments by size range
-    - if number of establishments in a county-naics-size group is between 0 and 1 don't count it in the objective function
-
-
-- Initial values:
-    - for establishments, set to Census-reported numbers
-    - for average employment per establishemnt set to lower bound of the size range -- this tends to push the solution toward the lower bound of the size range
-
-
+    -   minimize sum of squared differences between estimated and reported number of establishments by size range
+    -   if number of establishments in a county-naics-size group is between 0 and 1 don't count it in the objective function
+-   Initial values:
+    -   for establishments, set to Census-reported numbers
+    -   for average employment per establishemnt set to lower bound of the size range -- this tends to push the solution toward the lower bound of the size range
 
 ```{r}
-#| label: allocate
+#| label: solve-estabs-emp
 #| output: false
+#| eval: false
+
+cbpny <- readRDS(fs::path(PDINTERMEDIATE, "cbpny.rds"))
+
+cbpny2 <- cbpny |> 
+  mutate(across(where(is.numeric), ~replace_na(., 0))) |> 
+  mutate(estsum=rowSums(across(nlt_5:n1000)),
+         nmiss=est - estsum,
+         misspct=nmiss / est)
 
 avgemp1 <- read_csv("
 name, lb, ub
@@ -223,6 +231,7 @@ saveRDS(estemp_mta, fs::path(PDINTERMEDIATE, "estemp_mta.rds"))
 
 ```{r}
 #| label: examine-results
+#| output: false
 #| eval: false
 
 stats <- estemp_mta |> 
@@ -253,9 +262,21 @@ estemp_mta |>
 
 ```
 
+## Estimate average wages and total wages by county-naics-size group
+
+```{r}
+#| label: wages-by-size-group
+#| output: false
+
+
+```
+
+## Appendix
 
 ```{r}
 #| label: cbp-explore
+#| eval: false
+#| output: false
 
 cbpny <- readRDS(fs::path(PDINTERMEDIATE, "cbpny.rds"))
 skim(cbpny)
@@ -339,10 +360,10 @@ df |>
 
 ```
 
-
 ```{r}
 #| label: detritus
 #| eval: false
+#| output: false
 
 # inputs
 # emp <- 879
@@ -397,4 +418,3 @@ df |>
 #          .by=c(fipstate, fipscty, naics))
 
 ```
-
