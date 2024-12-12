@@ -121,9 +121,26 @@ saveRDS(cbp3, fs::path(PDINTERMEDIATE, "cbpny.rds"))
 ```
 
 
-## Allocate missing estabs and then compute shares
+## Estimate number of establishments, average employment per establishment, and total employment by establishment size range
 
-put the unallocated estabs into the group that has varage employment
+Solve for number of establishments, average employment per establishment, and total employment, by establishment size range, within county and industry group.
+
+Use CBP data for each county-naics group on:
+
+
+Run a constrained nonlinear opimization for each naics group within county. with the following characteristics:
+
+-   Equality constraints: 
+    - sum of # establishments within county-naics group = reported total establishments
+    - sum of establishments x average employment per establishment = reported total employment
+    
+-     
+
+    sum(estabs) - est,        # equality: sum(estabs) = est
+    sum(estabs * avgemp) - emp  # equality: sum(estabs * avgemp) = emp
+
+
+
 
 ```{r}
 #| label: allocate
@@ -155,98 +172,14 @@ shares <- cbpny2 |>
   # we want every emp amount in each range to fall within its bounds, and the total to hit the known employment
 shares
 
+# keepnaics <- c("484121", "23----")
+# keepnaics <- c("22----", "23----", "31----")
 
-tmp <- shares |> 
-  filter(nmiss > 5)
-
-tmp2 <- shares |> 
-  filter(fipscty=="047", naics=="484121") |>  # get a single group of rows
-  mutate(res=ests_env$get_estabs_avgemp(est=est[1], emp=emp[1], estknown=known, 
-                                        lb_avgemp=lb, ub_avgemp=ub,
-                                        threshold=.5, trace=TRUE) |> list())
-
-estemp <- shares |> 
-  filter(fipscty=="047", naics=="484121") |>
-  nest(data = -c(fipscty, state, county, naics, description)) |>
-  mutate(res = purrr::map(data, ~ests_env$get_estabs_avgemp(
-    est = .x$est[1],
-    emp = .x$emp[1],
-    estknown = .x$known,
-    lb_avgemp = .x$lb,
-    ub_avgemp = .x$ub,
-    threshold = .5,
-    trace = FALSE)
-  ))
-estemp
-
-estemp <-shares |> 
-  filter(fipscty=="047", naics=="484121") |>
-  nest(data = -c(fipscty, state, county, naics, description)) |>
-  mutate(res = purrr::map(data, \(x) ests_env$get_estabs_avgemp(
-    est = x$est[1],
-    emp = x$emp[1],
-    estknown = x$known,
-    lb_avgemp = x$lb,
-    ub_avgemp = x$ub,
-    threshold = .5,
-    trace = FALSE)
-  ))
-
-estemp |> 
-  mutate(
-    estabs = purrr::map(res, "estabs"),
-    avgemp = purrr::map(res, "avgemp")
-  ) |>
-  unnest_longer(c(estabs, avgemp)) |>
-  unnest(data)
-
-estemp |> 
-  unnest_wider(res)
-
-ee2 <- estemp |> 
-  mutate(obj=pluck(res, 1, "value"),
-         par=pluck(res, 1, "par") |> list())
-
-ee2 |> 
-  mutate(
-    estabs = purrr::map(par, ~head(.x, 9)),
-    avgemp = purrr::map(par, ~tail(.x, 9))
-  ) |>
-  unnest(c(data, estabs, avgemp))
-
-
-keepnaics <- c("------", "11----", "22----")
-
-keepnaics <- c("22----", "23----", "31----")
-
-shares |> 
-  filter(fipscty=="047", nmiss > 0) |>
-  filter(naics %in% keepnaics) |>
-  select(-c(avgemp1:avgdiff1)) |> 
-  nest(data = c(name, known, lb, ub)) |> 
-  head(1) |> 
-  mutate(res = purrr::map(data, \(x) ests_env$get_estabs_avgemp(
-    est = x$est[1],
-    emp = x$emp[1],
-    estknown = x$known,
-    lb_avgemp = x$lb,
-    ub_avgemp = x$ub,
-    threshold = .5,
-    trace = TRUE)
-  )) 
-
-
-# djb here ----
-keepnaics <- c("484121", "23----")
-
-estemp <-shares |> 
-  # filter(fipscty=="047", naics=="484121") |> # good
-  # filter(fipscty=="047", naics %in% keepnaics) |> # good
+a <- proc.time()
+estemp_mta <-shares |> 
   filter(mta) |> 
   nest(data = -c(fipscty, state, county, naics, description)) |>
-  # filter(row_number() <= 30) |> # good 3, 10, 30
-  filter(str_sub(naics, 3, -1)=="----") |> 
-  # filter(row_number() <= 30) |> 
+  filter(str_sub(naics, 3, -1)=="----") |>
   mutate(res = purrr::map(data, \(x) ests_env$get_estabs_avgemp(
     est = x$est[1],
     emp = x$emp[1],
@@ -258,18 +191,25 @@ estemp <-shares |>
   )) |> 
   mutate(
     obj = purrr::map_dbl(res, "value"),
-    par = purrr::map(res, "par")
-  )
-  
-estemp
-
-
-
-estemp |> 
-  mutate(
+    par = purrr::map(res, "par"),
     estabs = purrr::map(par, ~head(.x, 9)),
     avgemp = purrr::map(par, ~tail(.x, 9))
-  ) |>
+  )
+b <- proc.time()
+b - a
+
+estemp_mta
+
+saveRDS(estemp_mta, fs::path(PDINTERMEDIATE, "estemp_mta.rds"))
+
+
+```
+
+```{r}
+#| label: examine-results
+#| eval: false
+
+stats <- estemp_mta |> 
   unnest(c(data, estabs, avgemp)) |> 
   select(county, naics, emp, est, name, nmiss, known, lb, ub, obj, estabs, avgemp) |> 
   mutate(emptot=estabs * avgemp) |> 
@@ -279,10 +219,12 @@ estemp |>
             emptot=sum(emptot), 
             .by=c(county, naics)) |> 
   mutate(estdiff=estabs - est,
-         empdiff=emptot - emp)
+         empdiff=emptot - emp,
+         estpdiff=estdiff / est,
+         emppdiff=empdiff / emp)
 
-estemp |>
-  filter(naics=="------") |> 
+estemp_mta |>
+  filter(naics=="------", county) |> 
   mutate(
     estabs = purrr::map(par, ~head(.x, 9)),
     avgemp = purrr::map(par, ~tail(.x, 9))
@@ -292,62 +234,8 @@ estemp |>
   kable()
 
 
-# inputs
-emp <- 879
-est <- 461
-estknown <- c(444, 11, 0, 0, 0, 0, 0, 0, 0)
-lb_avgemp <- c(0, 5, 10, 20, 50, 100, 250, 500, 1000)
-ub_avgemp <- c(4, 9, 19, 49, 99, 249, 499, 599, Inf)
-
-# call auglag ----
-# res <- ests_env$get_estabs_avgemp(est, emp, estknown, lb_avgemp, ub_avgemp, threshold=.5)
-res <- ests_env$get_estabs_avgemp(est, emp, estknown, lb_avgemp, ub_avgemp, threshold=.5, trace=TRUE)
-# res <- ests_env$get_estabs_avgemp(est, emp, estknown, lb_avgemp, ub_avgemp, threshold=.5, trace=TRUE, itmax=200, eps=1e-15)
-
-# res <- get_estabs_avgemp(est, emp, estknown, lb_avgemp, ub_avgemp, threshold=.5, trace=TRUE)
-
-res$convergence
-
-# examine results ----
-n <- length(estknown)
-
-# scales::label_comma(accuracy=.1)(res$par)
-estabs_solution <- res$par[1:n]
-avgemp_solution <- res$par[(n+1):(2*n)]
-
-tibble(lbemp=lb_avgemp, ubemp=ub_avgemp, 
-       avgemp=avgemp_solution, 
-       estknown=estknown, 
-       estabs=estabs_solution) |>
-  mutate(emp=estabs * avgemp) |> 
-  janitor::adorn_totals("row") |>
-  mutate(estabs_true = ifelse(row_number()==max(row_number()),
-                           est,
-                           NA_real_),
-         emp_true = ifelse(row_number()==max(row_number()),
-                           .GlobalEnv$emp,
-                           NA_real_)) |> 
-  kable(digits=1, format.args = list(big.mark = ",", scientific = FALSE))
-
-
-# calc max avg emp for top group
-
-
-# Return vector of constraint values
-# Each element should be >= 0 for inequality constraints
-# or = 0 for equality constraints
-
-
-
-# shares <- cbpny2 |> 
-#   mutate(across(nlt_5:n1000, \(x) x / est)) |> 
-#   select(fipstate, fipscty, state, county, mta, nyc, naics, description, emp, ap, est, nlt_5:n1000) |> 
-#   pivot_longer(nlt_5:n1000, values_to = "share") |> 
-#   mutate(share_adj=share / sum(share), 
-#          .by=c(fipstate, fipscty, naics))
 
 ```
-
 
 
 ```{r}
@@ -434,3 +322,63 @@ df |>
 
 
 ```
+
+
+```{r}
+#| label: detritus
+#| eval: false
+
+# inputs
+# emp <- 879
+# est <- 461
+# estknown <- c(444, 11, 0, 0, 0, 0, 0, 0, 0)
+# lb_avgemp <- c(0, 5, 10, 20, 50, 100, 250, 500, 1000)
+# ub_avgemp <- c(4, 9, 19, 49, 99, 249, 499, 599, Inf)
+# 
+# # res <- ests_env$get_estabs_avgemp(est, emp, estknown, lb_avgemp, ub_avgemp, threshold=.5)
+# res <- ests_env$get_estabs_avgemp(est, emp, estknown, lb_avgemp, ub_avgemp, threshold=.5, trace=TRUE)
+# # res <- ests_env$get_estabs_avgemp(est, emp, estknown, lb_avgemp, ub_avgemp, threshold=.5, trace=TRUE, itmax=200, eps=1e-15)
+# 
+# # res <- get_estabs_avgemp(est, emp, estknown, lb_avgemp, ub_avgemp, threshold=.5, trace=TRUE)
+# 
+# res$convergence
+# 
+# n <- length(estknown)
+# 
+# # scales::label_comma(accuracy=.1)(res$par)
+# estabs_solution <- res$par[1:n]
+# avgemp_solution <- res$par[(n+1):(2*n)]
+# 
+# tibble(lbemp=lb_avgemp, ubemp=ub_avgemp, 
+#        avgemp=avgemp_solution, 
+#        estknown=estknown, 
+#        estabs=estabs_solution) |>
+#   mutate(emp=estabs * avgemp) |> 
+#   janitor::adorn_totals("row") |>
+#   mutate(estabs_true = ifelse(row_number()==max(row_number()),
+#                            est,
+#                            NA_real_),
+#          emp_true = ifelse(row_number()==max(row_number()),
+#                            .GlobalEnv$emp,
+#                            NA_real_)) |> 
+#   kable(digits=1, format.args = list(big.mark = ",", scientific = FALSE))
+
+
+# calc max avg emp for top group
+
+
+# Return vector of constraint values
+# Each element should be >= 0 for inequality constraints
+# or = 0 for equality constraints
+
+
+
+# shares <- cbpny2 |> 
+#   mutate(across(nlt_5:n1000, \(x) x / est)) |> 
+#   select(fipstate, fipscty, state, county, mta, nyc, naics, description, emp, ap, est, nlt_5:n1000) |> 
+#   pivot_longer(nlt_5:n1000, values_to = "share") |> 
+#   mutate(share_adj=share / sum(share), 
+#          .by=c(fipstate, fipscty, naics))
+
+```
+
