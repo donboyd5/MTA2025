@@ -52,10 +52,13 @@ heq.jac <- function(params, n, ...) {
   return(jacobian)
 }
 
-hin <- function(params, n, estknown, lb_avgemp, ub_avgemp, ...) {
+hin <- function(params, n, estknown, lb_estabs, ub_estabs, lb_avgemp, ub_avgemp, ...) {
   estabs <- params[1:n]
   avgemp <- params[(n+1):(2*n)]
+  
   return(c(
+    estabs - lb_estabs,
+    ub_estabs - estabs,
     avgemp - lb_avgemp,
     ub_avgemp - avgemp
   ))
@@ -65,24 +68,38 @@ hin.jac <- function(params, n, ...) {
   estabs <- params[1:n]
   avgemp <- params[(n+1):(2*n)]
   
-  # Initialize Jacobian matrix (2n constraints x 2n variables)
-  jacobian <- matrix(0, nrow = 2*n, ncol = 2*n)
+  # Initialize Jacobian matrix (4n constraints x 2n variables)
+  jacobian <- matrix(0, nrow = 4*n, ncol = 2*n)
   
-  # Derivatives for first n constraints: avgemp - lb
-  jacobian[1:n, 1:n] <- 0                # d/d_estabs
-  jacobian[1:n, (n+1):(2*n)] <- diag(n)  # d/d_avgemp
+  # Derivatives for estabs - lb_estabs
+  jacobian[1:n, 1:n] <- diag(n)           # d/d_estabs
+  jacobian[1:n, (n+1):(2*n)] <- 0         # d/d_avgemp
   
-  # Derivatives for second n constraints: ub - avgemp
-  jacobian[(n+1):(2*n), 1:n] <- 0                # d/d_estabs
-  jacobian[(n+1):(2*n), (n+1):(2*n)] <- -diag(n) # d/d_avgemp
+  # Derivatives for ub_estabs - estabs
+  jacobian[(n+1):(2*n), 1:n] <- -diag(n)  # d/d_estabs
+  jacobian[(n+1):(2*n), (n+1):(2*n)] <- 0 # d/d_avgemp
+  
+  # Derivatives for avgemp - lb_avgemp
+  jacobian[(2*n+1):(3*n), 1:n] <- 0       # d/d_estabs
+  jacobian[(2*n+1):(3*n), (n+1):(2*n)] <- diag(n)  # d/d_avgemp
+  
+  # Derivatives for ub_avgemp - avgemp
+  jacobian[(3*n+1):(4*n), 1:n] <- 0       # d/d_estabs
+  jacobian[(3*n+1):(4*n), (n+1):(2*n)] <- -diag(n) # d/d_avgemp
   
   return(jacobian)
 }
+
 
 # main calling function ----
 call_auglag <- function(est, emp, estknown, lb_avgemp, ub_avgemp){
   
   n <- length(estknown)
+  
+  # calculate lower and upper bounds for estabs based on estknown
+  lb_estabs <- estknown # actual value or zero if not known
+  ub_estabs <- estknown
+  ub_estabs[estknown == 0] <- Inf
   
   start_params <- c(estknown, # initial estabs
                     lb_avgemp) # initial avgemp -- (lb_avgemp + ub_avgemp) / 2
@@ -93,11 +110,14 @@ call_auglag <- function(est, emp, estknown, lb_avgemp, ub_avgemp){
                    heq = heq,
                    heq.jac = heq.jac,
                    hin = hin,
-                   hin.jac = hin.jac,
+                   # hin.jac = hin.jac,
+                   # possible additional arguments to the functions above
                    n = n, 
                    est = est,
                    emp = emp,
                    estknown = estknown,
+                   lb_estabs = lb_estabs,
+                   ub_estabs = ub_estabs,
                    lb_avgemp = lb_avgemp,
                    ub_avgemp = ub_avgemp)
   result
@@ -109,7 +129,7 @@ emp <- 879
 est <- 461
 estknown <- c(444, 11, 0, 0, 0, 0, 0, 0, 0)
 lb_avgemp <- c(0, 5, 10, 20, 50, 100, 250, 500, 1000)
-ub_avgemp <- c(4, 9, 19, 49, 99, 249, 499, 599, 10e3)
+ub_avgemp <- c(4, 9, 19, 49, 99, 249, 499, 599, 100e3)
 
 # call auglag ----
 res <- call_auglag(est, emp, estknown, lb_avgemp, ub_avgemp)
@@ -123,6 +143,12 @@ avgemp_solution <- res$par[(n+1):(2*n)]
 
 cbind(estknown, estabs_solution) |> kable(digits=2, format.args = list(big.mark = ",", scientific = FALSE))
 cbind(lb_avgemp, avgemp_solution, ub_avgemp) |> kable(digits=2, format.args = list(big.mark = ",", scientific = FALSE))
+
+cbind(lb_avgemp, ub_avgemp, estknown, estabs_solution, avgemp_solution, emp2 = estabs_solution * avgemp_solution) |> 
+  as_tibble() |> 
+  janitor::adorn_totals("row") |>
+  kable(digits=1, format.args = list(big.mark = ",", scientific = FALSE))
+
 est; sum(estabs_solution)
 emp; sum(estabs_solution * avgemp_solution)
 
