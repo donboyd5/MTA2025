@@ -111,7 +111,7 @@ call_auglag <- function(est, emp, estknown, lb_avgemp, ub_avgemp, threshold=1){
                    heq = heq,
                    heq.jac = heq.jac,
                    hin = hin,
-                   # hin.jac = hin.jac,
+                   hin.jac = hin.jac,
                    # possible additional arguments to the functions above
                    n = n, 
                    est = est,
@@ -146,8 +146,11 @@ avgemp_solution <- res$par[(n+1):(2*n)]
 cbind(estknown, estabs_solution) |> kable(digits=2, format.args = list(big.mark = ",", scientific = FALSE))
 cbind(lb_avgemp, avgemp_solution, ub_avgemp) |> kable(digits=2, format.args = list(big.mark = ",", scientific = FALSE))
 
-cbind(lb_avgemp, ub_avgemp, estknown, estabs_solution, avgemp_solution, emp2 = estabs_solution * avgemp_solution) |> 
-  as_tibble() |> 
+tibble(lbemp=lb_avgemp, ubemp=ub_avgemp, 
+       avgemp=avgemp_solution, 
+       estknown=estknown, 
+       estabs=estabs_solution) |>
+  mutate(emp=estabs * avgemp) |> 
   janitor::adorn_totals("row") |>
   kable(digits=1, format.args = list(big.mark = ",", scientific = FALSE))
 
