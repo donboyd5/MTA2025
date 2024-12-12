@@ -147,7 +147,7 @@ hin.jac <- function(params, n, ...) {
 
 
 # main calling function ----
-call_auglag <- function(est, emp, estknown, lb_avgemp, ub_avgemp, penalty_weight=1000){
+call_auglag <- function(est, emp, estknown, lb_avgemp, ub_avgemp){
   
   n <- length(estknown)
   
@@ -174,8 +174,7 @@ call_auglag <- function(est, emp, estknown, lb_avgemp, ub_avgemp, penalty_weight
                    lb_estabs = lb_estabs,
                    ub_estabs = ub_estabs,
                    lb_avgemp = lb_avgemp,
-                   ub_avgemp = ub_avgemp,
-                   penalty_weight = penalty_weight)
+                   ub_avgemp = ub_avgemp)
   result
 }
 
@@ -188,7 +187,7 @@ lb_avgemp <- c(0, 5, 10, 20, 50, 100, 250, 500, 1000)
 ub_avgemp <- c(4, 9, 19, 49, 99, 249, 499, 599, 100e3)
 
 # call auglag ----
-res <- call_auglag(est, emp, estknown, lb_avgemp, ub_avgemp, penalty_weight=0)
+res <- call_auglag(est, emp, estknown, lb_avgemp, ub_avgemp)
 
 # examine results ----
 n <- length(estknown)
