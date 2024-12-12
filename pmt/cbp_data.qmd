@@ -138,7 +138,7 @@ n50_99, 50, 99
 n100_249, 100, 249
 n250_499, 250, 499
 n500_999, 500, 599
-n1000, 1000, 1000")
+n1000, 1000, Inf")
 avgemp1
 
 shares <- cbpny2 |> 
@@ -159,7 +159,137 @@ shares
 tmp <- shares |> 
   filter(nmiss > 5)
 
-tmp |> filter(fipscty=="047", naics=="484121")
+tmp2 <- shares |> 
+  filter(fipscty=="047", naics=="484121") |>  # get a single group of rows
+  mutate(res=ests_env$get_estabs_avgemp(est=est[1], emp=emp[1], estknown=known, 
+                                        lb_avgemp=lb, ub_avgemp=ub,
+                                        threshold=.5, trace=TRUE) |> list())
+
+estemp <- shares |> 
+  filter(fipscty=="047", naics=="484121") |>
+  nest(data = -c(fipscty, state, county, naics, description)) |>
+  mutate(res = purrr::map(data, ~ests_env$get_estabs_avgemp(
+    est = .x$est[1],
+    emp = .x$emp[1],
+    estknown = .x$known,
+    lb_avgemp = .x$lb,
+    ub_avgemp = .x$ub,
+    threshold = .5,
+    trace = FALSE)
+  ))
+estemp
+
+estemp <-shares |> 
+  filter(fipscty=="047", naics=="484121") |>
+  nest(data = -c(fipscty, state, county, naics, description)) |>
+  mutate(res = purrr::map(data, \(x) ests_env$get_estabs_avgemp(
+    est = x$est[1],
+    emp = x$emp[1],
+    estknown = x$known,
+    lb_avgemp = x$lb,
+    ub_avgemp = x$ub,
+    threshold = .5,
+    trace = FALSE)
+  ))
+
+estemp |> 
+  mutate(
+    estabs = purrr::map(res, "estabs"),
+    avgemp = purrr::map(res, "avgemp")
+  ) |>
+  unnest_longer(c(estabs, avgemp)) |>
+  unnest(data)
+
+estemp |> 
+  unnest_wider(res)
+
+ee2 <- estemp |> 
+  mutate(obj=pluck(res, 1, "value"),
+         par=pluck(res, 1, "par") |> list())
+
+ee2 |> 
+  mutate(
+    estabs = purrr::map(par, ~head(.x, 9)),
+    avgemp = purrr::map(par, ~tail(.x, 9))
+  ) |>
+  unnest(c(data, estabs, avgemp))
+
+
+keepnaics <- c("------", "11----", "22----")
+
+keepnaics <- c("22----", "23----", "31----")
+
+shares |> 
+  filter(fipscty=="047", nmiss > 0) |>
+  filter(naics %in% keepnaics) |>
+  select(-c(avgemp1:avgdiff1)) |> 
+  nest(data = c(name, known, lb, ub)) |> 
+  head(1) |> 
+  mutate(res = purrr::map(data, \(x) ests_env$get_estabs_avgemp(
+    est = x$est[1],
+    emp = x$emp[1],
+    estknown = x$known,
+    lb_avgemp = x$lb,
+    ub_avgemp = x$ub,
+    threshold = .5,
+    trace = TRUE)
+  )) 
+
+
+# djb here ----
+keepnaics <- c("484121", "23----")
+
+estemp <-shares |> 
+  # filter(fipscty=="047", naics=="484121") |> # good
+  # filter(fipscty=="047", naics %in% keepnaics) |> # good
+  filter(mta) |> 
+  nest(data = -c(fipscty, state, county, naics, description)) |>
+  # filter(row_number() <= 30) |> # good 3, 10, 30
+  filter(str_sub(naics, 3, -1)=="----") |> 
+  # filter(row_number() <= 30) |> 
+  mutate(res = purrr::map(data, \(x) ests_env$get_estabs_avgemp(
+    est = x$est[1],
+    emp = x$emp[1],
+    estknown = x$known,
+    lb_avgemp = x$lb,
+    ub_avgemp = x$ub,
+    threshold = .5,
+    trace = FALSE)
+  )) |> 
+  mutate(
+    obj = purrr::map_dbl(res, "value"),
+    par = purrr::map(res, "par")
+  )
+  
+estemp
+
+
+
+estemp |> 
+  mutate(
+    estabs = purrr::map(par, ~head(.x, 9)),
+    avgemp = purrr::map(par, ~tail(.x, 9))
+  ) |>
+  unnest(c(data, estabs, avgemp)) |> 
+  select(county, naics, emp, est, name, nmiss, known, lb, ub, obj, estabs, avgemp) |> 
+  mutate(emptot=estabs * avgemp) |> 
+  summarise(est=first(est),
+            emp=first(emp),
+            estabs=sum(estabs),
+            emptot=sum(emptot), 
+            .by=c(county, naics)) |> 
+  mutate(estdiff=estabs - est,
+         empdiff=emptot - emp)
+
+estemp |>
+  filter(naics=="------") |> 
+  mutate(
+    estabs = purrr::map(par, ~head(.x, 9)),
+    avgemp = purrr::map(par, ~tail(.x, 9))
+  ) |>
+  unnest(c(data, estabs, avgemp)) |>
+  select(county, naics, emp, est, name, nmiss, known, lb, ub, obj, estabs, avgemp) |>
+  kable()
 
 
 # inputs
