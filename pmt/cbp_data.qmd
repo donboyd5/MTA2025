@@ -191,10 +191,6 @@ Prepare a base file with groups for the estimation:
 ### Estimate average employment by establishment size-group
 
 -   drop non-MTA records
--   keep only naics groups that end in "----"
--   
-
-
 
 ```{r}
 #| label: solve-estabs-emp
@@ -219,20 +215,20 @@ n50_99, 50, 99
 n100_249, 100, 249
 n250_499, 250, 499
 n500_999, 500, 599
-n1000, 1000, Inf")
+n1000, 1000, Inf") |> 
+  mutate(fsize=1:n)
 avgemp1
 
 cbpny_long <- cbpny2 |> 
   select(fipstate, fipscty, state, county, mta, nyc, naics, description, qp1, ap, est, emp, nmiss, nlt_5:n1000) |> 
   pivot_longer(nlt_5:n1000, values_to = "estknown") |> 
-  left_join(avgemp1, by = join_by(name)) 
+  left_join(avgemp1, by = join_by(name)) |> 
+  arrange(fipstate, fipscty, naics, fsize)
 
 estemp_base <- cbpny_long |> 
   filter(mta) |> 
-  filter(str_sub(naics, 3, -1)=="----") |>  
-  nest(data = c(name, estknown, lb_avgemp, ub_avgemp)) 
-
-library(furrr)
+  # filter(str_sub(naics, 3, -1)=="----") |>  
+  nest(data = c(fsize, name, estknown, lb_avgemp, ub_avgemp)) 
 
 # Set up parallel processing -- about a 4-5 fold speedup
 plan(multisession)
@@ -284,6 +280,25 @@ stats <- estemp_mta |>
          empdiff=emptot - emp,
          estpdiff=estdiff / est,
          emppdiff=empdiff / emp)
+skim_without_charts(stats)
+
+stats |> 
+  filter(is.infinite(emppdiff))
+# A tibble: 6 × 10
+#   county          naics    est   emp estabs   emptot  estdiff  empdiff estpdiff emppdiff
+#   <chr>           <chr>  <dbl> <dbl>  <dbl>    <dbl>    <dbl>    <dbl>    <dbl>    <dbl>
+# 1 New York County 49313/     3     0   3.00 3.91e-10 6.75e-11 3.91e-10 2.25e-11      Inf
+# 2 New York County 493130     3     0   3.00 3.91e-10 6.75e-11 3.91e-10 2.25e-11      Inf
+# 3 Putnam County   48412/     3     0   3.00 3.91e-10 6.75e-11 3.91e-10 2.25e-11      Inf
+# 4 Queens County   51223/     3     0   3.00 3.91e-10 6.75e-11 3.91e-10 2.25e-11      Inf
+# 5 Queens County   512230     3     0   3.00 3.91e-10 6.75e-11 3.91e-10 2.25e-11      Inf
+# 6 Queens County   812921     3     0   3.00 3.91e-10 6.75e-11 3.91e-10 2.25e-11      Inf
+
+estemp_mta |> 
+  filter(county=="New York County", naics=="49313/") |> 
+  select(state, county, naics, description, est, emp, estabs, avgemp) |> 
+  unnest_longer(col = c(estabs, avgemp)) |> 
+  kable()
 
 estemp_mta |>
   filter(naics=="------", fipscty=="005") |> 
@@ -294,8 +309,6 @@ estemp_mta |>
   unnest(c(data, estabs, avgemp)) |>
   select(county, naics, emp, est, name, nmiss, estknown, lb_avgemp, ub_avgemp, obj, estabs, avgemp) |>
   kable()
-
-
 
 ```
 
@@ -314,6 +327,7 @@ estemp_mta <- readRDS(fs::path(PDINTERMEDIATE, "estemp_mta.rds"))
 wages_mta <- estemp_mta |> 
   # filter(row_number()==1) |> 
   unnest(c(data, estabs, avgemp)) |> 
+  arrange(fipstate, fipscty, naics, fsize) |> 
   # select(fipstate, fipscty, state, county, naics, qp1, ap, est, emp, name, estknown, lb_avgemp, ub_avgemp, estabs, avgemp) |> 
   mutate(empgroup = estabs * avgemp, # total employment in a group
          # top_vsavg is ASSUMED ratio of top size-group average wage to overall average
@@ -323,10 +337,13 @@ wages_mta <- estemp_mta |>
 
 wages_mta
 
-wages_mta |> 
+check <- wages_mta |> 
   summarise(across(c(ap, est, emp), first),
             across(c(totwage, estabs, empgroup), sum),
-            .by = c(fipscty, county, naics))
+            .by = c(fipscty, county, naics)) |> 
+  mutate(wagepdiff = totwage / ap - 1L,
+         estpdiff=estabs / est - 1L,
+         emppdiff = empgroup / emp - 1L)
 
 saveRDS(wages_mta, fs::path(PDINTERMEDIATE, "wages_mta.rds"))
 
