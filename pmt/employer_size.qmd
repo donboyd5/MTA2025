@@ -9,15 +9,10 @@ editor_options:
 Possible approach:
 
 -   Use SUSB to get:
-    - Estimated average wage by employer size (for the few size groups they have), by industry
-    - Relationship between # of firms and # of establishments by firm size, by industry
-    - Relationship between # employees and (# of firms, # establishments) by firm size, by industry
-    
+    -   Estimated average wage by employer size (for the few size groups they have), by industry
+    -   Relationship between \# of firms and \# of establishments by firm size, by industry
+    -   Relationship between \# employees and (# of firms, \# establishments) by firm size, by industry
 -   Use CBP to get:
-    - More detailed breakdowns by establishment size
-    - Applying what we have learned from SUSB
-    
--   Apply CBP-SUSB info to create breakdown of QCEW wages, establishments,     
-    
-    
-
+    -   More detailed breakdowns by establishment size
+    -   Applying what we have learned from SUSB
+-   Apply CBP-SUSB info to create breakdown of QCEW wages, establishments,
