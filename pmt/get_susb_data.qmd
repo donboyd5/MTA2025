@@ -1,0 +1,117 @@
+---
+output: html_document
+editor_options: 
+  chunk_output_type: console
+---
+
+# Statistics of U.S. Businesses (SUSB)
+
+SUSB links
+
+-   https://www.census.gov/data/tables/2021/econ/susb/2021-susb-annual.html
+-   https://www.census.gov/programs-surveys/susb/technical-documentation.html
+-   https://www.census.gov/programs-surveys/susb/technical-documentation/methodology.html
+
+
+```{r}
+#| label: setup
+#| include: false
+
+source(here::here("R", "libraries.r"))
+source(here::here("R", "libraries_ts.r"))
+source(here::here("R", "constants.r"))
+source(here::here("R", "functions.r"))
+
+library(zip)
+library(lobstr)
+
+```
+
+
+```{r}
+
+fname <- "county_3digitnaics_2021.xlsx"
+susb1 <- read_excel(fs::path(PDRAW, "susb", fname), skip=2)
+glimpse(susb1)
+
+susb2 <- susb1 |> 
+  select(statefips=1,
+         state=2,
+         cofips=3,
+         county=4,
+         naics=5,
+         description=6,
+         firmsize=7,
+         firms=8,
+         estabs=9,
+         emp=10,
+         empnoise=11,
+         payroll=12,
+         paynoise=13) |> 
+  mutate(payroll=payroll * 1000)
+
+susb2 |> 
+  filter(state=="New York") |> 
+  count(cofips, county)
+
+mta <- susb2 |> 
+  filter(state=="New York", paste0(statefips, cofips) %in% constants$mtafips) |> 
+  mutate(mta=TRUE, nyc=paste0(statefips, cofips) %in% constants$nycfips)
+
+count(mta, nyc, county)
+count(mta, naics, description)
+
+nycshare <- mta |> 
+  filter(naics=="--") |> 
+  summarise(across(c(firms, estabs, emp, payroll), sum),
+            .by=c(nyc, firmsize)) |> 
+  mutate(nyc=ifelse(nyc, "nyc", "suburban"),
+         qfirmpay=(payroll / firms) / 4,
+         avgpay=payroll / emp)
+
+nycshare |> 
+  select(nyc, firmsize, qfirmpay) |> 
+  pivot_wider(names_from = nyc, values_from = qfirmpay) |> 
+  gt() |> 
+  tab_header(html("Average MTA <strong>quarterly</strong> firm payroll by firm size in 2021, <strong>dollars</strong>"),
+             subtitle="source=Statistics of U.S. Businesses (SUSB)") |> 
+  fmt_number(columns = c(nyc, suburban),
+             decimals = 0)
+  
+
+nycshare |> 
+  select(firmsize, payroll, nyc) |> 
+  pivot_wider(names_from = nyc, values_from = payroll) |> 
+  mutate(total=nyc + suburban,
+         nycpct=nyc / total) |> 
+  gt() |> 
+  tab_header(html("Total MTA payroll by firm size in 2021, $ billions, and NYC share of MTA"),
+             subtitle="source=Statistics of U.S. Businesses (SUSB)") |> 
+  fmt_number(columns = c(nyc, suburban, total),
+             scale = 1e-9,
+             decimals = 2) |> 
+  fmt_percent(columns = nycpct,
+              decimals = 1)
+
+# cumulative  
+nycshare |> 
+  select(firmsize, payroll, nyc) |> 
+  filter(!str_starts(firmsize, "1: Total")) |> 
+  arrange(nyc, desc(firmsize)) |> 
+  mutate(payroll=cumsum(payroll), .by=nyc) |> 
+  pivot_wider(names_from = nyc, values_from = payroll) |> 
+  arrange(firmsize) |> 
+  mutate(total=nyc + suburban,
+         nycpct=nyc / total) |> 
+  gt() |> 
+  tab_header(html("<strong>Reverse cumulative</strong> MTA payroll by firm size in 2021, $ billions, and NYC share of MTA"),
+             subtitle="source=Statistics of U.S. Businesses (SUSB)") |> 
+  fmt_number(columns = c(nyc, suburban, total),
+             scale = 1e-9,
+             decimals = 2) |> 
+  fmt_percent(columns = nycpct,
+              decimals = 1)
+
+
+```
+
