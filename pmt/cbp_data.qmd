@@ -331,7 +331,7 @@ wages_mta <- estemp_mta |>
   # select(fipstate, fipscty, state, county, naics, qp1, ap, est, emp, name, estknown, lb_avgemp, ub_avgemp, estabs, avgemp) |> 
   mutate(empgroup = estabs * avgemp, # total employment in a group
          # top_vsavg is ASSUMED ratio of top size-group average wage to overall average
-         avgwage = wage_env$get_avgwage_no_opt(ap, emp, avgemp, empgroup, top_vsavg=1.05),
+         avgwage = wage_env$get_avgwage_no_opt(ap, emp, avgemp, empgroup, top_vsavg=1.0),
          totwage = avgwage * empgroup,
          .by=c(fipstate, fipscty, naics)) 
 
@@ -385,6 +385,7 @@ saveRDS(wages_mta, fs::path(PDINTERMEDIATE, "wages_mta.rds"))
 #| output: false
 
 cbpny <- readRDS(fs::path(PDINTERMEDIATE, "cbpny.rds"))
+glimpse(cbpny)
 skim(cbpny)
 
 cbpny2 <- cbpny |> 
