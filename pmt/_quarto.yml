@@ -22,11 +22,11 @@ book:
       chapters:    
       - pmt_rules.qmd
     - part: "Prepare data"
-      chapters:    
+      chapters:
+      - get_susb_data.qmd    
       - get_qcew_data.qmd
       - explore_and_update_qcew.qmd
       - cbp_data.qmd
-      - susb_data.qmd
       - employer_size.qmd
       - make_pmt_base.qmd
 
