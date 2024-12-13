@@ -146,3 +146,24 @@ qcew |>
 
 ```
 
+
+```{r}
+#| label: nyc-share-of-mta
+
+qcew <- readRDS(fs::path(PDINTERMEDIATE, "qcewstco.rds"))
+glimpse(qcew)
+
+df <- qcew |> 
+  filter(mta, naics=="00", owner=="Private")
+
+df |> 
+  summarise(totwageb=sum(totwage) / 1e9, .by=c(year, nyc)) |> 
+  mutate(nyc=factor(nyc, levels = c(TRUE, FALSE), labels=c("nyc", "suburban"))) |> 
+  pivot_wider(names_from = nyc, values_from = totwageb) |> 
+  mutate(mta=nyc + suburban,
+         nycpct = nyc / mta)
+
+
+```
+
+
