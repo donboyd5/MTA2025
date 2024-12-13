@@ -107,7 +107,7 @@ get_estabs_avgemp <- function(est, emp, estknown, lb_avgemp, ub_avgemp, threshol
   start_params <- c(estknown, # initial estabs
                     lb_avgemp) # initial avgemp -- (lb_avgemp + ub_avgemp) / 2
   
-  result <- auglag(par = start_params,
+  result <- alabama::auglag(par = start_params,
                    fn = obj,
                    gr = gr,
                    heq = heq,

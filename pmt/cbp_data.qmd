@@ -26,9 +26,20 @@ source(here::here("R", "functions.r"))
 ests_env <- new.env()
 source(here::here("pmt", "get_estabs_avgemp_by_size.R"), local=ests_env)
 
+wage_env <- new.env()
+source(here::here("pmt", "get_avgwage_by_size.R"), local=wage_env)
+
+
 ```
 
 ## Get data
+
+-   Read CBP data, geographic code file (area names), and industry code file
+-   Minor cleaning
+-   Put area names and industry names on the file
+-   Convert annual and quarterly payroll from ($000) to dollars
+-   Put MTA and NYC indicators on the file
+-   Save file
 
 ```{r}
 #| label: get-data
@@ -114,7 +125,10 @@ count(cbp2 |> filter(state=="New York"), county) # 63: 62 + Statewide
 cbp3 <- cbp2 |> 
   filter(state=="New York") |> 
   mutate(mta=paste0(fipstate, fipscty) %in% constants$mtafips,
-         nyc=paste0(fipstate, fipscty) %in% constants$nycfips)
+         nyc=paste0(fipstate, fipscty) %in% constants$nycfips,
+         ap=ap*1000, # put payroll in actual units
+         qp1 = qp1 * 1000 # put payroll in actual units
+         )
 count(cbp3, mta, nyc, county)
 
 saveRDS(cbp3, fs::path(PDINTERMEDIATE, "cbpny.rds"))
@@ -156,6 +170,32 @@ Run a constrained nonlinear opimization for each naics group within county. with
     -   for establishments, set to Census-reported numbers
     -   for average employment per establishemnt set to lower bound of the size range -- this tends to push the solution toward the lower bound of the size range
 
+### Prepare data
+
+Prepare a long file with all groups:
+
+-   replace all na with 0
+-   calc total known \# establishments by summing estabs by size group
+-   calc nmiss = total establishments - sum 
+-   calc misspct nmiss as \% of total
+-   pivot the \# of establishments by size group longer
+-   merge in lower and upper bounds for establishment employment in each
+    size group
+
+Prepare a base file with groups for the estimation:
+
+-   drop non-MTA records
+-   keep only naics groups that end in "----"
+-   nest by county-naics group
+    
+### Estimate average employment by establishment size-group
+
+-   drop non-MTA records
+-   keep only naics groups that end in "----"
+-   
+
+
+
 ```{r}
 #| label: solve-estabs-emp
 #| output: false
@@ -170,7 +210,7 @@ cbpny2 <- cbpny |>
          misspct=nmiss / est)
 
 avgemp1 <- read_csv("
-name, lb, ub
+name, lb_avgemp, ub_avgemp
 nlt_5, 0, 4
 n5_9, 5, 9
 n10_19, 10, 19
@@ -182,42 +222,40 @@ n500_999, 500, 599
 n1000, 1000, Inf")
 avgemp1
 
-shares <- cbpny2 |> 
-  select(fipstate, fipscty, state, county, mta, nyc, naics, description, emp, ap, est, nmiss, nlt_5:n1000) |> 
-  pivot_longer(nlt_5:n1000, values_to = "known") |> 
-  left_join(avgemp1, by = join_by(name)) |> 
-  mutate(avgemp1=case_when(name=="n1000" ~ 0,
-                           .default = (lb + ub) / 2),
-         emp1 = known * avgemp1) |> 
-  mutate(empsum1 = sum(emp1),
-         diff1=emp - empsum1[name=="n1000"],
-         avgdiff1=ifelse(name=="n1000", diff1 / known, NA_real_),
-         .by=c(fipstate, fipscty, naics)) 
-  # we want every emp amount in each range to fall within its bounds, and the total to hit the known employment
-shares
+cbpny_long <- cbpny2 |> 
+  select(fipstate, fipscty, state, county, mta, nyc, naics, description, qp1, ap, est, emp, nmiss, nlt_5:n1000) |> 
+  pivot_longer(nlt_5:n1000, values_to = "estknown") |> 
+  left_join(avgemp1, by = join_by(name)) 
 
-# keepnaics <- c("484121", "23----")
-# keepnaics <- c("22----", "23----", "31----")
+estemp_base <- cbpny_long |> 
+  filter(mta) |> 
+  filter(str_sub(naics, 3, -1)=="----") |>  
+  nest(data = c(name, estknown, lb_avgemp, ub_avgemp)) 
+
+library(furrr)
+
+# Set up parallel processing -- about a 4-5 fold speedup
+plan(multisession)
 
 a <- proc.time()
-estemp_mta <-shares |> 
-  filter(mta) |> 
-  nest(data = -c(fipscty, state, county, naics, description)) |>
-  filter(str_sub(naics, 3, -1)=="----") |>
-  mutate(res = purrr::map(data, \(x) ests_env$get_estabs_avgemp(
-    est = x$est[1],
-    emp = x$emp[1],
-    estknown = x$known,
-    lb_avgemp = x$lb,
-    ub_avgemp = x$ub,
-    threshold = .5,
-    trace = FALSE)
-  )) |> 
+estemp_mta <-estemp_base |> 
+  mutate(
+    # pass a list that includes nested data, and unnested est and emp
+    res = furrr::future_pmap(
+      list(data, est, emp), \(data, est, emp)
+      ests_env$get_estabs_avgemp(
+        est = est,
+        emp = emp,
+        estknown = data$estknown,
+        lb_avgemp = data$lb_avgemp,
+        ub_avgemp = data$ub_avgemp,
+        threshold = .5,
+        trace = FALSE)))|> 
   mutate(
     obj = purrr::map_dbl(res, "value"),
     par = purrr::map(res, "par"),
-    estabs = purrr::map(par, ~head(.x, 9)),
-    avgemp = purrr::map(par, ~tail(.x, 9))
+    estabs = purrr::map(par, ~head(.x, 9)), # first 9 elements of par are # establishments by size
+    avgemp = purrr::map(par, ~tail(.x, 9))  # last 9 elements of par are employment by estab size
   )
 b <- proc.time()
 b - a
@@ -225,7 +263,6 @@ b - a
 estemp_mta
 
 saveRDS(estemp_mta, fs::path(PDINTERMEDIATE, "estemp_mta.rds"))
-
 
 ```
 
@@ -236,7 +273,7 @@ saveRDS(estemp_mta, fs::path(PDINTERMEDIATE, "estemp_mta.rds"))
 
 stats <- estemp_mta |> 
   unnest(c(data, estabs, avgemp)) |> 
-  select(county, naics, emp, est, name, nmiss, known, lb, ub, obj, estabs, avgemp) |> 
+  select(county, naics, emp, est, name, nmiss, estknown, lb_avgemp, ub_avgemp, obj, estabs, avgemp) |> 
   mutate(emptot=estabs * avgemp) |> 
   summarise(est=first(est),
             emp=first(emp),
@@ -249,13 +286,13 @@ stats <- estemp_mta |>
          emppdiff=empdiff / emp)
 
 estemp_mta |>
-  filter(naics=="------", county) |> 
+  filter(naics=="------", fipscty=="005") |> 
   mutate(
     estabs = purrr::map(par, ~head(.x, 9)),
     avgemp = purrr::map(par, ~tail(.x, 9))
   ) |>
   unnest(c(data, estabs, avgemp)) |>
-  select(county, naics, emp, est, name, nmiss, known, lb, ub, obj, estabs, avgemp) |>
+  select(county, naics, emp, est, name, nmiss, estknown, lb_avgemp, ub_avgemp, obj, estabs, avgemp) |>
   kable()
 
 
@@ -264,10 +301,62 @@ estemp_mta |>
 
 ## Estimate average wages and total wages by county-naics-size group
 
+Do this without optimiztion
+
 ```{r}
 #| label: wages-by-size-group
 #| output: false
 
+# get establishments and employment data by range
+
+estemp_mta <- readRDS(fs::path(PDINTERMEDIATE, "estemp_mta.rds"))
+
+wages_mta <- estemp_mta |> 
+  # filter(row_number()==1) |> 
+  unnest(c(data, estabs, avgemp)) |> 
+  # select(fipstate, fipscty, state, county, naics, qp1, ap, est, emp, name, estknown, lb_avgemp, ub_avgemp, estabs, avgemp) |> 
+  mutate(empgroup = estabs * avgemp, # total employment in a group
+         # top_vsavg is ASSUMED ratio of top size-group average wage to overall average
+         avgwage = wage_env$get_avgwage_no_opt(ap, emp, avgemp, empgroup, top_vsavg=1.05),
+         totwage = avgwage * empgroup,
+         .by=c(fipstate, fipscty, naics)) 
+
+wages_mta
+
+wages_mta |> 
+  summarise(across(c(ap, est, emp), first),
+            across(c(totwage, estabs, empgroup), sum),
+            .by = c(fipscty, county, naics))
+
+saveRDS(wages_mta, fs::path(PDINTERMEDIATE, "wages_mta.rds"))
+
+# df1 <- estemp_mta |> 
+#   filter(row_number()==2) |> 
+#   unnest(c(data, estabs, avgemp)) |> 
+#   select(fipscty, county, naics, description, qp1, ap, est, emp, name, estknown, lb_avgemp, ub_avgemp, estabs, avgemp) |> 
+#   mutate(empgroup=estabs * avgemp)
+# 
+# df1
+# 
+# # inputs to function
+# ap <- df1$ap
+# emp <- df1$emp
+# avgemp <- df1$avgemp
+# empgroup <- df1$empgroup
+# 
+# avgwage <- get_avgwage_no_opt(ap, emp, avgemp, empgroup, top_vsavg=1.05)
+# avgwage <- get_avgwage_no_opt(ap, emp, avgemp, empgroup, top_vsavg=1.10)
+# 
+# sum(avgwage * empgroup)
+# 
+# avgwage
+# n <- length(avgemp)
+# avgwage[n] / (ap[1] / emp[1])
+
+
+# find avgwage per group st sum(avgwage * avgemp) = totwages
+# avgwage[top] = 1.05 * totavgwage
+# min squared diff (avgwage - totavgwage)
 
 ```
 
