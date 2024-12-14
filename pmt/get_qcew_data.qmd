@@ -102,6 +102,7 @@ THIS SECTION DOES NOT CHANGE ANY DATA AND RESAVE IT.
 
 ```{r}
 #| label: explore
+#| eval: false
 #| output: false
 
 qcew <- readRDS(fs::path(PDINTERMEDIATE, "qcewstco.rds"))
@@ -158,6 +159,8 @@ qcew |>
 
 ```{r}
 #| label: nyc-share-of-mta
+#| eval: false
+#| output: false
 
 qcew <- readRDS(fs::path(PDINTERMEDIATE, "qcewstco.rds"))
 glimpse(qcew)

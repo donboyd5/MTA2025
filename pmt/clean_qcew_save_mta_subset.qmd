@@ -4,18 +4,14 @@ editor_options:
   chunk_output_type: console
 ---
 
-# Clean QCEW data
+# Clean QCEW data and save MTA subset
 
-The goal of this section is to prepare "atomistic" QCEW data for the MTA region.
-
-By atomistic I mean that each level of ownership, or naics, is a complete subset of the total. 
-
-For ownership, there will be just 2 levels: (1) total, and (2) components consisting of private, federal, state, local, and othergovt (if any).
-
-For naics, there are several levels
--   naics 1 -- the totals across all industries; these are our control totals
--   naics 2 -- we need an all-other category that fills in any amounts not in the details, so that the level 2 numbers sum to the level 1 total
--   naics 3 -- ditto; probably stop here and don't bother with naics 4-6
+-   get MTA subset
+-   make ownership factor
+-   redefine naics_level so that level 1 is grand total
+-   get naics levels 1, 2, and 3 only
+-   get years 2009 and later (years relevant for the pmt)
+-   save 
 
 ## Setup
 
@@ -31,12 +27,6 @@ source(here::here("R", "functions.r"))
 ```
 
 ## Get qcew and do initial cleaning
-
--   make ownership factor
--   get MTA subset
--   get naics levels 1, 2, and 3 only
--   get years 2009 and later (years relevant for the pmt)
--   save 
 
 ```{r}
 #| label: get-data
@@ -54,17 +44,18 @@ glimpse(qcew1)
 #| output: false
 
 # I don't know what codes NYSDOL uses so make my own
-ownf <- c(`0`="Total Private and Government",
-          `1`="Private",
-          `2`="Total Government",
-          `3`="Federal Government",
-          `4`="State Government",
-          `5`="Local Government")
+ownf <- c(`1`="Total Private and Government",
+          `2`="Private",
+          `3`="Total Government",
+          `4`="Federal Government",
+          `5`="State Government",
+          `6`="Local Government")
 
 qcew_mta <- qcew1 |> 
   filter(areatype == "county") |> # redundant with mta
   filter(mta, naics_level <= 3, year >= 2009) |> 
-  mutate(ownerf = factor(owner,
+  mutate(naics_level = ifelse(naics == "00", 1, naics_level),
+         ownerf = factor(owner,
                          levels = ownf,
                          labels = names(ownf),
                          ordered = TRUE)) |> 
@@ -74,6 +65,7 @@ qcew_mta <- qcew1 |>
   arrange(county, year, ownerf)
 glimpse(qcew_mta)
 count(qcew_mta, ownerf, owner)
+count(qcew_mta |> mutate(nlen = nchar(naics)), naics_level, nlen)
 
 saveRDS(qcew_mta, fs::path(PDINTERMEDIATE, "qcew_mta.rds"))
 
@@ -193,6 +185,8 @@ For MTA region, they are 97% and 91%
 
 ```{r}
 #| label: owner-sums-statewide
+#| eval: false
+#| output: false
 
 tabdata <- qcew2 |> 
   filter(areatype=="state", year==2022) |> 
@@ -237,6 +231,8 @@ tabdata |>
 
 ```{r}
 #| label: owner-sums-mta
+#| eval: false
+#| output: false
 
 tabdata <- qcew2 |> 
   filter(areatype=="county", year==2022, mta) |> 
@@ -278,6 +274,8 @@ MTA region -- close, but not as close
 
 ```{r}
 #| label: industry-sums-statewide
+#| eval: false
+#| output: false
 
 tabdata <- qcew2 |> 
   filter(areatype=="state", year==2022, ownerf==0) |> 
@@ -299,6 +297,8 @@ tabdata |>
 
 ```{r}
 #| label: industry-sums-mta
+#| eval: false
+#| output: false
 
 tabdata <- qcew2 |> 
   filter(areatype=="county", year==2022, ownerf==0, mta) |> 
