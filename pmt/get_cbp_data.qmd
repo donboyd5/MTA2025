@@ -4,7 +4,7 @@ editor_options:
   chunk_output_type: console
 ---
 
-# County Business Patterns (CBP)
+# Get County Business Patterns (CBP) for 2022 (latest year)
 
 CBP links
 
@@ -29,17 +29,11 @@ source(here::here("pmt", "get_estabs_avgemp_by_size.R"), local=ests_env)
 wage_env <- new.env()
 source(here::here("pmt", "get_avgwage_by_size.R"), local=wage_env)
 
-
 ```
 
 ## Get data
 
 -   Read CBP data, geographic code file (area names), and industry code file
--   Minor cleaning
--   Put area names and industry names on the file
--   Convert annual and quarterly payroll from ($000) to dollars
--   Put MTA and NYC indicators on the file
--   Save file
 
 ```{r}
 #| label: get-data
@@ -101,6 +95,15 @@ inds2 <- inds |>
 #   N1000_1         N       Number of Establishments: Employment Size Class: 1,000-1,499 Employees
 
 ```
+
+## Minor cleaning
+
+-   Convert numeric variables, read as character (to allow inspectin), to numeric
+-   Put area names and industry names on the file
+-   Filter to include only records in New York state
+-   Convert annual and quarterly payroll from ($000) to dollars
+-   Put MTA and NYC logical indicators on the file
+-   Save file as cbpny.rds
 
 ```{r}
 #| label: clean-cbp
@@ -314,7 +317,7 @@ estemp_mta |>
 
 ## Estimate average wages and total wages by county-naics-size group
 
-Do this without optimiztion
+Do this without optimization.
 
 ```{r}
 #| label: wages-by-size-group
@@ -377,7 +380,7 @@ saveRDS(wages_mta, fs::path(PDINTERMEDIATE, "wages_mta.rds"))
 
 ```
 
-## Appendix
+## Appendix - explorations
 
 ```{r}
 #| label: cbp-explore

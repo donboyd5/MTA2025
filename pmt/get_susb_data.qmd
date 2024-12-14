@@ -4,7 +4,7 @@ editor_options:
   chunk_output_type: console
 ---
 
-# Statistics of U.S. Businesses (SUSB)
+# Statistics of U.S. Businesses (SUSB) for 2021
 
 SUSB links
 
@@ -28,7 +28,12 @@ library(lobstr)
 ```
 
 
+## Get SUSB data
+
 ```{r}
+#| label: get-susb
+#| output: false
+#| eval: true
 
 fname <- "county_3digitnaics_2021.xlsx"
 susb1 <- read_excel(fs::path(PDRAW, "susb", fname), skip=2)
@@ -50,16 +55,45 @@ susb2 <- susb1 |>
          paynoise=13) |> 
   mutate(payroll=payroll * 1000)
 
-susb2 |> 
+saveRDS(susb2, fs::path(PDINTERMEDIATE, "susb2021_raw.rds"))
+
+```
+
+## Get MTA subset of the SUSB
+
+```{r}
+#| label: susb-mta
+#| output: false
+
+susb <- readRDS(fs::path(PDINTERMEDIATE, "susb2021_raw.rds"))
+
+susb |> 
   filter(state=="New York") |> 
   count(cofips, county)
 
-mta <- susb2 |> 
+mta <- susb |> 
   filter(state=="New York", paste0(statefips, cofips) %in% constants$mtafips) |> 
   mutate(mta=TRUE, nyc=paste0(statefips, cofips) %in% constants$nycfips)
 
 count(mta, nyc, county)
 count(mta, naics, description)
+
+saveRDS(mta, fs::path(PDINTERMEDIATE, "susb2021_mta.rds"))
+
+```
+
+
+## Explore 2021 SUSB data for the MTA region
+
+What share of total MTA wages does NYC have by size of firm?
+
+(A quick-and-dirty analysis for the MTA.)
+
+
+```{r}
+#| label: explore-mta
+
+mta <- readRDS(fs::path(PDINTERMEDIATE, "susb2021_mta.rds"))
 
 nycshare <- mta |> 
   filter(naics=="--") |> 
@@ -77,7 +111,6 @@ nycshare |>
              subtitle="source=Statistics of U.S. Businesses (SUSB)") |> 
   fmt_number(columns = c(nyc, suburban),
              decimals = 0)
-  
 
 nycshare |> 
   select(firmsize, payroll, nyc) |> 
@@ -112,6 +145,6 @@ nycshare |>
   fmt_percent(columns = nycpct,
               decimals = 1)
 
-
 ```
+
 

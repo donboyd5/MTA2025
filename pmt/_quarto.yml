@@ -23,12 +23,13 @@ book:
       - pmt_rules.qmd
     - part: "Prepare data"
       chapters:
+      - get_cbp_data.qmd
       - get_susb_data.qmd    
       - get_qcew_data.qmd
-      - explore_and_update_qcew.qmd
-      - cbp_data.qmd
-      - employer_size.qmd
-      - make_pmt_base.qmd
+      # - clean_qcew.qmd
+      # - fillin_qcew.qmd
+      # - employer_size.qmd
+      # - make_pmt_base.qmd
 
 # bibliography: references.bib
 

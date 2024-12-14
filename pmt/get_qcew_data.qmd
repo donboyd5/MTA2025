@@ -6,9 +6,13 @@ editor_options:
 
 # Get qcew data
 
+## QCEW data from the New York State Department of Labor
+
 - [NYSDOL QCEW landing page](https://dol.ny.gov/quarterly-census-employment-and-wages)
 - [direct zip link](https://statistics.labor.ny.gov/qcew.zip)
 - [technical notes](https://dol.ny.gov/qcew-technical-notes)
+
+The New York State Department of Labor (NYSDOL) provides a version of the BLS Quarterly Census of Employment and Wages (QCEW) that has quarterly county-level wage, establishment, and employment data in a format we need. The data are available from 2000 through a recent quarter. A new quarter and revisions to prior quarters generally are available about 6 months after end of a quarter.
 
 ```{r}
 #| label: setup
@@ -25,12 +29,9 @@ library(lobstr)
 ```
 
 
-## QCEW data from the New York State Department of Labor
-
-The New York State Department of Labor (NYSDOL) provides a version of the BLS Quarterly Census of Employment and Wages (QCEW) that has quarterly county-level wage, establishment, and employment data in a format we need. The data are available from 2000 through a recent quarter. A new quarter and revisions to prior quarters generally are available about 6 months after end of a quarter.
-
 ```{r}
 #| label: qcew-names
+#| output: false
 
 url <- "https://statistics.labor.ny.gov/qcew.zip"
 fname <- fs::path_file(url)
@@ -39,9 +40,11 @@ zpath <- paste0(PDRAW, "/", fname)
 
 ```
 
-### Download qcew data
+## Download qcew data
 
 Note: The latest qcew.zip file, which I downloaded once manually and once with the code below, appears to have been corrupted, at least as downloaded by my machine. I had to use an external utility (WinRar) to unzip it to a separate folder, then rezip it, after which the computer could read it.
+
+Change eval: to true in chunk below to re-download data.
 
 ```{r}
 #| label: download-qcew
@@ -53,7 +56,11 @@ download.file(url, zpath, mode="wb")
 
 ```
 
-### Read and save QCEW data
+## Read, make minor adjustments, and save QCEW data
+
+-   variable names --> lower case
+-   keep only state and county records - drop other kinds of areas and balance of state
+-   add logical indicators for mta and nyc counties
 
 ```{r}
 #| label: read-save-qcew
@@ -89,7 +96,9 @@ rm(df, df2, df3)
 ```
 
 
-### Explore qcew
+## Explore qcew - NO CHANGES TO SAVED DATA
+
+THIS SECTION DOES NOT CHANGE ANY DATA AND RESAVE IT.
 
 ```{r}
 #| label: explore

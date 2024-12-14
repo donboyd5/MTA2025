@@ -17,6 +17,8 @@ source(here::here("R", "libraries_ts.r"))
 source(here::here("R", "constants.r"))
 source(here::here("R", "functions.r"))
 
+library(stringdist)
+
 ```
 
 ## Get data
@@ -25,11 +27,323 @@ source(here::here("R", "functions.r"))
 #| label: get-data
 #| output: false
 
-qcew2 <- readRDS(fs::path(PDINTERMEDIATE, "qcewstco_clean.rds"))
+qcew1 <- readRDS(fs::path(PDINTERMEDIATE, "qcewstco_clean.rds"))
+cbpmta1 <- readRDS(fs::path(PDINTERMEDIATE, "wages_mta.rds"))
 
-glimpse(qcew2)
+glimpse(qcew1)
+glimpse(cbpmta1)
 
 ```
+
+## Prep data and crosswalks
+
+-   limit to MTA
+-   put fips codes on
+
+```{r}
+#| label: initial-prep-qcew
+#| output: false
+
+count(qcew1, areatype, area) # all of NYS
+
+qcewmta1 <- qcew1 |> 
+  filter(mta) |> 
+  select(-areatype) |> 
+  rename(county=area)
+
+glimpse(qcewmta1)
+count(qcewmta1, county)
+
+```
+
+-   Test merge on area and put fips codes on qcew
+
+```{r}
+#| label: test-merge-area
+#| output: false
+
+stubqcew <- qcewmta1 |> 
+  select(county) |> 
+  distinct()
+
+stubcbp <- cbpmta1 |> 
+  select(fipstate, fipscty, county) |> 
+  distinct()
+
+stubmrg <- stubqcew |> 
+  left_join(stubcbp,
+            by = join_by(county))
+stubmrg
+
+# looks good - put fipstate, fipscty on qcew
+
+qcewmta2 <- qcewmta1 |> 
+  left_join(stubcbp,
+            by = join_by(county)) |> 
+  relocate(fipstate, fipscty)
+
+saveRDS(qcewmta2, fs::path(PDINTERMEDIATE, "qcew_mta.rds"))
+
+```
+
+
+### Industry crosswalk
+
+```{r}
+#| label: industry-xwalk
+#| output: false
+
+ind_qcew <- qcewmta2 |> 
+  select(naics_level, naics_qcew=naics, title_qcew=title) |> 
+  distinct() |>  # 2,320 
+  arrange(naics_qcew)
+
+
+ind_cbp <- cbpmta1 |> 
+  select(naics_cbp=naics, title_cbp=description) |> 
+  distinct() |>  # 1,653
+  arrange(naics_cbp)
+
+head(ind_qcew)
+head(ind_cbp)
+
+qcewchk <- ind_qcew |> filter(str_sub(naics_qcew, 1, 1)=="1") # 64
+cbpchk <- ind_cbp |> filter(str_sub(naics_cbp, 1, 1)=="1") # 14
+
+# create unaics and utitle, uniform versions of these variables ----
+# use the title from qcew as it is more detailed and precise
+# use the qcew naics code and naics_level
+
+ind_qcew2 <- ind_qcew |> 
+  rename(naics_level_qcew = naics_level) |> 
+  mutate(unaics = naics_qcew,
+         utitle =  title_qcew)
+
+ind_cbp2 <- ind_cbp |> 
+  mutate(unaics = word(naics_cbp, 1, sep="/"),
+         unaics = word(unaics, 1, sep="-"),
+         unaics=ifelse(naics_cbp == "------",
+                       "00",
+                       unaics),
+         naics_level_cbp = nchar(unaics))
+
+# unaics_level = naics_level,
+uinds <- ind_qcew2 |>
+  full_join(ind_cbp2,
+            by = join_by(unaics)) |> 
+  mutate(both = !is.na(naics_qcew) & !is.na(naics_cbp),
+         qcew_only = !is.na(naics_qcew) & is.na(naics_cbp),
+         cbp_only = is.na(naics_qcew) & !is.na(naics_cbp)) |> 
+  mutate(unaics_level = case_when(unaics == "00" ~ 1,
+                                  both ~ naics_level_qcew,
+                                  qcew_only ~ naics_level_qcew,
+                                  cbp_only ~ naics_level_cbp),
+         utitle = case_when(is.na(utitle) ~ title_cbp,
+                            .default = utitle)) |> 
+  select(unaics_level, unaics, utitle, 
+         naics_level_qcew, naics_level_cbp,
+         naics_qcew, naics_cbp,
+         title_qcew, title_cbp,
+         both, qcew_only, cbp_only) |> 
+  arrange(unaics)
+
+check_both <- uinds |> 
+  filter(both) |> 
+  select(unaics, naics_qcew, naics_cbp, title_qcew, title_cbp) # 1,627
+
+check_qcew <- uinds |> 
+  filter(qcew_only) |> 
+  select(unaics, naics_qcew, naics_cbp, title_qcew, title_cbp) # 693
+
+check_cbp <- uinds |> 
+  filter(cbp_only) |> 
+  select(unaics, naics_qcew, naics_cbp, title_qcew, title_cbp) # 28
+
+
+comp <- uinds |> 
+  mutate(qtitle_comp = str_remove(title_qcew, "^.*: "),
+         similarity = stringsim(title_cbp, qtitle_comp))
+
+# see if there are any matches in the 2 "only" files
+cross <- cross_join(
+  uinds |> 
+    filter(qcew_only) |> 
+    select(naics_qcew, title_qcew) |> 
+    mutate(qtitle_comp = str_remove(title_qcew, "^.*: ")),
+  uinds |> 
+    filter(cbp_only) |> 
+    select(naics_cbp, title_cbp)
+  ) |> 
+  mutate(similarity = stringsim(title_cbp, qtitle_comp))
+
+uinds |> 
+  filter(str_starts(unaics, "23829"))
+
+saveRDS(uinds, fs::path(PDINTERMEDIATE, "qcew_cbp_naics_xwalk.rds"))
+
+
+both <- uinds |> 
+  filter(both) |> 
+  select(unaics_level, unaics, utitle)
+count(both, unaics_level)
+
+tmp <- both |> 
+  filter(unaics_level <= 4)
+
+# level <= 3 may be good for constructing size distribution of qcew establishments
+
+# how many level 1, 2, 3, 4 qcew titles do not have cbp match?
+uinds |> 
+  filter(qcew_only) |> 
+  filter(unaics_level == 5) |> 
+  select(unaics_level, unaics, utitle)
+
+# qcew without cbp match by level
+# 1: 0, 2: 1, 3: 23, 4: 68, 5: 179
+
+# unaics_level unaics utitle
+
+# 2 92     Public Administration
+
+# 23 level 3s don't have cbp match
+# 3 111    NAICS 111: Crop Production                                                             
+# 3 112    NAICS 112: Animal Production                                                           
+# 3 113    NAICS 113: Forestry and Logging                                                        
+# 3 211    NAICS 211: Oil and Gas Extraction                                                      
+# 3 449    NAICS 449: Furniture, Home Furnishings, Electronics, and Appliance Retailers           
+# 3 455    NAICS 455: General Merchandise Retailers                                               
+# 3 456    NAICS 456: Health and Personal Care Retailers                                          
+# 3 457    NAICS 457: Gasoline Stations and Fuel Dealers                                          
+# 3 458    NAICS 458: Clothing, Clothing Accessories, Shoe, and Jewelry Retailers                 
+# 3 459    NAICS 459: Sporting Goods, Hobby, Musical Instrument, Book, and Miscellaneous Retailers
+# 3 491    NAICS 491: Postal Service                                                              
+# 3 513    NAICS 513: Publishing Industries                                                       
+# 3 516    NAICS 516: Internet Publishing and Broadcasting                                        
+# 3 814    NAICS 814: Private Households                                                          
+# 3 921    Executive, Legislative, & Gen Government                                               
+# 3 922    Justice, Public Order, and Safety Activi                                               
+# 3 923    Administration of Human Resource Program                                               
+# 3 924    Administration of Environmental Programs                                               
+# 3 925    Community and Housing Program Admin                                                    
+# 3 926    Administration of Economic Programs                                                    
+# 3 927    Space Research and Technology                                                          
+# 3 928    National Security & International Affair                                               
+# 3 999    Unclassified 
+
+
+```
+
+
+## Merge qcew data and cbp data with estabs, emp, and wages by estab size
+
+```{r}
+#| label: get-data-for-merge
+#| output: false
+
+qcew <- readRDS(fs::path(PDINTERMEDIATE, "qcewstco.rds"))
+
+qcewmta <- readRDS(fs::path(PDINTERMEDIATE, "qcew_mta.rds"))
+cbpmta <- readRDS(fs::path(PDINTERMEDIATE, "wages_mta.rds"))
+uinds <- readRDS(fs::path(PDINTERMEDIATE, "qcew_cbp_naics_xwalk.rds"))
+
+glimpse(qcewmta)
+glimpse(cbpmta)
+glimpse(uinds)
+
+```
+
+
+```{r}
+#| label: merge-prep
+#| output: false
+
+qcewmta_prep <- qcewmta |> 
+  left_join(uinds |> 
+              filter(both) |> 
+              select(unaics_level, unaics, utitle, naics=naics_qcew),
+            by = join_by(naics),
+            relationship = "many-to-many") |> 
+  filter(unaics_level <= 3) |> 
+  select(-c(naics, naics_level, title))
+
+cbpmta_prep <- cbpmta |> 
+  select(fipstate, fipscty, county, naics, fsize, name, lb_avgemp, ub_avgemp, 
+         estabs_cbp=estabs, avgemp_cbp=avgemp, empgroup_cbp=empgroup, 
+         avgwage_cbp=avgwage, totwage_cbp=totwage) |> 
+  left_join(uinds |> 
+              filter(both) |> 
+              select(unaics_level, unaics, utitle, naics=naics_cbp),
+            by = join_by(naics),
+            relationship = "many-to-many") |> 
+  filter(unaics_level <= 3) |> 
+  select(-naics) 
+
+ns(qcewmta_prep)
+count(qcewmta_prep, ownerf, owner)
+
+qcewmta_prep |> 
+  filter(fipscty=="005", year==2021, unaics=="62")
+
+qcew |> filter(area=="Bronx County", year==2021, naics=="62")
+qcew |> filter(area=="Bronx County", year==2017, naics=="62")
+# recs
+# 2017, 2018, 2019, 2020: 4 xlocal xfed 2021: 2 priv state, 2022: 5 no local, 2023: 5 no local
+
+qcewmta_prep |> 
+  filter(year==2021, ownerf %in% 2:5) |> 
+  filter(unaics_level==2) |> 
+  arrange(fipscty, unaics, ownerf) |> 
+  mutate(tot=ownerf==2) |> 
+  mutate(gotall=n()==4, .by=fipscty, unaics) |> 
+  summarise(totwage=sum(totwage), .by=tot)
+
+# level, govt
+# 1 - good
+# 2 - NOT good, why?
+
+```
+
+```{r}
+#| label: merge-data
+#| output: false
+
+mrg1 <- qcewmta_prep |> 
+  right_join(cbpmta_prep, 
+             by = join_by(fipstate, fipscty, county, unaics_level, unaics, utitle),
+             relationship = "many-to-many")
+
+tmp1 <- mrg1 |> 
+  filter(year==2021, owner=="Private") |> 
+  select(fipstate, fipscty, county, year, unaics_level, unaics, utitle, fsize, name,
+         estab, estabs_cbp, totwage, totwage_cbp)
+
+check <- tmp1 |> 
+  summarise(estab=first(estab),
+            estabs_cbp=sum(estabs_cbp),
+            totwage=first(totwage),
+            totwage_cbp=sum(totwage_cbp),
+            .by=c(fipstate, fipscty, county, year, unaics_level, unaics, utitle)) |> 
+  mutate(estdiff=estabs_cbp - estab,
+         estpdiff=estabs_cbp / estab - 1,
+         wagediff=totwage_cbp - totwage,
+         wagepdiff = totwage_cbp / totwage - 1)
+
+tmp <- check |> 
+  filter(fipscty=="005", unaics_level==2)
+
+skim_without_charts(check)
+
+tmp1 |> 
+  filter(fipscty=="005", unaics=="00")
+
+qcewmta_prep |> 
+  filter(fipscty=="005", unaics=="00")
+
+
+```
+
+
+
 
 ## Excluded industries
 
