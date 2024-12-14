@@ -1,0 +1,112 @@
+---
+output: html_document
+editor_options: 
+  chunk_output_type: console
+---
+
+# Fill in QCEW data
+
+The goal of this section is to prepare "atomistic" QCEW data for the MTA region.
+
+By atomistic I mean that each level of ownership, or naics, is a complete subset of the total. 
+
+For ownership, there will be just 2 levels: (1) total, and (2) components consisting of private, federal, state, local, and othergovt (if any).
+
+For naics, there are several levels
+-   naics 1 -- the totals across all industries; these are our control totals
+-   naics 2 -- we need an all-other category that fills in any amounts not in the details, so that the level 2 numbers sum to the level 1 total
+-   naics 3 -- ditto; probably stop here and don't bother with naics 4-6
+
+## Setup
+
+```{r}
+#| label: setup
+#| include: false
+
+source(here::here("R", "libraries.r"))
+source(here::here("R", "libraries_ts.r"))
+source(here::here("R", "constants.r"))
+source(here::here("R", "functions.r"))
+
+```
+
+## Get QCEW MTA data
+
+```{r}
+#| label: get-data
+#| output: false
+
+qcew_mta <- readRDS(fs::path(PDINTERMEDIATE, "qcew_mta.rds"))
+
+glimpse(qcew_mta)
+count(qcew_mta, ownerf, owner)
+
+qcew_mta |> 
+  filter(nyc, year==2023, naics_level==1)
+
+```
+
+## Fill in ownership levels and data
+
+Work in progress...
+
+Figure out how to do fillin ....
+
+
+```{r}
+#| label: fill-ownership
+
+# are there any count-naics codes that don't have owner1 (total)?
+# yes, plenty but all have at least one other value
+qcew_mta |> 
+  select(county, naics, year, ownerf) |> 
+  mutate(n=n(), .by=c(county, naics, year, ownerf)) |> 
+  pivot_wider(names_from = ownerf, values_from = "n", values_fill = 0) |> 
+  filter(`1` == 0) |> # yes, quite a few
+  mutate(sum = rowSums(across(-c(county, naics, year)))) |> 
+  arrange(sum)
+
+# are there any count-naics codes that don't have owner3 (total government)?
+# yes, plenty but all have at least one other value
+
+qcew_mta |> 
+  filter(ownerf %in% 3:6) |> 
+  select(county, naics, year, ownerf) |> 
+  mutate(n=1, .by=c(county, naics, year, ownerf)) |> 
+  pivot_wider(names_from = ownerf, values_from = "n", values_fill = 0) |> 
+  filter(`3` == 0) |> # yes, quite a few
+  mutate(sum = rowSums(across(-c(county, naics, year)))) |> 
+  arrange(sum)
+
+# do column sums for govt = sums of fed, state, local when avail?
+#   we can have govt sum when we don't have any indiv govt levels
+qcew_mta |> 
+  filter(year==2023) |> 
+  filter(ownerf %in% 3:6) |> 
+  select(county, naics, title, year, ownerf, totwage) |> 
+  pivot_wider(names_from = ownerf, values_from = "totwage", values_fill = 0) |> 
+  filter(`3` != 0) |>
+  mutate(sum = rowSums(across(-c(`3`, county, naics, title, year))),
+         diff = `3` - sum) |> 
+  arrange(desc(abs(diff)))
+
+qcew_mta |> filter(year==2023, naics==92, county=="New York County")
+
+# we have total, private, totgov, and fed, but not state and local even though much wage is there
+qcew_mta |> filter(year==2023, naics==48, county=="New York County") 
+
+# so -- create total gov as either reported or sum if not, then other gov as total - fed - state - local
+
+# repeat for total, private maybe always adds?
+
+# keep atoms
+# make sure atoms add to totals
+
+
+
+```
+
+
+## Fill in naics levels and data
+
+
