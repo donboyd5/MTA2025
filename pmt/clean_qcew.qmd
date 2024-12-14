@@ -4,7 +4,18 @@ editor_options:
   chunk_output_type: console
 ---
 
-# Explore QCEW data
+# Clean QCEW data
+
+The goal of this section is to prepare "atomistic" QCEW data for the MTA region.
+
+By atomistic I mean that each level of ownership, or naics, is a complete subset of the total. 
+
+For ownership, there will be just 2 levels: (1) total, and (2) components consisting of private, federal, state, local, and othergovt (if any).
+
+For naics, there are several levels
+-   naics 1 -- the totals across all industries; these are our control totals
+-   naics 2 -- we need an all-other category that fills in any amounts not in the details, so that the level 2 numbers sum to the level 1 total
+-   naics 3 -- ditto; probably stop here and don't bother with naics 4-6
 
 ## Setup
 
@@ -19,7 +30,13 @@ source(here::here("R", "functions.r"))
 
 ```
 
-## Read qcew and do initial cleaning
+## Get qcew and do initial cleaning
+
+-   make ownership factor
+-   get MTA subset
+-   get naics levels 1, 2, and 3 only
+-   get years 2009 and later (years relevant for the pmt)
+-   save 
 
 ```{r}
 #| label: get-data
@@ -31,8 +48,6 @@ glimpse(qcew1)
 
 ```
 
-
-Add a factor for owner type.
 
 ```{r}
 #| label: make-factors
@@ -46,18 +61,21 @@ ownf <- c(`0`="Total Private and Government",
           `4`="State Government",
           `5`="Local Government")
 
-qcew2 <- qcew1 |> 
+qcew_mta <- qcew1 |> 
+  filter(areatype == "county") |> # redundant with mta
+  filter(mta, naics_level <= 3, year >= 2009) |> 
   mutate(ownerf = factor(owner,
                          levels = ownf,
                          labels = names(ownf),
-                         ordered = TRUE))
+                         ordered = TRUE)) |> 
+  select(county=area, mta, nyc, year, 
+         ownerf, owner, naics_level, naics, title,
+         estab, avgemp, totwage, annavgsal) |> 
+  arrange(county, year, ownerf)
+glimpse(qcew_mta)
+count(qcew_mta, ownerf, owner)
 
-count(qcew2, ownerf, owner)
-levels(qcew2$ownerf)
-
-qcew2 |> filter(areatype=="state", year==2022, ownerf==0)
-
-saveRDS(qcew2, fs::path(PDINTERMEDIATE, "qcewstco_clean.rds"))
+saveRDS(qcew_mta, fs::path(PDINTERMEDIATE, "qcew_mta.rds"))
 
 ```
 
