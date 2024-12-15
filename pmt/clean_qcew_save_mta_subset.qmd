@@ -44,27 +44,38 @@ glimpse(qcew1)
 #| output: false
 
 # I don't know what codes NYSDOL uses so make my own
-ownf <- c(`1`="Total Private and Government",
-          `2`="Private",
-          `3`="Total Government",
-          `4`="Federal Government",
-          `5`="State Government",
-          `6`="Local Government")
+# ownf <- c(`1`="Total Private and Government",
+#           `2`="Private",
+#           `3`="Total Government",
+#           `4`="Federal Government",
+#           `5`="State Government",
+#           `6`="Local Government")
+
+owner_factors <- read_csv("
+ownerf, owner, ownershort
+1, Total Private and Government, totown
+2, Private, privown
+3, Total Government, totgovown
+4, Federal Government, fedgovown
+5, State Government, stategovown
+6, Local Government, localgovown
+7, Other Government, othergovown
+")
+write_csv(owner_factors, fs::path(PDINTERMEDIATE, "owner_factors.csv"))
+
 
 qcew_mta <- qcew1 |> 
   filter(areatype == "county") |> # redundant with mta
   filter(mta, naics_level <= 3, year >= 2009) |> 
-  mutate(naics_level = ifelse(naics == "00", 1, naics_level),
-         ownerf = factor(owner,
-                         levels = ownf,
-                         labels = names(ownf),
-                         ordered = TRUE)) |> 
+  left_join(owner_factors, by = join_by(owner)) |> 
+  mutate(naics_level = ifelse(naics == "00", 1, naics_level)) |> 
   select(county=area, mta, nyc, year, 
-         ownerf, owner, naics_level, naics, title,
+         ownerf, owner, ownershort,
+         naics_level, naics, title,
          estab, avgemp, totwage, annavgsal) |> 
   arrange(county, year, ownerf)
 glimpse(qcew_mta)
-count(qcew_mta, ownerf, owner)
+count(qcew_mta, ownerf, owner, ownershort)
 count(qcew_mta |> mutate(nlen = nchar(naics)), naics_level, nlen)
 
 saveRDS(qcew_mta, fs::path(PDINTERMEDIATE, "qcew_mta.rds"))

@@ -35,7 +35,9 @@ source(here::here("R", "functions.r"))
 ```{r}
 #| label: get-data
 #| output: false
+# write_csv(owner_factors, fs::path(PDINTERMEDIATE, "owner_factors.csv"))
 
+owner_factors <- read_csv(fs::path(PDINTERMEDIATE, "owner_factors.csv"))
 qcew_mta <- readRDS(fs::path(PDINTERMEDIATE, "qcew_mta.rds"))
 
 glimpse(qcew_mta)
