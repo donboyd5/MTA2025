@@ -35,7 +35,6 @@ source(here::here("R", "functions.r"))
 ```{r}
 #| label: get-data
 #| output: false
-# write_csv(owner_factors, fs::path(PDINTERMEDIATE, "owner_factors.csv"))
 
 owner_factors <- read_csv(fs::path(PDINTERMEDIATE, "owner_factors.csv"))
 qcew_mta <- readRDS(fs::path(PDINTERMEDIATE, "qcew_mta.rds"))
@@ -53,7 +52,6 @@ qcew_mta |>
 Work in progress...
 
 Figure out how to do fillin ....
-
 
 ```{r}
 #| label: fill-ownership
@@ -104,11 +102,139 @@ qcew_mta |> filter(year==2023, naics==48, county=="New York County")
 # keep atoms
 # make sure atoms add to totals
 
+# we're going to drop annavgsal so make sure it can be computed from the details
+qcew_mta |> 
+  select(county, year, owner, totwage, avgemp, annavgsal) |> 
+  mutate(avg=totwage / avgemp,
+         diff=avg - annavgsal) |> 
+  filter(abs(diff) > 1)
+# good, calc amount is within $1 of reported
 
+owner_filled1 <- qcew_mta |> 
+  select(-c(owner, ownerf, annavgsal)) |> 
+  pivot_longer(c(estab, avgemp, totwage),
+               names_to = "variable") |> 
+  pivot_wider(names_from = ownershort, values_fill = 0)
+
+owner_filled1
+
+bad <- owner_filled1 |> 
+  filter(privown==0, totgovown==0)
+count(bad, year) # ~ 4.5k per year / 3 variables --> ~ 50 per year
+count(bad, naics_level) # all are 2 and 3, NONE are level 1
+bad |> 
+  summarise(across(totown:localgovown, \(x) sum(x)), .by=variable)
+# we have values for fedgovown, stategovown, localgovown, but none for totgovown or privown
+bad |> filter(if_all(privown:localgovown, ~ . == 0)) # 1704 rows of 2055 are ALL bad
+bad |> filter(!if_all(privown:localgovown, ~ . == 0)) # 351 rows
+
+# look at an example
+
+owner_filled1 |> filter(county=="Bronx County", year==2021, naics==92) # level 2
+owner_filled1 |> filter(county=="Bronx County", year==2021, naics_level==1)
+
+
+fixtotgov <- function(totown, privown, totgovown, fedgovown, stategovown, localgovown){
+  totgovown_original <- totgovown
+  govdetail <- fedgovown + stategovown + localgovown
+  totgovown <- pmax(totgovown_original, govdetail)
+  totgovown <- pmax(totgovown, totown - privown)
+  govother <- totgovown - govdetail
+  govflag <- totgovown > totgovown_original
+  tbl <- tibble(totgovown, govother, govflag, totgovown_original)
+  return(tbl)
+}
+
+fixtot <- function(totown, privown, totgovown){
+  totflag <- totown == 0 & ((privown + totgovown) > 0)
+  totown <- case_when(totflag ~ privown + totgovown,
+                         .default = totown)
+  tbl <- tibble(totown, totflag)
+  return(tbl)
+}
+
+owner_filled2 <- owner_filled1 |> 
+  # fix easy cased where we have one or more gov values but no totgovown
+  # same for totown, privown, govown
+  # DJB pmax(totgov, govdetails), then FILL IN PRIVATE, then check totown
+  mutate(fixtotgov(totown, privown, totgovown, fedgovown, stategovown, localgovown)) # |> 
+  # mutate(fixtot(totown, privown, totgovown))
+
+skim(owner_filled2)
+
+tmp <- owner_filled2 |> filter(totgovown != totgovown_original)
+
+owner_filled2 <- owner_filled1 |> 
+  # fix easy cased where we have one or more gov values but no totgovown
+  # same for totown, privown, govown
+  mutate(fixgov(totgovown, fedgovown, stategovown, localgovown)) |> 
+  mutate(fixtot(totown, privown, totgovown))
+  
+owner_filled2 |> 
+  filter(govflag & totflag) |> 
+  slice_head(n=10)
+
+owner_filled2 |> 
+  filter(govflag & !totflag) |> 
+  slice_head(n=10)
+
+owner_filled2 |> 
+  filter(!govflag & totflag) |> 
+  slice_head(n=10)
+
+check <- owner_filled1 |> 
+  select(-mta) |>
+  # filter(year==2023) |> 
+  mutate(diff = (totown - privown) - totgovown)
+  # filter(totown - privown > totgovown) |> 
+  # filter(totgovown > 0)
+  # mutate(totgovown = totown - privown)
+  
+check |> filter(abs(diff) > 2)  
+check |> filter(totgovown > 0, abs(diff) > 1) # none
+# in all cases the difference is one of:
+owner_filled1 |> 
+  filter(totown==0)
+#   rounding
+#   totgovown zero
+#   privown zero
+#  no totgovown detals
+
+# order:
+#  fix totgovown where details > 0
+#   fix totown if < privown + totgovown
+#      fox privown
+#     fix privown or totgovown
+
+owner_filled2 <- owner_filled1 |> 
+  mutate(check = fedgovown + stategovown + localgovown,
+         totgovzeroflag = totgovown == 0 & check > 0,
+         totgovdetailsflag = totgovown > 0 & totgovown > check,
+         totgovown = case_when(totgovzeroflag ~ check,
+                               .default = totgovown),
+         othergovown = case_when(totgovdetailsflag ~ totgovown - check,
+                                 .default = 0))
+owner_filled2 |> 
+  filter(totgovdetailsflag)
+
+owner_filled2 |> filter(str_sub(naics, 1, 2)=="49", county=="Bronx County", year==2009) |> select(-c(mta, nyc, naics_level))
+owner_filled2 |> filter(naics=="49")
+
+summary(owner_filled2 |> 
+          mutate(diff=totgovown - check))
+
+owner_filled2 |> 
+  filter(totgovown > check)
+
+owner_filled2 |> 
+  select(-c(mta, nyc, naics_level)) |> 
+  select(county:totgovown) |> 
+  filter(totown >0, privown >0, abs(totown - (privown + totgovown)) > 1) |> 
+  filter(totgovown > 0)
+
+tmp <- owner_filled2 |> 
+  filter(county=="Bronx County", year==2022, naics=="48")
 
 ```
 
-
 ## Fill in naics levels and data
-
-
