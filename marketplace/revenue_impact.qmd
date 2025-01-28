@@ -1,0 +1,200 @@
+
+# Potential revenue impact
+
+
+```{r}
+#| label: setup
+#| output: false
+
+# source(here::here("r", "libraries.r"))
+# source(here::here("r", "libraries_ts.r"))
+# source(here::here("r", "constants.r"))
+# source(here::here("r", "functions.r"))
+
+library(tidyverse)
+library(readxl)
+library(vroom)
+library(fs)
+library(btools)
+
+tprint <- 75  # default tibble print
+options(tibble.print_max = tprint, tibble.print_min = tprint) # show up to tprint rows
+
+# dsalesyear <- here::here("data", "dtf", "salesyear")
+ddir <- here::here("data")
+# fname <- "Taxable_Sales_And_Purchases_Quarterly_Data__Beginning_Sales_Tax_Year_2013-2014_20250126.csv"
+# fpath <- fs::path(ddir, fname)
+
+fname <- "Taxable_Sales_And_Purchases_Quarterly_Data__Beginning_Sales_Tax_Year_2013-2014_dl20250128.csv"
+fpath <- fs::path(ddir, fname)
+
+```
+
+
+```{r}
+#| label: download-taxable-sales-and-purchases
+#| eval: false
+#| output: false
+
+# ok to download the file manually as it doesn't seem easy to get a direct link, but code below should work
+# landing: https://data.ny.gov/Government-Finance/Taxable-Sales-And-Purchases-Quarterly-Data-Beginni/ny73-2j3u/data
+url <- "https://data.ny.gov/api/views/ny73-2j3u/rows.csv?accessType=DOWNLOAD&sorting=true" 
+fnbase <- "Taxable_Sales_And_Purchases_Quarterly_Data__Beginning_Sales_Tax_Year_2013-2014.csv"
+fname1 <- paste0(fs::path_ext_remove(fnbase), "_dl", format(Sys.Date(), "%Y%m%d"), ".csv")
+fpath1 <- fs::path(ddir, fname1)
+system.time(download.file(url, fpath1, mode="wb")) # 32 secs
+
+```
+
+
+```{r}
+#| label: get-taxable-sales-and-purchases
+#| eval: false
+#| output: false
+
+# clean and save taxable sales and purchases data, full details ----------------------------------------------------------
+
+# https://data.ny.gov/Government-Finance/Taxable-Sales-And-Purchases-Quarterly-Data-Beginni/ny73-2j3u/data
+# Status,Sales Tax Year,Selling Period,Sales Tax Quarter,Jurisdiction,
+# NAICS Industry Group,Description,Taxable Sales and Purchases,
+# Jurisdiction Sort Order,Row Update Indicator
+# fn <- "Taxable_Sales_And_Purchases_Quarterly_Data__Beginning_Sales_Tax_Year_2013-2014.csv"
+
+df <- vroom(fpath)
+glimpse(df)
+
+df2 <- df |> 
+  setNames(c("status", "styear", "stperiod", "stqtr", "govt", 
+             "naics", "fnaics", "txblsales", "govtsort", "rowind"))
+
+cbind(names(df2), names(df))
+
+count(df2, status) # F, P  Status of Data: P = Preliminary, subject to revision; F = Final
+count(df2, styear) # 2014-2025(partial) Sales Tax Year: from March 1 to February 28/29
+count(df2 |> filter(styear == "2024 - 2025"), stqtr, stperiod) # q1-q3 only end Nov 2024
+count(df2, stqtr, stperiod)
+count(df2, govt, govtsort) # 60 -- all caps, includes NY CITY, NY STATE, MCTD -- so 57 + 3
+count(df2, naics, fnaics) |> ht() # ~ 327, does not appear to be a total!
+tmp <- count(df2, naics, fnaics)
+count(df2, govtsort, govt) # 1=NY STATE, 2=MCTD, 32=NY CITY
+
+# xwalkny
+# clean: put date and uniname on the file
+# for date, use the first day of the calendar quarter in which the sales tax
+#  quarter has the greatest number of months -- see notes below
+# this assumes that the sales quarter is most closely aligned with economic
+# activity of the largely ovelapping calendar quarter
+
+mtacos <- c("New York City", "Dutchess", "Nassau", "Orange", "Putnam", "Rockland", "Suffolk", "Westchester")
+df3 <- df2 |> 
+  select(status, styear, stqtr, stperiod, govtsort, govt, naics, fnaics, txblsales) |> 
+  mutate(styear1=str_sub(styear, 1, 4) |> as.numeric(),
+         stqmonth1=factor(stqtr, levels=1:4, labels=c(3, 6, 9, 12)) |> as.character(),
+         calqtr=ifelse(as.integer(stqtr)==4, 1, as.integer(stqtr) + 1),
+         year=ifelse(calqtr==1, styear1 + 1, styear1), # see above
+         date=yq(paste0(year, ".", calqtr)),
+         stdate=paste0(styear1, "-", stqmonth1, "-", 1) |> as.Date(),
+         uniname=case_when(govt=="NY STATE" ~ "New York State",
+                           govt=="NY CITY" ~ "New York City",
+                           govt=="MCTD" ~ "MCTD",
+                           govt=="ST LAWRENCE" ~ "St. Lawrence",
+                           TRUE ~ str_to_title(govt))
+         ) |> 
+  mutate(mtacounty = case_when(uniname %in% mtacos ~ TRUE,
+                               .default = FALSE)) |> 
+  select(-c(styear1, calqtr, year), stqmonth1)
+
+# left_join(xwalkny |> select(unifips, uniname, mta_all), by="uniname")
+
+glimpse(df3)
+count(df3, govtsort, uniname, govt)
+count(df3 |> filter(mtacounty), govtsort, uniname, govt)
+
+count(df3, date, stdate, styear, stqtr, stperiod)
+
+saveRDS(df3, path(ddir, "tsp_detail.rds"))
+
+
+```
+
+
+
+```{r}
+
+```
+
+
+
+
+2017 North American Industry Classification System (NAICS)
+
+NAICS 4541 This industry comprises establishments primarily engaged in retailing all types of merchandise using nonstore means, such as catalogs, toll free telephone numbers, or electronic media, such as interactive television or the Internet. Included in this industry are establishments primarily engaged in retailing from catalog showrooms of mail-order houses. (See [this](https://www.census.gov/naics/reference_files_tools/2017_NAICS_Manual.pdf).)
+
+Taxable Sales And Purchases Quarterly Data: Beginning Sales Tax Year 2013-2014
+Government & Finance
+These statistics come from more than three million data items reported on about 250,000 sales tax returns filed quarterly and on about 300,000 returns filed annually. The dataset categorizes quarterly sales and purchases data by industry group using the North American Industry Classification System. The status of data will change as preliminary data becomes final.
+
+
+
+```{r}
+#| label: test-get-data
+#| eval: false
+#| output: false
+
+# not really useful ----
+
+library(httr)
+
+# URL from the export function
+url <- "https://data.ny.gov/api/views/ny73-2j3u/rows.csv?accessType=DOWNLOAD&sorting=true"
+
+response <- GET(url, config(nobody = TRUE))  # "nobody=TRUE" fetches headers only
+stop_for_status(response)
+
+headers <- headers(response)
+content_disposition <- headers$`content-disposition`
+
+# If header exists, extract filename
+if (!is.null(content_disposition)) {
+  filename <- regmatches(
+    content_disposition,
+    regexpr('filename=([^;\\n"]+)', content_disposition, ignore.case = TRUE)
+  )[[1]]
+  filename <- gsub('filename=|\"|\\s', '', filename)
+} else {
+  # Fallback: Construct filename from metadata or URL
+  filename <- "fallback_filename.csv"
+}
+
+# code below did not work ----
+# Step 1: Send a HEAD request to get headers (no content)
+response_head <- HEAD(url)
+stop_for_status(response_head)  # Ensure the request succeeded
+
+# Step 2: Extract the filename from the 'Content-Disposition' header
+headers <- headers(response_head)
+content_disposition <- headers$`content-disposition`
+
+if (!is.null(content_disposition)) {
+  # Extract filename using regex (handles quoted and unquoted filenames)
+  filename <- regmatches(
+    content_disposition,
+    regexpr('filename=["\']?([^"\']+)["\']?', content_disposition)
+  )[[1]]
+  filename <- gsub('filename=|\"|\'', '', filename)  # Clean up
+} else {
+  # Fallback: Use a default name if header is missing
+  filename <- "downloaded_file.csv"
+}
+
+# Step 3: Download the file with the extracted filename
+response_get <- GET(
+  url,
+  write_disk(filename, overwrite = TRUE)  # Saves directly to disk
+)
+stop_for_status(response_get)
+
+message(sprintf("File saved as: %s", filename))
+
+```
+
