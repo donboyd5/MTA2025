@@ -1,6 +1,12 @@
 
 # Potential revenue impact
 
+Key dates:
+
+-   January 15, 2019 State Tax Department notes informing vindors with no physical presence that they must register
+
+-   June 1, 2019 Internet Marketplace Act applies to sales
+
 
 ```{r}
 #| label: setup
@@ -16,14 +22,12 @@ library(readxl)
 library(vroom)
 library(fs)
 library(btools)
+library(bggtools)
 
 tprint <- 75  # default tibble print
 options(tibble.print_max = tprint, tibble.print_min = tprint) # show up to tprint rows
 
-# dsalesyear <- here::here("data", "dtf", "salesyear")
 ddir <- here::here("data")
-# fname <- "Taxable_Sales_And_Purchases_Quarterly_Data__Beginning_Sales_Tax_Year_2013-2014_20250126.csv"
-# fpath <- fs::path(ddir, fname)
 
 fname <- "Taxable_Sales_And_Purchases_Quarterly_Data__Beginning_Sales_Tax_Year_2013-2014_dl20250128.csv"
 fpath <- fs::path(ddir, fname)
@@ -114,16 +118,130 @@ count(df3, date, stdate, styear, stqtr, stperiod)
 
 saveRDS(df3, path(ddir, "tsp_detail.rds"))
 
-
 ```
 
 
 
 ```{r}
+#| label: prep
+#| output: false
+
+df1 <- readRDS(path(ddir, "tsp_detail.rds"))
+glimpse(df1)
+summary(df1)
+
+src1 <- "Source: New York State Department of Taxation and Finance"
+src2 <- "Taxable Sales And Purchases Quarterly Data: Beginning Sales Tax Year 2013-2014"
+src_note <- paste0(src1, ", ", src2)
+
+subt1 <- "NAICS 4541 Electronic Shopping and Mail-Order Houses"
+subt2 <- "\nEach point is first month of a sales tax quarter. Quarters start in March, June, September, & December"
+subt <- paste0(subt1, ".  ", subt2)
+
+format_dates <- function(x) {
+  # months <- strftime(x, format = "%b")              # Abbreviated name of the month.
+  # years <- lubridate::year(x)  # Year as a 4-digit number.
+  case_when(month(x)==0 ~ paste(lubridate::year(x), 
+                                strftime(x, format = "%b"), 
+                                sep = "-"),
+            month(x)==1 ~ lubridate::year(x) |> as.character(),
+            month(x) %in% c(3, 6, 9, 12) ~ strftime(x, format = "%b"),
+            TRUE ~ "")
+}
+
+dates1 <- seq(as.Date("2010-01-01"), as.Date("2030-01-01"), by="years")
+dates2 <- seq(as.Date("2013-03-01"), as.Date("2030-03-01"), by="3 months")
+dates <- c(dates1, dates2) |> sort()
+dates
+# format_dates(dates)
+
+title <- "New York City Internet-Related Quarterly Taxable Sales Before and After Internet Marketplace Act (June 1, 2019)"
+pinternet <- df1 |>
+  filter(naics==4541, uniname=="New York City") |>
+  select(stdate, txblsales) |>
+  ggplot(aes(stdate, txblsales)) +
+  # lines to replace the grid
+  geom_vline(xintercept=dates1, colour="grey90") +
+  geom_vline(xintercept=dates2, colour="grey98") +
+  geom_line(colour="blue") +
+  geom_point(colour="blue") +
+  geom_vline(xintercept=as.Date("2019-06-01"), linetype="dashed") +
+  scale_x_date(name=NULL, breaks = dates, labels = format_dates) +
+  scale_y_continuous(name="Taxable sales in the quarter ($ millions)",
+                     breaks=seq(0, 4e9, 350e6),
+                     labels = scales::comma_format(scale=1e-6)) +
+  ggtitle(title, subtitle = subt) +
+  labs(caption = src_note) +
+  theme_bw() +
+  caption_left + 
+  theme(axis.text.x = element_text(angle = -90, vjust = 0, hjust=0)) +
+  # remove vertical grid because we replaced it above
+  theme(panel.grid.major.x = element_blank(),
+        panel.grid.minor.x = element_blank())
+pinternet
+
+pall <- df1 |>
+  filter(uniname=="New York City") |>
+  group_by(date) |> 
+  summarise(txblsales=sum(txblsales, na.rm=TRUE), .groups="drop") |> 
+  ggplot(aes(date, txblsales)) +
+  geom_line(colour="blue") +
+  geom_point(colour="blue") +
+  geom_vline(xintercept=as.Date("2019-06-01"), linetype="dashed") +
+  scale_x_date(name=NULL, date_breaks = "years", date_labels = "%Y") +
+  scale_y_continuous(name="Taxable sales in the quarter ($ billions)",
+                     breaks=seq(0, 60e9, 2.5e9),
+                     labels = scales::comma_format(scale=1e-9)) +
+  ggtitle("New York City Total Taxable Sales Before and After Changes in Internet Laws (June 1, 2019)") +
+  labs(caption = src_note) +
+  theme_bw() +
+  caption_left
+pall
+
+p9999 <- df1 |>
+  filter(naics==9999, uniname=="New York City") |>
+  select(stdate, txblsales) |>
+  ggplot(aes(stdate, txblsales)) +
+  # lines to replace the grid
+  geom_vline(xintercept=dates1, colour="grey90") +
+  geom_vline(xintercept=dates2, colour="grey98") +
+  geom_line(colour="blue") +
+  geom_point(colour="blue") +
+  geom_vline(xintercept=as.Date("2019-06-01"), linetype="dashed") +
+  scale_x_date(name=NULL, breaks = dates, labels = format_dates) +
+  scale_y_continuous(name="Taxable sales in the quarter ($ millions)",
+                     breaks=seq(0, 4e9, 350e6),
+                     labels = scales::comma_format(scale=1e-6)) +
+  ggtitle(title, subtitle = subt) +
+  labs(caption = src_note) +
+  theme_bw() +
+  caption_left + 
+  theme(axis.text.x = element_text(angle = -90, vjust = 0, hjust=0)) +
+  # remove vertical grid because we replaced it above
+  theme(panel.grid.major.x = element_blank(),
+        panel.grid.minor.x = element_blank())
+p9999
 
 ```
 
 
+```{r}
+#| label: internet
+
+pinternet
+```
+
+
+```{r}
+#| echo: false
+knitr::knit_exit()  # Stops rendering here
+```
+
+
+
+From TSP metadata; so look at 999:
+
+The North American Industry Classification System (NAICS) four-digit industry group code, including unclassified. Beginning with sales tax year 2022-23, the NAICS industry group uses the 2022 NAICS codes. Vendors in codes that were eliminated in the Census Bureau’s 2022 update are considered unclassified (9999) until assigned a new code. For sales tax years 2016-17 through 2021-22, the NAICS industry group uses the 2017 NAICS codes. Prior to sales tax year 2016-2017, the NAICS industry group uses the 2012 NAICS codes with the following industries reported only at the three-digit level: 3130, 3140, 4810, 4870, 5620, 6110, 6220, 6230.
 
 
 2017 North American Industry Classification System (NAICS)

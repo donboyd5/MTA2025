@@ -27,6 +27,7 @@ book:
   date-format: long
   chapters:
     - index.qmd
+    - naics2022_change.qmd
     - revenue_impact.qmd
     - background.qmd
     # - part: "Data preparation"

@@ -1,0 +1,17 @@
+
+# The NAICS 2022 change and its impact
+
+## What changed
+
+In my last analysis of the Internet Marketplace Act (IMA), I used the Tax Department's quarterly Taxable Sales and Purchases data by vendor to examine how ecommerce-related sales had changed pre- and post- IMA. At the time, the Department was using 2017 North American Industry Classification System (NAICS) codes to categorize vendors. The relevant code was:
+
+>NAICS 4541 This industry comprises establishments primarily engaged in retailing all types of merchandise using nonstore means, such as catalogs, toll free telephone numbers, or electronic media, such as interactive television or the Internet. Included in this industry are establishments primarily engaged in retailing from catalog showrooms of mail-order houses. (Census Bureau](https://www.census.gov/naics/reference_files_tools/2017_NAICS_Manual.pdf).
+
+In 2022, the Census Bureau rolled out its next 5-year update of NAICS codes. In doing so, they eliminated the code that included much traditional e-commerce, moving the data into product-specific codes:
+
+>Perhaps the most significant change from NAICS 2017 to NAICS 2022 is the elimination of Subsector 454, Nonstore Retailers. Establishments previously classified under this subsector are now grouped with store retailers, categorized by the products they sell rather than their sales methods (such as storefront, internet, or direct sales). [Census Bureau](https://www.census.gov/library/reference/code-lists/naics/2022/implementation-timeline.html)
+
+The Department has since updated its data to use the 2022 NAICS codes:
+
+
+## Working around the change
