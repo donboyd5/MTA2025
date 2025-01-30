@@ -7,9 +7,15 @@ execute:
   echo: true
   output: true
   freeze: auto
+  clean: false # don't delete old files -- e.g. html when rendering new e.g. pdf
   
 editor_options:
   chunk_output_type: console
+  
+editor:
+  markdown:
+    wrap: 72
+    canonical: true
 
 format:
   html:

@@ -1,17 +1,207 @@
-
 # The NAICS 2022 change and its impact
+
+To assess how much was raised by the Internet Marketplace Act (IMA), we'd like compare post-IMA internet-related taxable sales to a counterfactual of internet-related sales in absence of the IMA. We could construct the counterfactual by projecting internet-related taxable sales forward based on pre-IMA trends.
+
+Unfortunately this is complicate by changes in how internet-related taxable sales were classified by the Tax Department after the 2021-22 sales tax year. The sections below explain the issue and how we are working around it.
+
+```{r}
+#| label: setup
+#| output: false
+
+# source(here::here("r", "libraries.r"))
+# source(here::here("r", "libraries_ts.r"))
+# source(here::here("r", "constants.r"))
+# source(here::here("r", "functions.r"))
+
+library(tidyverse)
+library(readxl)
+library(vroom)
+library(fs)
+library(btools)
+library(bggtools)
+library(gt)
+
+tprint <- 75  # default tibble print
+options(tibble.print_max = tprint, tibble.print_min = tprint) # show up to tprint rows
+
+ddir <- here::here("data")
+
+```
 
 ## What changed
 
-In my last analysis of the Internet Marketplace Act (IMA), I used the Tax Department's quarterly Taxable Sales and Purchases data by vendor to examine how ecommerce-related sales had changed pre- and post- IMA. At the time, the Department was using 2017 North American Industry Classification System (NAICS) codes to categorize vendors. The relevant code was:
+In my 2022 analysis of the Internet Marketplace Act (IMA), I used the Tax Department's quarterly Taxable Sales and Purchases data to examine how ecommerce-related sales had changed pre- and post- IMA. At the time, the Department was using 4-digit 2017 North American Industry Classification System (NAICS) codes to categorize vendors. The relevant code was:
 
->NAICS 4541 This industry comprises establishments primarily engaged in retailing all types of merchandise using nonstore means, such as catalogs, toll free telephone numbers, or electronic media, such as interactive television or the Internet. Included in this industry are establishments primarily engaged in retailing from catalog showrooms of mail-order houses. (Census Bureau](https://www.census.gov/naics/reference_files_tools/2017_NAICS_Manual.pdf).
+> NAICS 4541 This industry comprises establishments primarily engaged in retailing all types of merchandise using nonstore means, such as catalogs, toll free telephone numbers, or electronic media, such as interactive television or the Internet. Included in this industry are establishments primarily engaged in retailing from catalog showrooms of mail-order houses. (Census Bureau\](https://www.census.gov/naics/reference_files_tools/2017_NAICS_Manual.pdf).
 
-In 2022, the Census Bureau rolled out its next 5-year update of NAICS codes. In doing so, they eliminated the code that included much traditional e-commerce, moving the data into product-specific codes:
+In 2022, the Census Bureau rolled out its next 5-year update of NAICS codes. In doing so, they eliminated NAICS 4541, moving the data into product-specific codes:
 
->Perhaps the most significant change from NAICS 2017 to NAICS 2022 is the elimination of Subsector 454, Nonstore Retailers. Establishments previously classified under this subsector are now grouped with store retailers, categorized by the products they sell rather than their sales methods (such as storefront, internet, or direct sales). [Census Bureau](https://www.census.gov/library/reference/code-lists/naics/2022/implementation-timeline.html)
+> Perhaps the most significant change from NAICS 2017 to NAICS 2022 is the elimination of Subsector 454, Nonstore Retailers. Establishments previously classified under this subsector are now grouped with store retailers, categorized by the products they sell rather than their sales methods (such as storefront, internet, or direct sales). [Census Bureau](https://www.census.gov/library/reference/code-lists/naics/2022/implementation-timeline.html)
 
-The Department has since updated its data to use the 2022 NAICS codes:
+The Department updated its taxable sales data to use the 2022 NAICS codes, but the transition is not complete:
 
+> Beginning with sales tax year 2022-23, the NAICS industry group uses the 2022 NAICS codes. Vendors in codes that were eliminated in the Census Bureau’s 2022 update are considered unclassified (9999) until assigned a new code.\[NAICS Industry Group metadata, Department of Taxation and Finance\](https://data.ny.gov/Government-Finance/Taxable-Sales-And-Purchases-Quarterly-Data-Beginni/ny73-2j3u/about_data)
+
+Because of this change, we do not have NAICS 4541 internet-related sales after the 2021-22 sales tax year. This makes it hard to know what internet-related sales are currently, and to estimate what they would have been in absence of the IMA.
 
 ## Working around the change
+
+One possible workaround is to estimate how much NAICS 4541 taxable sales would have grown after 2021-22 based on growth in a closely related data on internet sales. One possibility is using growth in NAICS 9999 as a proxy, given that the Census Bureau said the elimination of Subsector 454 was the largest change; it might have dominated NAICS 9999 after 2021-22.
+
+We begin with a table of 2021-22 taxable sales of 4-digit NAICS codes that were eliminated in 2022-23, to see whether NAICS 4541 dominated the codes that were eliminated. We do this by summarizing data for codes present in the Taxable Sales and Purchases data in 2021-22 but not in 2022-23. Here is a list of the top 10 codes such codes:
+
+```{r}
+#| label: top10
+#| output: true
+
+
+tsp1 <- readRDS(path(ddir, "tsp_detail.rds"))
+
+drop2023 <- tsp1 |> 
+  filter(styear %in% c("2021 - 2022", "2022 - 2023"), govtsort==1) |> 
+  mutate(styear = ifelse(styear == "2021 - 2022", "y2022", "y2023")) |>
+  summarise(txblsales = sum(txblsales),
+            .by=c(styear, naics)) |> 
+  pivot_wider(names_from = styear, values_from = txblsales) |>
+  filter(is.na(y2023), !is.na(y2022)) |> 
+  select(-y2023) |> 
+  arrange(naics)
+
+topn <- 10
+tab <- tsp1 |> 
+  filter(styear %in% c("2021 - 2022"), govtsort==1) |> 
+  filter(naics %in% drop2023$naics) |> 
+  summarise(txblsales = sum(txblsales), .by=c(naics, fnaics)) |> 
+  arrange(desc(txblsales)) |> 
+  mutate(top=row_number() <= topn) |> 
+  mutate(naics=ifelse(top, naics, 0),
+         fnaics=ifelse(top, fnaics, "Remainder")) |> 
+  summarise(txblsales = sum(txblsales), .by=c(naics, fnaics)) |>
+  janitor::adorn_totals("row") |>
+  as_tibble() |> 
+  mutate(naics=ifelse(naics==0, "--", naics),
+         pct = txblsales / txblsales[naics=="Total"]) |>
+  gt() |> 
+  tab_header(paste0("Top ", topn, " 4-digit NAICS codes in 2021-2022 with no 2022-2023 equivalent"),
+             subtitle="As reflected in Tax Department Taxable Sales and Purchases Data") |>
+  cols_label(naics="NAICS", fnaics="Description", txblsales="Taxable Sales ($ billions)", pct="Percent of Total") |> 
+  fmt_number(columns=c(txblsales), decimals=0, scale = 1e-6) |> 
+  fmt_percent(columns = contains("pct"), decimals=1)
+tab
+
+```
+
+On its face this appears discouraging - it looks like many codes were eliminated in the Tax Department's 2022-23 taxable sales data and NAICS 4541 was a relatively small share of the amount eliminated, which is seemingly inconsistent with what the Census Bureau said.
+
+For example, the Department has remapped NAICS 4541 to a variety of codes, including 4543, 4542, 4541, and 4541. The Department has also remapped NAICS 4523 to 4552, 4471 to 4571, 4539 to 4552 and 4599, 4481 to 4581, 5191 to 5131 and 5162, 5173 to 5171, 5112 to 5132 and 5161, 4461 to 4561, and 4431 to 4492.
+
+We then look at the top 10 4-digit NAICS codes in the 2021-2022 data that are not in the 2022-2023 data. We then look at the 2022-2023 data for the 4-digit NAICS code that included e-commerce in the 2017 NAICS codes. We then look at the change in sales between the 2021-2022 and 2022-2023 data for the e-commerce NAICS code and a code that includes a variety of retail sales. Finally, we look at the total sales for the 2021-2022 and 2022-2023 data for NAICS codes that have fewer than 8 observations.
+
+```{r}
+#| echo: false
+knitr::knit_exit()  # Stops rendering here
+```
+
+```{r}
+
+tsp1 <- readRDS(path(ddir, "tsp_detail.rds"))
+
+drop2023 <- tsp1 |> 
+  filter(styear %in% c("2021 - 2022", "2022 - 2023"), govtsort==1) |> 
+  mutate(styear = ifelse(styear == "2021 - 2022", "y2022", "y2023")) |>
+  summarise(txblsales = sum(txblsales),
+            .by=c(styear, naics)) |> 
+  pivot_wider(names_from = styear, values_from = txblsales) |>
+  filter(is.na(y2023), !is.na(y2022)) |> 
+  select(-y2023) |> 
+  arrange(naics)
+
+topn <- 10
+tab <- tsp1 |> 
+  filter(styear %in% c("2021 - 2022"), govtsort==1) |> 
+  filter(naics %in% drop2023$naics) |> 
+  summarise(txblsales = sum(txblsales), .by=c(naics, fnaics)) |> 
+  arrange(desc(txblsales)) |> 
+  mutate(top=row_number() <= topn) |> 
+  mutate(naics=ifelse(top, naics, 0),
+         fnaics=ifelse(top, fnaics, "Remainder")) |> 
+  summarise(txblsales = sum(txblsales), .by=c(naics, fnaics)) |>
+  janitor::adorn_totals("row") |>
+  as_tibble() |> 
+  mutate(naics=ifelse(naics==0, "--", naics),
+         pct = txblsales / txblsales[naics=="Total"]) |>
+  gt() |> 
+  tab_header(paste0("Top ", topn, " 4-digit NAICS codes in 2021-2022 with no 2022-2023 equivalent"),
+             subtitle="As reflected in Tax Department Taxable Sales and Purchases Data") |>
+  cols_label(naics="NAICS", fnaics="Description", txblsales="Taxable Sales ($ billions)", pct="Percent of Total") |> 
+  fmt_number(columns=c(txblsales), decimals=0, scale = 1e-6) |> 
+  fmt_percent(columns = contains("pct"), decimals=1)
+tab
+
+# remappings based on 2022_to_2017_NAICS_Changes_Only.xlsx (Census)
+# 4541 to various; Electronic shopping and mail-order
+# 4523 to 4552; Supercenters; 4552 is in TSP
+# 4471 to 4571; Gasoline stations; 4571 is in TSP
+# 4539 to 4552 and 4599; Other miscellaneous; 4552 and 4599 are in TSP
+# 4481 to 4581 mostly; Clothing stores; 4581 is in TSP
+# 5191 to 5131 and 5162 publishing and media; Other information services; 5131 and 5162 in TSP
+# 5173 to 5171 codes; 5171 is in TSP
+# 5112 to 5132 and 5161; both in TSP
+# 4461 to 4561 codes; 4561 in TSP
+# 4431 to 4492; 4492 is in TSP
+
+naics2023 <- 4492
+tsp1 |> 
+  filter(styear %in% c("2022 - 2023"), naics==naics2023, govtsort==1) |> 
+  summarise(n = n(),
+            txblsales = sum(txblsales, na.rm = TRUE),
+            .by=c(naics, fnaics)) |> 
+  mutate(tax = txblsales * .04 / 1e9)
+
+# how big is the change in 4541 compared to change in 9999
+tsp1 |> 
+  filter(styear %in% c("2021 - 2022", "2022 - 2023"), naics %in% c(4541, 9999), govtsort==1) |> 
+  summarise(n = n(),
+            txblsales = sum(txblsales, na.rm = TRUE),
+            .by=c(naics, fnaics)) |> 
+  mutate(tax = txblsales * .04 / 1e9)
+ 
+
+tmp <- tsp1 |> 
+  filter(styear %in% c("2021 - 2022", "2022 - 2023"), govtsort==1) |> 
+  summarise(n = n(),
+            txblsales = sum(txblsales),
+            .by=c(styear, naics)) |> 
+  mutate(nvals = sum(n), .by=c(naics)) |> 
+  filter(nvals < 8)
+
+tsp1 |> 
+  # rename(y2022=`2021 - 2022`, y2023=`2022 - 2023`)
+  filter(styear %in% c("2021 - 2022", "2022 - 2023"), govtsort==1) |> 
+  filter(naics %in% c(4541, 9999)) |> 
+  summarise(txblsales = sum(txblsales, na.rm=TRUE), .by=c(styear, naics, fnaics)) |> 
+  pivot_wider(names_from = styear, 
+              values_from = txblsales,
+              values_fill = 0) |> 
+  rename(y2022=`2021 - 2022`, y2023=`2022 - 2023`) |> 
+  relocate(y2022, .after=fnaics) |> 
+  mutate(change = y2023 - y2022,
+         share4541 = ifelse(naics==4541, 
+                            abs(change[naics==4541]) / change[naics==9999],
+                            NA_real_)) |> 
+  arrange(naics) |> 
+  gt() |> 
+  fmt_number(columns=c(y2022, y2023, change), decimals=0, scale = 1e-6) |> 
+  fmt_percent(columns = share4541, decimals=1)
+
+tsp1 |> 
+  filter(styear %in% c("2021 - 2022", "2022 - 2023"), govtsort==1) |> 
+  filter(naics %in% tmp$naics) |> 
+  summarise(txblsales = sum(txblsales), .by=c(styear))
+
+
+
+
+
+
+```

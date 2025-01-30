@@ -1,4 +1,3 @@
-
 # Potential revenue impact
 
 Key dates:
@@ -6,7 +5,6 @@ Key dates:
 -   January 15, 2019 State Tax Department notes informing vindors with no physical presence that they must register
 
 -   June 1, 2019 Internet Marketplace Act applies to sales
-
 
 ```{r}
 #| label: setup
@@ -23,6 +21,7 @@ library(vroom)
 library(fs)
 library(btools)
 library(bggtools)
+library(gt)
 
 tprint <- 75  # default tibble print
 options(tibble.print_max = tprint, tibble.print_min = tprint) # show up to tprint rows
@@ -33,7 +32,6 @@ fname <- "Taxable_Sales_And_Purchases_Quarterly_Data__Beginning_Sales_Tax_Year_2
 fpath <- fs::path(ddir, fname)
 
 ```
-
 
 ```{r}
 #| label: download-taxable-sales-and-purchases
@@ -49,7 +47,6 @@ fpath1 <- fs::path(ddir, fname1)
 system.time(download.file(url, fpath1, mode="wb")) # 32 secs
 
 ```
-
 
 ```{r}
 #| label: get-taxable-sales-and-purchases
@@ -119,8 +116,6 @@ count(df3, date, stdate, styear, stqtr, stperiod)
 saveRDS(df3, path(ddir, "tsp_detail.rds"))
 
 ```
-
-
 
 ```{r}
 #| label: prep
@@ -224,35 +219,26 @@ p9999
 
 ```
 
-
 ```{r}
 #| label: internet
 
 pinternet
 ```
 
-
 ```{r}
 #| echo: false
 knitr::knit_exit()  # Stops rendering here
 ```
 
-
-
 From TSP metadata; so look at 999:
 
 The North American Industry Classification System (NAICS) four-digit industry group code, including unclassified. Beginning with sales tax year 2022-23, the NAICS industry group uses the 2022 NAICS codes. Vendors in codes that were eliminated in the Census Bureau’s 2022 update are considered unclassified (9999) until assigned a new code. For sales tax years 2016-17 through 2021-22, the NAICS industry group uses the 2017 NAICS codes. Prior to sales tax year 2016-2017, the NAICS industry group uses the 2012 NAICS codes with the following industries reported only at the three-digit level: 3130, 3140, 4810, 4870, 5620, 6110, 6220, 6230.
-
 
 2017 North American Industry Classification System (NAICS)
 
 NAICS 4541 This industry comprises establishments primarily engaged in retailing all types of merchandise using nonstore means, such as catalogs, toll free telephone numbers, or electronic media, such as interactive television or the Internet. Included in this industry are establishments primarily engaged in retailing from catalog showrooms of mail-order houses. (See [this](https://www.census.gov/naics/reference_files_tools/2017_NAICS_Manual.pdf).)
 
-Taxable Sales And Purchases Quarterly Data: Beginning Sales Tax Year 2013-2014
-Government & Finance
-These statistics come from more than three million data items reported on about 250,000 sales tax returns filed quarterly and on about 300,000 returns filed annually. The dataset categorizes quarterly sales and purchases data by industry group using the North American Industry Classification System. The status of data will change as preliminary data becomes final.
-
-
+Taxable Sales And Purchases Quarterly Data: Beginning Sales Tax Year 2013-2014 Government & Finance These statistics come from more than three million data items reported on about 250,000 sales tax returns filed quarterly and on about 300,000 returns filed annually. The dataset categorizes quarterly sales and purchases data by industry group using the North American Industry Classification System. The status of data will change as preliminary data becomes final.
 
 ```{r}
 #| label: test-get-data
@@ -315,4 +301,3 @@ stop_for_status(response_get)
 message(sprintf("File saved as: %s", filename))
 
 ```
-
