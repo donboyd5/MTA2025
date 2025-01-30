@@ -6,6 +6,8 @@
 .quarto/
 
 # file types
+~*.doc*
+~*.xlsx
 *.zip
 
 # folders
