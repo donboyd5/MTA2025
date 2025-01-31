@@ -2,13 +2,12 @@
 
 Key dates:
 
--   January 15, 2019 State Tax Department notes informing vindors with no physical presence that they must register
+-   January 15, 2019 State Tax Department notes informing vendors with no physical presence that they must register
 
 -   June 1, 2019 Internet Marketplace Act applies to sales
 
 ```{r}
 #| label: setup
-#| output: false
 
 # source(here::here("r", "libraries.r"))
 # source(here::here("r", "libraries_ts.r"))
@@ -221,14 +220,42 @@ p9999
 
 ```{r}
 #| label: internet
+#| output: true
 
 pinternet
+
 ```
 
 ```{r}
 #| echo: false
 knitr::knit_exit()  # Stops rendering here
 ```
+
+::: {.content-visible when-format="html"}
+Will only appear in HTML.
+
+```{r}
+#| label: internet-html
+#| output: true
+#| fig-width: 11
+#| fig-height: 8
+
+pinternet
+
+```
+:::
+
+::: {.content-visible when-format="docx"}
+```{r}
+#| label: internet-docx
+#| output: true
+#| fig-width: 11
+#| fig-height: 8
+
+pinternet
+
+```
+:::
 
 From TSP metadata; so look at 999:
 
@@ -301,3 +328,5 @@ stop_for_status(response_get)
 message(sprintf("File saved as: %s", filename))
 
 ```
+
+:::

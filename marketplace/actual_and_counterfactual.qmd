@@ -1,0 +1,167 @@
+# Actual and counterfactual
+
+Key dates:
+
+-   January 15, 2019 State Tax Department notes informing vendors with no physical presence that they must register
+
+-   June 1, 2019 Internet Marketplace Act applies to sales
+
+```{r}
+#| label: setup
+
+# source(here::here("r", "libraries.r"))
+# source(here::here("r", "libraries_ts.r"))
+# source(here::here("r", "constants.r"))
+# source(here::here("r", "functions.r"))
+
+library(tidyverse)
+library(readxl)
+library(vroom)
+library(fs)
+library(btools)
+library(bggtools)
+library(gt)
+library(fable)
+library(fabletools)
+library(tsibble)
+library(RcppRoll)
+
+tprint <- 75  # default tibble print
+options(tibble.print_max = tprint, tibble.print_min = tprint) # show up to tprint rows
+
+ddir <- here::here("data")
+
+fname <- "Taxable_Sales_And_Purchases_Quarterly_Data__Beginning_Sales_Tax_Year_2013-2014_dl20250128.csv"
+fpath <- fs::path(ddir, fname)
+
+```
+
+## Estimate actual values of internet taxable sales
+
+-   Taxable sales and purchases for internet-related activity (NAICS 4541 in the 2017 NAICS) are not available after 2021-22 sales tax year
+-   After that, the Tax Department put sales were put into NAICS 9999 unclassified. Eventually the Tax Department plans to put future such sales into their respective 2022 NAICS categories.
+-   In the 2022-23+ period the former NAICS 4541 sales appear to constitute about 74% of NAICS 9999 sales, so we will use NAICS 9999 growth as a proxy for what NAICS 4541 would have grown.
+-   Thus, estimate what actual NAICS 4541 sales would have been, for NYS and NYC, using two assumptions:
+    1.  In the first year of missing data, 2022-23, assume internet taxable sales maintain their share of all industries, using the average share for the 2021-22 sales tax year (we do this because we don't yet have usable growth rates for industry 9999 because it ballooned in 2022-23 due to the reclassification)
+    2.  After 2022-23 (when we now have a full year of the ballooned industry 9999 data), assume internet taxable sales grow at the same rate as taxable sales for industry 9999.
+
+```{r}
+#| label: estimate-actuals
+#| output: false
+
+df1 <- readRDS(path(ddir, "tsp_detail.rds"))
+
+# uname <- "New York State"
+# 
+# uname <- "New York City"
+
+# get state and city sums of taxable sales over all industries
+stsum <- df1 |> 
+  filter(uniname %in% c("New York State", "New York City")) |>
+  summarise(n=n(),
+            txblsales=sum(txblsales, na.rm = TRUE),
+            .by=c(stdate, uniname)) |> 
+  mutate(ind="all") |> 
+  arrange(stdate)
+
+# get state and city sums of taxable sales for industries of interest
+inds <- df1 |> 
+  filter(uniname %in% c("New York State", "New York City"),
+         naics %in% c(4541, 9999)) |> 
+  summarise(txblsales=sum(txblsales, na.rm = TRUE),
+            .by=c(stdate, uniname, naics)) |> 
+  mutate(ind=paste0("i", naics)) |> 
+  select(-naics) |> 
+  arrange(ind, stdate)
+
+# combine all-industries and specific-industries data
+# put in $ billions (divide by millions) and make wide
+combo1 <- bind_rows(stsum, inds) |> 
+  select(-n) |> 
+  arrange(stdate) |> 
+  mutate(txblsales = txblsales / 1e6) |> 
+  pivot_wider(names_from=ind, values_from=txblsales)
+combo1 |> tail(24)
+# note that i4541 is missing beginning 2022-03-01 (start of 2022-23 sales tax year)
+# and that i9999 leaps dramatically beginning 2022-03-01
+
+# estimate i4541 using 2 assumptions:
+#   1) in the first year of missing data, i4541 maintains its share of all industries, using the 
+#      average share for the 2021-22 sales tax year -- so growth rates will be similar
+#      note that this is a period for which IMA was in effect
+#      also note that it is conservative - it assumes that i4541 grows at the same rate as all industries
+#      we do this because we don't yet have meaningful i9999 growth values because of the data break
+#   2) after that, it grows at the same rate as i9999, based on earlier analysis
+combo2 <- combo1 |>
+  arrange(uniname, stdate) |> 
+  # get ma4 of the internet share of total, to use for 2022-23
+  mutate(ishare = i4541 / all,
+         isharema4 = RcppRoll::roll_mean(
+           ishare, n=4,  align="right", fill=NA),
+         .by=uniname) |> 
+  # add i4541 values for 2022-23 sales tax year assuming same growth as all industries (constant share)
+  mutate(i4541 = ifelse(stdate > "2021-12-01" & stdate <= "2022-12-01", 
+                        all * isharema4[stdate == "2021-12-01"],
+                        i4541),
+         .by=uniname)  
+
+fillmiss <- function(date, xmiss, xfull){
+  # fill missing values in xmiss using growth rates of xfull
+  xfullrate <- xfull / lag(xfull, 4)
+  
+  for(i in seq_along(date)){
+    if(is.na(xmiss[i])){
+      xmiss[i] <- xmiss[i-4] * xfullrate[i]
+    }
+  }
+  xmiss
+}
+
+# add i4541 values beyond 2022-23 sales tax year assuming same growth as i9999
+combo3 <- combo2 |> 
+  mutate(i4541 = fillmiss(stdate, i4541, i9999),
+         .by=uniname) |> 
+  mutate(across(c(all, i4541, i9999), list(pch = \(x) x / lag(x, 4) - 1)),
+         .by=uniname) |> 
+  mutate(ishare = i4541 / all,
+         isharema4 = RcppRoll::roll_mean(
+           ishare, n=4,  align="right", fill=NA),
+         salestype=ifelse(stdate > "2021-12-01", "estimated", "actual"),
+         .by=uniname)
+
+combo3 |> 
+  filter(!is.na(isharema4)) |>
+  select(stdate, uniname, ishare, isharema4) |> 
+  pivot_longer(cols=c(ishare, isharema4), names_to="isharetype", values_to="ishare") |>
+  ggplot(aes(x=stdate, y=ishare, color=isharetype)) +
+  geom_line() +
+  geom_point() +
+  geom_vline(xintercept = as.Date("2019-06-01")) +
+  geom_vline(xintercept = as.Date("2022-03-01"), colour="blue") +
+  facet_wrap(~uniname, scales="free_y")
+
+combo3 |> 
+  select(stdate, uniname, i4541) |> 
+  ggplot(aes(x=stdate, y=i4541)) +
+  geom_line() +
+  geom_point() +
+  geom_vline(xintercept = as.Date("2019-06-01")) +
+  geom_vline(xintercept = as.Date("2022-03-01"), colour="blue") +  
+  facet_wrap(~uniname, scales="free_y")
+
+saveRDS(combo3, fs::path(ddir, "internet_estimated_tsp.rds"))
+
+```
+
+## Estimate counterfactual values of internet taxable sales
+
+Use a simple seasonal ARIMA model to forecast counterfactual industry 4541 taxable sales, based on pre-IMA data. Estimate it in log form. (One model for NYS and one for NYC.) Use the model to forecast counterfactual sales for the post-IMA period.
+
+This could be improved by using a regression with ARIMA errors model for wages.
+
+```{r}
+
+saveRDS(combo3, fs::path(ddir, "internet_estimated_tsp.rds"))
+
+
+```

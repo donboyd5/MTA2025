@@ -32,7 +32,7 @@ ddir <- here::here("data")
 
 In my 2022 analysis of the Internet Marketplace Act (IMA), I used the Tax Department's quarterly Taxable Sales and Purchases data to examine how ecommerce-related sales had changed pre- and post- IMA. At the time, the Department was using 4-digit 2017 North American Industry Classification System (NAICS) codes to categorize vendors. The relevant code was:
 
-> NAICS 4541 This industry comprises establishments primarily engaged in retailing all types of merchandise using nonstore means, such as catalogs, toll free telephone numbers, or electronic media, such as interactive television or the Internet. Included in this industry are establishments primarily engaged in retailing from catalog showrooms of mail-order houses. (Census Bureau\](https://www.census.gov/naics/reference_files_tools/2017_NAICS_Manual.pdf).
+> NAICS 4541 This industry comprises establishments primarily engaged in retailing all types of merchandise using nonstore means, such as catalogs, toll free telephone numbers, or electronic media, such as interactive television or the Internet. Included in this industry are establishments primarily engaged in retailing from catalog showrooms of mail-order houses. [Census Bureau](https://www.census.gov/naics/reference_files_tools/2017_NAICS_Manual.pdf).
 
 In 2022, the Census Bureau rolled out its next 5-year update of NAICS codes. In doing so, they eliminated NAICS 4541, moving the data into product-specific codes:
 
@@ -86,7 +86,11 @@ tab <- tsp1 |>
   cols_label(naics="NAICS", fnaics="Description", txblsales="Taxable Sales ($ millions)", pct="Percent of Total") |> 
   fmt_number(columns=c(txblsales), decimals=0, scale = 1e-6) |> 
   fmt_percent(columns = contains("pct"), decimals=1)
-tab
+
+tab |> 
+  tab_options(
+    table.width = pct(90)  # Use 90% of text width
+  )
 
 ```
 
@@ -100,7 +104,7 @@ Next I compare NAICS 4541 to NAICS 9999 in the two years:
 #| label: compare-years
 #| output: true
 
-tsp1 |> 
+tabdata <- tsp1 |> 
   # rename(y2022=`2021 - 2022`, y2023=`2022 - 2023`)
   filter(styear %in% c("2021 - 2022", "2022 - 2023"), govtsort==1) |> 
   filter(naics %in% c(4541, 9999)) |> 
@@ -114,7 +118,9 @@ tsp1 |>
          share4541 = ifelse(naics==4541, 
                             abs(change[naics==4541]) / change[naics==9999],
                             NA_real_)) |> 
-  arrange(naics) |> 
+  arrange(naics)
+
+tab <- tabdata |> 
   gt() |> 
   tab_header("Taxable sales in NAICS 4541 and NAICS 9999, $ millions, sales tax years",
              subtitle="As reflected in Tax Department Taxable Sales and Purchases data") |>
@@ -123,6 +129,11 @@ tsp1 |>
              share4541="Change in NAICS 4541 as % of change in NAICS 9999") |> 
   fmt_number(columns=c(y2022, y2023, change), decimals=0, scale = 1e-6) |> 
   fmt_percent(columns = share4541, decimals=1)
+
+tab |> 
+  tab_options(
+    table.width = pct(90)  # Use 90% of text width
+  )
 
 ```
 
@@ -134,6 +145,7 @@ knitr::knit_exit()  # Stops rendering here
 ```
 
 ```{r}
+#| eval: false
 
 # remappings based on 2022_to_2017_NAICS_Changes_Only.xlsx (Census)
 # 4541 to various; Electronic shopping and mail-order
