@@ -37,16 +37,14 @@ editor:
 
 format:
   html:
-    # output-dir: _html_output
+    code-fold: true
     theme: cosmo
     toc: true
     toc-depth: 3
     number-sections: true    
     fig-width: 11
     fig-height: 8
-    code-fold: true
   docx:
-    # output-dir: _docx_output
     toc: true
     toc-depth: 3
     number-sections: true
