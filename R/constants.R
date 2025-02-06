@@ -5,6 +5,10 @@ constants <- list()
 constants$qdir <- r"(E:\data\BLSData\qcew\annual_area\)"
 constants$mtaout <- r"(G:\My Drive\Consulting\MTA revenue\DataForMTA\)"
 
+PDATA <- here::here("pmt", "data")
+PDRAW <- fs::path(PDATA, "data_raw")
+PDINTERMEDIATE <- fs::path(PDATA, "intermediate")
+
 # plot items ---------------------------------------------------------------
 legend_none <- theme(legend.position = "None")
 legend_notitle <- theme(legend.title = element_blank())

@@ -1,0 +1,160 @@
+---
+output: html_document
+editor_options: 
+  chunk_output_type: console
+---
+
+# Get economic data
+
+```{r}
+#| label: setup
+#| include: false
+
+source(here::here("R", "libraries.r"))
+source(here::here("R", "libraries_ts.r"))
+source(here::here("R", "constants.r"))
+source(here::here("R", "functions.r"))
+
+library(zip)
+library(lobstr)
+
+```
+
+
+## Documentation
+
+
+```{r}
+#| label: docs-of-interest
+#| include: false
+
+# See NYC Comptroller Brad Lander's monthly report on the NYC economy:
+#   https://comptroller.nyc.gov/newsroom/newsletter/
+
+
+```
+
+
+```{r}
+#| label: vroom-zip-notes
+
+# exdir <- tempfile()
+# system.time(zip::unzip(zpath, files=csvfiles, exdir = exdir)) # 1.8 secs
+# system.time(df <- vroom(purrr::map(csvfiles, \(x)  unz(zpath, x)))) # 2.8 secs
+# df <- vroom(purrr::map(csvfiles, \(x)  unz(zpath, x)))
+# glimpse(df)
+# system.time(zip::unzip(zpath, exdir = exdir)) # 9.1 secs
+# system.time(utils::unzip(zpath, exdir = exdir)) # 8.2 secs
+# utils::unzip(zpath, files = "qcew_annual_2000.csv", exdir = exdir)
+
+# con1 <- unz(zpath, csv_files[1])
+# con1
+# open(con1)
+# df <- vroom(con1)
+# close(con1)
+
+# Use vroom to read all CSV files in the temporary directory
+# library(vroom)
+# file_paths <- file.path(temp_dir, csv_files)  # Paths to the extracted CSV files
+# data_list <- lapply(file_paths, vroom)
+
+```
+
+
+## NYC employment data
+
+```{r}
+#| label: ONETIME-get-save-nyc-employment
+#| eval: false
+
+nycurl <- "https://www.nyc.gov/assets/omb/downloads/csv/fy2025/nycemploy-nsa08-24.csv"
+fname <- fs::path_file(nycurl)
+fpath <- here::here("data", "nycomb", fname)
+download.file(nycurl, destfile = fpath, mode="wb")
+
+df <- read_csv(fpath, skip=2)
+glimpse(df)
+
+df2 <- df |> 
+  filter(row_number() != 1) |> 
+  select(date=1, total=2, private=3, govt=29) |> 
+  mutate(date = ymd(paste0(substr(date, 1, 4), "-", substr(date, 6, 7), "-01")),
+         across(-date, as.numeric)) 
+
+df2 |> 
+  pivot_longer(-date) |> 
+  mutate(pchya=value / lag(value, 12) - 1) |>
+  filter(year(date) >= 2021) |> 
+  ggplot(aes(date, pchya, colour=name)) +
+  geom_line() +
+  geom_point() +
+  geom_hline(yintercept = 0) +
+  # geom_smooth() +
+  scale_x_date(name=NULL, breaks = "6 months") +
+  scale_y_continuous(name="% change from year ago", 
+                     breaks=seq(-.3, .3, .02),
+                     labels = scales::percent_format(accuracy = .1)) +
+  # facet_wrap(~"NYC employment", scales="free_y", ncol=1) +
+  theme(axis.text.x = element_text(angle = -90, vjust = 0, hjust=0.5))
+
+df2 |> 
+  pivot_longer(-date) |> 
+  mutate(pchya=value / lag(value, 12) - 1) |>
+  filter(year(date) >= 2021) |> 
+  filter(name=="total") |>
+  ggplot(aes(date, pchya)) +
+  geom_line() +
+  geom_point() +
+  geom_hline(yintercept = 0) +
+  geom_smooth() +
+  scale_x_date(name=NULL, breaks = "3 months") +
+  scale_y_continuous(name="% change from year ago", 
+                     breaks=seq(-.3, .3, .02),
+                     labels = scales::percent_format(accuracy = .1)) +
+  theme(axis.text.x = element_text(angle = -90, vjust = 0, hjust=0.5))
+
+
+# seasonally adjusted
+saurl <- "https://www.nyc.gov/assets/omb/downloads/csv/fy2025/nycemploy-sa08-24.csv"
+sadf <- read_csv(saurl, skip=3) |> 
+  filter(row_number() != 1) |> 
+  select(date=1, total=2, private=3, govt=29) |> 
+  mutate(date = ymd(paste0(substr(date, 1, 4), "-", substr(date, 6, 7), "-01")),
+         across(-date, as.numeric)) 
+
+sadf |> 
+  select(date, total) |>
+  mutate(pchya=total / lag(total, 12) - 1) |>
+  # filter(year(date) >= 2023) |> 
+  filter(date >= "2023-07-01") |>
+  ggplot(aes(date, pchya)) +
+  geom_line() +
+  geom_point() +
+  geom_hline(yintercept = 0) +
+  geom_smooth() +
+  scale_x_date(name=NULL, breaks = "1 month") +
+  scale_y_continuous(name="% change from year ago", 
+                     breaks=seq(-.3, .3, .005),
+                     labels = scales::percent_format(accuracy = .1)) +
+  ggtitle("NYC seasonally adjusted employment year-over-year % growth",
+          subtitle = "Source: NYC OMB (https://www.nyc.gov/assets/omb/downloads/csv/fy2025/nycemploy-sa08-24.csv)") +
+  theme_bw() +
+  theme(axis.text.x = element_text(angle = -90, vjust = 0, hjust=0.5)) 
+
+sadf |> 
+  select(date, total) |>
+  filter(year(date) >= 2023) |> 
+  ggplot(aes(date, total)) +
+  geom_line() +
+  geom_point() +
+  geom_smooth() +
+  scale_x_date(name=NULL, breaks = "1 month") +
+  scale_y_continuous(name="% change from year ago", 
+                     breaks=seq(-.3, .3, .005),
+                     labels = scales::percent_format(accuracy = .1)) +
+  ggtitle("NYC seasonally adjusted employment year-over-year % growth",
+          subtitle = "Source: NYC OMB (https://www.nyc.gov/assets/omb/downloads/csv/fy2025/nycemploy-sa08-24.csv)") +
+  theme_bw() +
+  theme(axis.text.x = element_text(angle = -90, vjust = 0, hjust=0.5)) 
+  
+```

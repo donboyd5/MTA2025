@@ -1,0 +1,530 @@
+---
+output: html_document
+editor_options: 
+  chunk_output_type: console
+---
+
+# Get County Business Patterns (CBP) for 2022 (latest year)
+
+CBP links
+
+-   [landing page](https://www.census.gov/programs-surveys/cbp.html)
+-   [csv data files](https://www.census.gov/data/datasets/2022/econ/cbp/2022-cbp.html)
+-   [county file for 2022](https://www2.census.gov/programs-surveys/cbp/datasets/2022/cbp22co.zip)
+
+## Setup
+
+```{r}
+#| label: setup
+#| output: false
+
+source(here::here("R", "libraries.r"))
+source(here::here("R", "libraries_ts.r"))
+source(here::here("R", "constants.r"))
+source(here::here("R", "functions.r"))
+
+ests_env <- new.env()
+source(here::here("pmt", "get_estabs_avgemp_by_size.R"), local=ests_env)
+
+wage_env <- new.env()
+source(here::here("pmt", "get_avgwage_by_size.R"), local=wage_env)
+
+```
+
+## Get data
+
+-   Read CBP data, geographic code file (area names), and industry code file
+
+```{r}
+#| label: get-data
+#| output: false
+
+fpath <- fs::path(PDRAW, "cbp", "cbp22co.zip")
+cbp1 <- vroom(fpath, col_types = cols(.default = col_character()))
+glimpse(cbp1)
+
+fpath <- fs::path(PDRAW, "cbp", "georef22.txt")
+areas <- vroom(fpath, col_types = cols(.default = col_character()))
+glimpse(areas)
+
+areas2 <- areas |>
+  separate(col = county_name, 
+           into = c("county", "state"), 
+           sep = ",(?=[^,]*$)", 
+           extra = "merge") |> 
+  mutate(state=ifelse(fipstate=="35" & fipscty=="013",
+                      "New Mexico",
+                      str_trim(state)),
+         county=ifelse(fipstate=="35" & fipscty=="013",
+                       "Doña Ana County",
+                       county))
+
+fpath <- fs::path(PDRAW, "cbp", "naics2017.txt")
+inds <- vroom(fpath, col_types = cols(.default = col_character()), 
+              delim=",",
+              locale = locale(encoding = "Windows-1252")) |> 
+  rename_with(str_to_lower)
+glimpse(inds)
+
+inds2 <- inds |> 
+  mutate(description=str_remove_all(description, "’"))
+
+
+# character columns
+# FIPSTATE        C       FIPS State Code
+# FIPSCTY         C       FIPS County Code
+# NAICS           C       Industry Code - 6-digit NAICS code.
+# EMP_NF          C       Total Mid-March Employees Noise Flag (See all Noise Flag definitions at the end of this record layout)
+# QP1_NF          C       Total First Quarter Payroll Noise Flag
+# AP_NF           C       Total Annual Payroll Noise Flag
+
+# Noise Flag definitions (fields ending in _NF) are:
+#         G       0 to < 2% noise (low noise)
+#         H       2 to < 5% noise (medium noise)
+#         J	>= 5% noise (high noise)
+# Flag definition for Establishment by Employment Size Class fields (N<5, N5_9, etc.):
+#         N	Not available or not comparable
+
+# Noteworthy variables:
+#   NAICS           C       Industry Code - 6-digit NAICS code.
+#   EMP             N       Total Mid-March Employees with Noise
+#   QP1             N       Total First Quarter Payroll ($1,000) with Noise
+#   AP              N       Total Annual Payroll ($1,000) with Noise
+#   EST             N       Total Number of Establishments
+#   N1000           N       Number of Establishments: 1,000 or More Employee Size Class
+#   N1000_1         N       Number of Establishments: Employment Size Class: 1,000-1,499 Employees
+
+```
+
+## Minor cleaning
+
+-   Convert numeric variables, read as character (to allow inspectin), to numeric
+-   Put area names and industry names on the file
+-   Filter to include only records in New York state
+-   Convert annual and quarterly payroll from ($000) to dollars
+-   Put MTA and NYC logical indicators on the file
+-   Save file as cbpny.rds
+
+```{r}
+#| label: clean-cbp
+#| output: false
+
+char_cols <- c("fipstate", "fipscty", "naics", "emp_nf", "qp1_nf", "ap_nf")
+
+# put state and county names on the data
+
+cbp2 <- cbp1 |> 
+  mutate(across(-all_of(char_cols), as.numeric)) |> 
+  rename(nlt_5=`n<5`) |> 
+  left_join(areas2 |> 
+              select(fipstate, fipscty, state, county),
+            by = join_by(fipstate, fipscty)) |> 
+  left_join(inds, join_by(naics))
+glimpse(cbp2)
+count(cbp2, state) # 51: 50 + DC
+count(cbp2, county) # 1,882
+count(cbp2 |> filter(state=="New York"), county) # 63: 62 + Statewide
+
+cbp3 <- cbp2 |> 
+  filter(state=="New York") |> 
+  mutate(mta=paste0(fipstate, fipscty) %in% constants$mtafips,
+         nyc=paste0(fipstate, fipscty) %in% constants$nycfips,
+         ap=ap*1000, # put payroll in actual units
+         qp1 = qp1 * 1000 # put payroll in actual units
+         )
+count(cbp3, mta, nyc, county)
+
+saveRDS(cbp3, fs::path(PDINTERMEDIATE, "cbpny.rds"))
+
+```
+
+## Estimate number of establishments and average employment by establishment size
+
+Solve for number of establishments and average employment per establishment by establishment size range, within county and industry group. Use these results to derive total employment by county-naics-size group.
+
+Use CBP data for each county-naics group on:
+
+-   total employment for the group
+-   Total \# of establishments for the group
+-   number of establishments for each of 9 establishment-size groups (based on \# of employees in the specific establishment)
+
+Note that this is not the same as size definitions for the PMT, which are based on the firm -- thus, we will more more small establishments than there are small firms.
+
+Census injects some disclosure-avoidance noise in the data, suppressing number of establishments in groups that have small numbers. Thus the sum of \# of establishments over the establishment size ranges may fall short of the total number of establishments.
+
+Note that the data also have total annual payroll and first-quarter payroll for the group. We don't use it to estimate establishments and employment by establishment size but will use it later to estimate total wages and wages per employee by establishment size.
+
+Run a constrained nonlinear opimization for each naics group within county. with the following characteristics:
+
+-   Equality constraints:
+    - sum of \# establishments within county-naics group = reported total establishments
+    - sum of establishments x average employment per establishment = reported total employment
+    - \# of establishments in an establishment-size range must = what is reported by Census for the county-naics group if they reported a nonzero amount (note: this is implemented via inequality constraints but is set to enforce equality)
+
+-   Inequality constraints:
+    - \# of employeees in an establishment-size range (e.g., 5-9 employees per establishment) must be \>= the bottom of the range (e.g., 5 in this example)
+    - \# of employees in an establishment-size range (e.g., 5-9 employees per establishment) must be \<= the top of the range (e.g., 9 in this example)
+    - \# of establishments in an establishment-size range must be \>= 0 if Census reported zero or missing
+    
+-   Objective function:
+    -   minimize sum of squared differences between estimated and reported number of establishments by size range
+    -   if number of establishments in a county-naics-size group is between 0 and 1 don't count it in the objective function
+-   Initial values:
+    -   for establishments, set to Census-reported numbers
+    -   for average employment per establishemnt set to lower bound of the size range -- this tends to push the solution toward the lower bound of the size range
+
+### Prepare data
+
+Prepare a long file with all groups:
+
+-   replace all na with 0
+-   calc total known \# establishments by summing estabs by size group
+-   calc nmiss = total establishments - sum 
+-   calc misspct nmiss as \% of total
+-   pivot the \# of establishments by size group longer
+-   merge in lower and upper bounds for establishment employment in each
+    size group
+
+Prepare a base file with groups for the estimation:
+
+-   drop non-MTA records
+-   keep only naics groups that end in "----"
+-   nest by county-naics group
+    
+### Estimate average employment by establishment size-group
+
+-   drop non-MTA records
+
+```{r}
+#| label: solve-estabs-emp
+#| output: false
+#| eval: false
+
+cbpny <- readRDS(fs::path(PDINTERMEDIATE, "cbpny.rds"))
+
+cbpny2 <- cbpny |> 
+  mutate(across(where(is.numeric), ~replace_na(., 0))) |> 
+  mutate(estsum=rowSums(across(nlt_5:n1000)),
+         nmiss=est - estsum,
+         misspct=nmiss / est)
+
+avgemp1 <- read_csv("
+name, lb_avgemp, ub_avgemp
+nlt_5, 0, 4
+n5_9, 5, 9
+n10_19, 10, 19
+n20_49, 20, 49
+n50_99, 50, 99
+n100_249, 100, 249
+n250_499, 250, 499
+n500_999, 500, 599
+n1000, 1000, Inf") |> 
+  mutate(fsize=1:n)
+avgemp1
+
+cbpny_long <- cbpny2 |> 
+  select(fipstate, fipscty, state, county, mta, nyc, naics, description, qp1, ap, est, emp, nmiss, nlt_5:n1000) |> 
+  pivot_longer(nlt_5:n1000, values_to = "estknown") |> 
+  left_join(avgemp1, by = join_by(name)) |> 
+  arrange(fipstate, fipscty, naics, fsize)
+
+estemp_base <- cbpny_long |> 
+  filter(mta) |> 
+  # filter(str_sub(naics, 3, -1)=="----") |>  
+  nest(data = c(fsize, name, estknown, lb_avgemp, ub_avgemp)) 
+
+# Set up parallel processing -- about a 4-5 fold speedup
+plan(multisession)
+
+a <- proc.time()
+estemp_mta <-estemp_base |> 
+  mutate(
+    # pass a list that includes nested data, and unnested est and emp
+    res = furrr::future_pmap(
+      list(data, est, emp), \(data, est, emp)
+      ests_env$get_estabs_avgemp(
+        est = est,
+        emp = emp,
+        estknown = data$estknown,
+        lb_avgemp = data$lb_avgemp,
+        ub_avgemp = data$ub_avgemp,
+        threshold = .5,
+        trace = FALSE)))|> 
+  mutate(
+    obj = purrr::map_dbl(res, "value"),
+    par = purrr::map(res, "par"),
+    estabs = purrr::map(par, ~head(.x, 9)), # first 9 elements of par are # establishments by size
+    avgemp = purrr::map(par, ~tail(.x, 9))  # last 9 elements of par are employment by estab size
+  )
+b <- proc.time()
+b - a
+
+estemp_mta
+
+saveRDS(estemp_mta, fs::path(PDINTERMEDIATE, "estemp_mta.rds"))
+
+```
+
+```{r}
+#| label: examine-results
+#| output: false
+#| eval: false
+
+stats <- estemp_mta |> 
+  unnest(c(data, estabs, avgemp)) |> 
+  select(county, naics, emp, est, name, nmiss, estknown, lb_avgemp, ub_avgemp, obj, estabs, avgemp) |> 
+  mutate(emptot=estabs * avgemp) |> 
+  summarise(est=first(est),
+            emp=first(emp),
+            estabs=sum(estabs),
+            emptot=sum(emptot), 
+            .by=c(county, naics)) |> 
+  mutate(estdiff=estabs - est,
+         empdiff=emptot - emp,
+         estpdiff=estdiff / est,
+         emppdiff=empdiff / emp)
+skim_without_charts(stats)
+
+stats |> 
+  filter(is.infinite(emppdiff))
+# A tibble: 6 × 10
+#   county          naics    est   emp estabs   emptot  estdiff  empdiff estpdiff emppdiff
+#   <chr>           <chr>  <dbl> <dbl>  <dbl>    <dbl>    <dbl>    <dbl>    <dbl>    <dbl>
+# 1 New York County 49313/     3     0   3.00 3.91e-10 6.75e-11 3.91e-10 2.25e-11      Inf
+# 2 New York County 493130     3     0   3.00 3.91e-10 6.75e-11 3.91e-10 2.25e-11      Inf
+# 3 Putnam County   48412/     3     0   3.00 3.91e-10 6.75e-11 3.91e-10 2.25e-11      Inf
+# 4 Queens County   51223/     3     0   3.00 3.91e-10 6.75e-11 3.91e-10 2.25e-11      Inf
+# 5 Queens County   512230     3     0   3.00 3.91e-10 6.75e-11 3.91e-10 2.25e-11      Inf
+# 6 Queens County   812921     3     0   3.00 3.91e-10 6.75e-11 3.91e-10 2.25e-11      Inf
+
+estemp_mta |> 
+  filter(county=="New York County", naics=="49313/") |> 
+  select(state, county, naics, description, est, emp, estabs, avgemp) |> 
+  unnest_longer(col = c(estabs, avgemp)) |> 
+  kable()
+
+estemp_mta |>
+  filter(naics=="------", fipscty=="005") |> 
+  mutate(
+    estabs = purrr::map(par, ~head(.x, 9)),
+    avgemp = purrr::map(par, ~tail(.x, 9))
+  ) |>
+  unnest(c(data, estabs, avgemp)) |>
+  select(county, naics, emp, est, name, nmiss, estknown, lb_avgemp, ub_avgemp, obj, estabs, avgemp) |>
+  kable()
+
+```
+
+## Estimate average wages and total wages by county-naics-size group
+
+Do this without optimization.
+
+```{r}
+#| label: wages-by-size-group
+#| output: false
+
+# get establishments and employment data by range
+
+estemp_mta <- readRDS(fs::path(PDINTERMEDIATE, "estemp_mta.rds"))
+
+wages_mta <- estemp_mta |> 
+  # filter(row_number()==1) |> 
+  unnest(c(data, estabs, avgemp)) |> 
+  arrange(fipstate, fipscty, naics, fsize) |> 
+  # select(fipstate, fipscty, state, county, naics, qp1, ap, est, emp, name, estknown, lb_avgemp, ub_avgemp, estabs, avgemp) |> 
+  mutate(empgroup = estabs * avgemp, # total employment in a group
+         # top_vsavg is ASSUMED ratio of top size-group average wage to overall average
+         avgwage = wage_env$get_avgwage_no_opt(ap, emp, avgemp, empgroup, top_vsavg=1.0),
+         totwage = avgwage * empgroup,
+         .by=c(fipstate, fipscty, naics)) 
+
+wages_mta
+
+check <- wages_mta |> 
+  summarise(across(c(ap, est, emp), first),
+            across(c(totwage, estabs, empgroup), sum),
+            .by = c(fipscty, county, naics)) |> 
+  mutate(wagepdiff = totwage / ap - 1L,
+         estpdiff=estabs / est - 1L,
+         emppdiff = empgroup / emp - 1L)
+
+saveRDS(wages_mta, fs::path(PDINTERMEDIATE, "wages_mta.rds"))
+
+# df1 <- estemp_mta |> 
+#   filter(row_number()==2) |> 
+#   unnest(c(data, estabs, avgemp)) |> 
+#   select(fipscty, county, naics, description, qp1, ap, est, emp, name, estknown, lb_avgemp, ub_avgemp, estabs, avgemp) |> 
+#   mutate(empgroup=estabs * avgemp)
+# 
+# df1
+# 
+# # inputs to function
+# ap <- df1$ap
+# emp <- df1$emp
+# avgemp <- df1$avgemp
+# empgroup <- df1$empgroup
+# 
+# avgwage <- get_avgwage_no_opt(ap, emp, avgemp, empgroup, top_vsavg=1.05)
+# avgwage <- get_avgwage_no_opt(ap, emp, avgemp, empgroup, top_vsavg=1.10)
+# 
+# sum(avgwage * empgroup)
+# 
+# avgwage
+# n <- length(avgemp)
+# avgwage[n] / (ap[1] / emp[1])
+
+
+# find avgwage per group st sum(avgwage * avgemp) = totwages
+# avgwage[top] = 1.05 * totavgwage
+# min squared diff (avgwage - totavgwage)
+
+```
+
+## Appendix - explorations
+
+```{r}
+#| label: cbp-explore
+#| eval: false
+#| output: false
+
+cbpny <- readRDS(fs::path(PDINTERMEDIATE, "cbpny.rds"))
+glimpse(cbpny)
+skim(cbpny)
+
+cbpny2 <- cbpny |> 
+  mutate(across(where(is.numeric), ~replace_na(., 0))) |> 
+  mutate(estsum=rowSums(across(nlt_5:n1000)),
+         nmiss=est - estsum,
+         misspct=nmiss / est)
+skim(cbpny2)
+
+cbpny2 |> 
+  filter(misspct > .9, mta) |> 
+  select(state, county, naics, ap, est, estsum, nmiss, misspct, description) |> 
+  summary()
+
+tmp <- cbpny2 |> 
+  mutate(diff=est - estsum, pdiff=diff / est) |> 
+  select(state, county, naics, ap, est, estsum, diff, pdiff, description, mta) |> 
+  arrange(desc(abs(diff))) |> 
+  filter(mta)
+
+tmp |> 
+  summarise(aptot=sum(ap),
+            badap=sum(ap * (abs(diff) > 3))) |> 
+  mutate(badpct=badap / aptot)
+
+#        aptot     badap badpct
+#        <dbl>     <dbl>  <dbl>
+# 1 3220151436 757583639  0.235
+
+bad <- cbpny2 |> 
+  filter(misspct > .5, misspct < 1) |> 
+  mutate(avgemp = emp / est) |> 
+  relocate(avgemp, .after=emp)
+  # mutate(across(nlt_5:n1000, \(x) x / est)) |> 
+  # select(fipstate, fipscty, state, county, mta, nyc, naics, description, emp, ap, est, nlt_5:n1000) |> 
+
+shares <- cbpny2 |> 
+  mutate(across(nlt_5:n1000, \(x) x / est)) |> 
+  select(fipstate, fipscty, state, county, mta, nyc, naics, description, emp, ap, est, nlt_5:n1000) |> 
+  pivot_longer(nlt_5:n1000, values_to = "share") |> 
+  mutate(share_adj=share / sum(share), 
+         .by=c(fipstate, fipscty, naics))
+
+skim(shares)
+
+bad <- shares |> 
+  filter(is.na(share_adj)) |> 
+  filter(name=="nlt_5") |> 
+  select(-c(name:share_adj))
+
+cbpny2 |> 
+  filter(fipscty=="109",
+         str_starts(naics, "61"),
+         estsum==0) |> 
+  select(county, naics, emp_nf:n1000, estsum, description) |> 
+  mutate(avgemp=emp / est) |> 
+  relocate(avgemp, .after=est)
+  arrange(desc(emp))
+# maybe put all bad estabs in the size group for their average?
+  
+# Create sample data frame
+df <- tibble::tibble(
+  x = 1:5,
+  y = 6:10
+)
+
+# Define function that returns multiple variables
+calc_stats <- function(x) {
+  tibble::tibble(
+    doubled = x * 2,
+    squared = x^2,
+    plus_ten = x + 10
+  )
+}
+
+df |> 
+  mutate(across(x, ~calc_stats(.x), .unpack = TRUE))
+
+
+```
+
+```{r}
+#| label: detritus
+#| eval: false
+#| output: false
+
+# inputs
+# emp <- 879
+# est <- 461
+# estknown <- c(444, 11, 0, 0, 0, 0, 0, 0, 0)
+# lb_avgemp <- c(0, 5, 10, 20, 50, 100, 250, 500, 1000)
+# ub_avgemp <- c(4, 9, 19, 49, 99, 249, 499, 599, Inf)
+# 
+# # res <- ests_env$get_estabs_avgemp(est, emp, estknown, lb_avgemp, ub_avgemp, threshold=.5)
+# res <- ests_env$get_estabs_avgemp(est, emp, estknown, lb_avgemp, ub_avgemp, threshold=.5, trace=TRUE)
+# # res <- ests_env$get_estabs_avgemp(est, emp, estknown, lb_avgemp, ub_avgemp, threshold=.5, trace=TRUE, itmax=200, eps=1e-15)
+# 
+# # res <- get_estabs_avgemp(est, emp, estknown, lb_avgemp, ub_avgemp, threshold=.5, trace=TRUE)
+# 
+# res$convergence
+# 
+# n <- length(estknown)
+# 
+# # scales::label_comma(accuracy=.1)(res$par)
+# estabs_solution <- res$par[1:n]
+# avgemp_solution <- res$par[(n+1):(2*n)]
+# 
+# tibble(lbemp=lb_avgemp, ubemp=ub_avgemp, 
+#        avgemp=avgemp_solution, 
+#        estknown=estknown, 
+#        estabs=estabs_solution) |>
+#   mutate(emp=estabs * avgemp) |> 
+#   janitor::adorn_totals("row") |>
+#   mutate(estabs_true = ifelse(row_number()==max(row_number()),
+#                            est,
+#                            NA_real_),
+#          emp_true = ifelse(row_number()==max(row_number()),
+#                            .GlobalEnv$emp,
+#                            NA_real_)) |> 
+#   kable(digits=1, format.args = list(big.mark = ",", scientific = FALSE))
+
+
+# calc max avg emp for top group
+
+
+# Return vector of constraint values
+# Each element should be >= 0 for inequality constraints
+# or = 0 for equality constraints
+
+
+
+# shares <- cbpny2 |> 
+#   mutate(across(nlt_5:n1000, \(x) x / est)) |> 
+#   select(fipstate, fipscty, state, county, mta, nyc, naics, description, emp, ap, est, nlt_5:n1000) |> 
+#   pivot_longer(nlt_5:n1000, values_to = "share") |> 
+#   mutate(share_adj=share / sum(share), 
+#          .by=c(fipstate, fipscty, naics))
+
+```

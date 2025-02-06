@@ -1,0 +1,148 @@
+---
+output: html_document
+editor_options: 
+  chunk_output_type: console
+---
+
+# PMT tax base and rate rules
+
+Tax & Finance - [employers](https://www.tax.ny.gov/bus/mctmt/emp.htm),
+
+## Overview of changes over time
+
+-   **2009**: Enacted, effective March 1, 2009 (September 1, 2009 for public school districts). self-employment tax effective for tax years beginning in 2009. **Flat rate 0.34%**. Employers excluded if MTA quarterly payroll \<= \$2.5k; NESE taxpayers excluded if MTA annual NESE \<= \$10k. Taxpayers above threshold pay from dollar 1. Federal-related entities exempt; school districts taxed but reimbursed.
+
+-   **2011**: Effective April 2012: (1) raised MTA quarterly payroll threshold from \$2.5k to \$312.5k and annual MTA NESE threshold to \$50k; (2) **0.11% for MTA Q payroll \<= \$375k, 0.23% for \<= \$437.5k, 0.34% above**; (3) exempted public school districts and certain other educational institutions
+
+-   **2023**: July 2023+, top rate in NYC PMT raised to 0.60%; SENET rate raised pro-rata for TY beginning 2023; raised to 0.60% for TY beginning 2024+.
+
+## Tax base and taxpayers
+
+Taxpayers (7/1/2023+) do NOT include:
+
+-   an agency or instrumentality of the United States;\
+    **Note:** For an employer to be an agency or instrumentality of the United States, there must be (1) a federal law specifically stating the employer is an agency or instrumentality of the United States, or (2) a decision in a federal court case which specifically states that the employer is an agency or instrumentality of the United States. 
+
+-   the United Nations;
+
+-   an interstate agency or public corporation created pursuant to an agreement or compact with another state or Canada;
+
+-   a federally chartered credit union;
+
+-   a household employer on wages paid to household employees; or
+
+-   any eligible educational institution including:
+
+    -   a public school district,
+
+    -   Board of Cooperative Educations Services (BOCES),
+
+    -   a public elementary or secondary school,
+
+    -   a school that serves students with disabilities of school age as defined in Article 85 or 89 of the Education Law,
+
+    -   a nonpublic elementary or secondary school that provides instruction in grade one or above, or
+
+    -   all public library systems \[as defined by section 272(1) of the Education Law\] and all public and free association libraries \[as defined by section 253(2) of the Education Law\] beginning with the first quarter of 2016.
+
+## Tax rates
+
+Rates July 1, 2023+:
+
+## Tax calculation
+
+For purposes of calculating the MCTMT, the MCTD is divided into two zones:
+
+-   **Zone 1 (NYC)** includes the counties of New York (Manhattan), Bronx, Kings (Brooklyn), Queens, and Richmond (Staten Island).
+
+-   **Zone 2 (suburban counties)** includes the counties of Rockland, Nassau, Suffolk, Orange, Putnam, Dutchess, and Westchester.
+
+Your MCTMT due for a calendar quarter is the sum of:
+
+1.  your [payroll expense](https://www.tax.ny.gov/bus/mctmt/def_ps.htm#pe) in the calendar quarter for all [covered employees](https://www.tax.ny.gov/bus/mctmt/def_ce.htm) in Zone 1 multiplied by the applicable MCTMT rate from Table 1 below, **and**
+
+2.  your payroll expense in the calendar quarter for all covered employees in Zone 2 multiplied by the applicable MCTMT rate from Table 2 below.
+
+**Note:** In order to be subject to the MCTMT for the quarter, the employer must have payroll expense in the entire MCTD (both Zone 1 and Zone 2) greater than \$312,500.
+
+**Example:** *An employer has payroll expense within the MCTD of \$650,000. \$450,000 of that payroll expense is attributable to Zone 1 and \$200,000 of that payroll expense is attributable to Zone 2. The employer’s MCTMT liability is \$2,920 (\[\$450,000 x 0.60%\] + \[\$200,000 x 0.11%\]).*
+
+![](images/clipboard-1600659582.png)
+
+## Initial enactment (from my [Fall 2023 forecast](https://boyd-mta-forecast-fall2023.netlify.app/timing_lawchanges.html))
+
+Part C of Chapter 25 of the Laws of 2009 added Article 23 to the Tax Law which establishes the metropolitan commuter transportation mobility tax (MCTMT).
+
+It was signed on May 7, 2009. The wage tax was generally effective March 1, 2009 (September 1, 2009 for public school districts) and the self-employment tax was effective for tax years beginning in 2009. (Part C section 23 of the chapter for effective dates.)
+
+## **The 2011 payroll mobility tax reductions**
+
+### **The change and its effective date**
+
+Part B of Chapter 56 of the Laws of 2011, obtainable [here](http://public.leginfo.state.ny.us/navigate.cgi?NVDTO:) reduced revenue from the payroll tax. Among other things it:
+
+-   raised the quarterly payroll threshold for taxation from \$2,500 to \$312,500
+
+-   added lower rates for taxable employers with quarterly payroll below \$437,500 and
+
+-   exempted public school districts and certain other educational institutions
+
+The changes took effect for the quarter beginning April 2012. The bill was signed on December 11, 2011, meaning the Tax Department, employers, and tax advisors had approximately 3 months to prepare for implementation and response. As a tax reduction, employers had greater incentive to comply quickly with the changes than for the 2023 increase.
+
+## The 2023 increase
+
+NYS increased the PMT as follows (see [transportation bill](https://legislation.nysenate.gov/pdf/bills/2023/S4008C))
+
+-   Payroll tax rate on NYC employers with quarterly payroll greater than \$437,500 (annual rate of \$1.75 million)
+
+    -   increased from 0.34% to 0.60% (+76.47%).
+
+    -   payroll tax provisions take effect immediately and “shall apply to tax quarters beginning on or after July 1, 2023”
+
+-   Self-employment net earnings tax rate on NYC net earnings was increased:
+
+    -   from 0.34% to 0.47% (+38.24%) for TY beginning in 2023 (because most taxpayers are calendar-year taxpayers, this mostly will apply to net self-employment earnings earned in calendar year 2023)
+
+    -   from 0.34% to 0.60% (+76.47%) for TY beginning in 2024+.
+
+The \$50,000 threshold for taxability was not changed
+
+## **Fiscal impact estimates for the 2023 increase**
+
+During budget process:
+
+-   Full-year \~\$1.1 billion
+
+-   First year: DOB estimate was \~\$460m, KW believes
+
+Boyd estimates in June 2023
+
+-   2023 (conservative to optimistic) \$407-419m – (\$381-393 wages, \~\$26 self-employment)
+
+-   2024 (conservative to optimistic) \$1,038-1089m - (\$979-1,024 wages, \~\$59-66 self-employment)
+
+MTA July Financial Plan (July 2023 estimates, prepared a bit earlier)
+
+-   2023: \$419m
+
+-   2024: \$1,112m (+ \~4% annually in later years)
+
+## When to file and pay
+
+![](images/clipboard-3225590464.png)
+
+## Professional employer organizations (PEOs)
+
+The guidance on this page applies to tax quarters beginning on or after 7/1/23. 
+
+For guidance on the return due 7/31/23, for the quarter ending 6/30/23, see [Publication 420](https://www.tax.ny.gov/pdf/publications/mctmt/pub420.pdf), *Guide to the Metropolitan Commuter Transportation Mobility Tax*. 
+
+If you are a PEO (as defined in section 916 of the Labor Law; see [TSB-M-12(2)MCTMT](https://www.tax.ny.gov/pdf/memos/mta_mobility/m12_2mctmt.pdf), *Computation of the Metropolitan Commuter Transportation Mobility Tax for Professional Employer Organizations)* you must calculate your MCTMT due based separately on:
+
+-   the payroll expense of your own organization; **and**
+
+-   the payroll expense of each client with whom you have entered into a professional employer agreement.
+
+## Links and guides
+
+[Publication 420](https://www.tax.ny.gov/pdf/publications/mctmt/pub420.pdf)

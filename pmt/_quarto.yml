@@ -18,16 +18,19 @@ book:
   date-format: long
   chapters:
     - index.qmd
-    - part: "Prepare data"
+    - part: "PMT rules"
       chapters:    
-      - get_econ_data.qmd
-    # - intro.qmd
-    # - part: "Policy Analysis"
-    #   chapters:    
-    #   - what_is_policy_analysis.qmd 
-    # - part: "Appendices"
-    #   chapters:    
-    #   - appendix/resources.qmd
+      - pmt_rules.qmd
+    - part: "Prepare data"
+      chapters:
+      - method_steps.qmd
+      - get_cbp_data.qmd
+      - get_susb_data.qmd    
+      - get_qcew_data.qmd
+      - clean_qcew_save_mta_subset.qmd
+      - fillin_qcew.qmd
+      # - employer_size.qmd
+      # - make_pmt_base.qmd
 
 # bibliography: references.bib
 

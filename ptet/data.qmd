@@ -1,0 +1,253 @@
+---
+editor_options:
+  chunk_output_type: console
+---
+
+# Get data
+
+```{r}
+#| label: setup
+#| output: false
+
+library(tidyverse)
+library(readxl)
+library(vroom)
+library(fs)
+library(btools)
+library(bggtools)
+library(gt)
+
+tprint <- 75  # default tibble print
+options(tibble.print_max = tprint, tibble.print_min = tprint) # show up to tprint rows
+
+ddir <- here::here("data")
+
+```
+
+```{r}
+#| output: false
+
+# Personal Income Tax Filers, Files Beginning Tax Year 2015, Summary Datasets
+# Dataset 1 - Major Items by Liability Status and Place of Residence
+# Dataset 2 - Major Items and Income & Deduction Components by Place of Residence and Broad Income Range
+# Dataset 3 - Statewide Major Items and Income & Deduction Components by Liability Status and Detail Income Range
+# Dataset 4 - County-level Major Items and Income & Deduction Components by Wide Income Range
+
+# pick numeric part of url from the bar at top of browser
+url1 <- "https://data.ny.gov/api/views/73iw-kuxv/rows.csv?accessType=DOWNLOAD&sorting=true"
+url2 <- "https://data.ny.gov/api/views/f3t7-zvbx/rows.csv?accessType=DOWNLOAD&sorting=true"
+url3 <- "https://data.ny.gov/api/views/rt8x-r6c8/rows.csv?accessType=DOWNLOAD&sorting=true"
+url4 <- "https://data.ny.gov/api/views/qjqv-zrwt/rows.csv?accessType=DOWNLOAD&sorting=true"
+
+ds1 <- vroom(url1) # counties; major items only
+ds2 <- vroom(url2) # counties; has Gain and loss from Rent,Royalties,Prtnrshp,Estates,Trusts Income BUT NOT #s
+ds3 <- vroom(url3) # statewide; Gain and loss from Rent,Royalties,Prtnrshp,Estates,Trusts Income AND #s
+ds4 <- vroom(url4) # counties; Gain and loss from Rent,Royalties,Prtnrshp,Estates,Trusts Income AND #s, WIDE income ranges
+
+glimpse(ds1)
+glimpse(ds2)
+glimpse(ds3)
+glimpse(ds4)
+
+```
+
+```{r}
+#| label: clean
+#| output: false
+
+# we want ds3 for the statewide data, ds4 for the county data
+
+# ds3 statewide
+vnames3 <- tibble(varnum=1:ncol(ds3), vname=colnames(ds3))
+
+glimpse(ds3)
+state <- ds3 |> 
+  select(taxyear=1, liabstat=2, resstat=3, nyagirange=4, notes=5, 
+         nret=6, nsingle=7, nmfj=8, nhead=9, nmfs=10,
+         nyfedagi=11, nyti=21, npartnergain=35, partnergain=36, npartnerloss=37, partnerloss=38)
+
+count(state, taxyear) # 2015-2022
+count(state, liabstat) # All Returns, Non-Taxable, Taxable
+count(state, resstat) # All Filers, Full-Year Nonresident, Full-Year Resident, Part-Year Resident
+count(state, nyagirange)
+
+incranges <- state |> 
+  filter(taxyear == 2022, liabstat == "All Returns", resstat == "Full-Year Resident") |> 
+  select(nyagirange) |> 
+  mutate(rangenum=row_number()) |> 
+  relocate(rangenum)
+
+# make collapsed ranges
+incranges2 <- incranges |> 
+  mutate(crange = case_when(
+    rangenum %in% 1:5 ~ " < 25K",
+    rangenum %in% 6:10 ~ "25K - < 50K",
+    rangenum %in% 11:15 ~ "50K - < 75K",
+    rangenum %in% 16:17 ~ "75K - < 100K",
+    rangenum %in% 18:19 ~ "100K - < 200K",
+    rangenum %in% 20:22 ~ "200K - < 500K",
+    rangenum %in% 23 ~ "500K - < 1M",
+    rangenum %in% 24:25 ~ "1M - < 5M",
+    rangenum %in% 26 ~ "5M - < 10M",
+    rangenum %in% 27 ~ "10M+",
+    rangenum %in% 28 ~ "Total",
+    .default = "Other"),
+    crangenum = case_when(
+      crange == " < 25K" ~ 1,
+      crange == "25K - < 50K" ~ 2,
+      crange == "50K - < 75K" ~ 3,
+      crange == "75K - < 100K" ~ 4,
+      crange == "100K - < 200K" ~ 5,
+      crange == "200K - < 500K" ~ 6,
+      crange == "500K - < 1M" ~ 7,
+      crange == "1M - < 5M" ~ 8,
+      crange == "5M - < 10M" ~ 9,
+      crange == "10M+" ~ 10,
+      crange == "Total" ~ 11,
+      crange == "Other" ~ 12,
+      .default = NA_real_))
+
+count(incranges2, crangenum, crange)
+
+pinc <- state |> 
+  filter(taxyear == 2022, liabstat == "All Returns", resstat == "Full-Year Resident") |> 
+  select(nyagirange, nret, npartnergain, partnergain) |> 
+  left_join(incranges2, by = join_by(nyagirange)) |>
+  filter(crange != "Total") |>
+  summarise(across(nret:partnergain, \(x) sum(x, na.rm = TRUE)), .by=c(crangenum, crange)) |> 
+  arrange(desc(crangenum)) |>
+  mutate(cnretpct = cumsum(nret) / sum(nret),
+         cngainpct = cumsum(npartnergain) / sum(nret),
+         cgainpct = cumsum(partnergain) / sum(partnergain)) |> 
+  arrange(crangenum) |> 
+  select(-crangenum) |>
+  janitor::adorn_totals(where = "row") |> 
+  mutate(across(contains("pct"), \(x) ifelse(crange == "Total", NA_real_, x)))
+pinc
+
+```
+
+```{r}
+#| label: show
+#| output: true
+
+pinc |> 
+  relocate(cngainpct, .after = cgainpct) |> 
+  gt() |> 
+  fmt_number(columns = c(nret, npartnergain), decimals = 0) |>
+  fmt_number(columns = c(partnergain), scale = 1e-6, decimals = 0) |> 
+  fmt_percent(columns = contains("pct"), decimals = 1) |>
+  tab_header(title = "NYS Partnership, Rent, Royalties, Estates & Trust Positive Income, Full-Year Residents",
+             subtitle = "$ millions, 2022 Tax Year") |> 
+  cols_label(crange = "AGI Range", 
+             nret = "Total Number of Returns",
+             npartnergain = "# with Partnership etc. gain",
+             partnergain = "Partnership etc. gain ($ millions)",
+             cnretpct = "# Returns",
+             cgainpct = "$ Partnership etc. gain",
+             cngainpct = "Cumulative % # returns with Partnership etc. gain") |> 
+  tab_spanner(label = "Cumulative percentage from bottom", columns = c(cnretpct, cgainpct)) |> 
+  tab_footnote("Source: New York State Department of Taxation and Finance") |> 
+  sub_missing(missing_text = "-")
+
+```
+
+```{r}
+#| label: mtadata
+#| output: false
+
+glimpse(ds4)
+vnames4 <- tibble(varnum=1:ncol(ds4), vname=colnames(ds4))
+
+partner1 <- ds4 |> 
+  select(taxyear=1, resstat=2, por=3, county=4, state=5, country=6,
+         nyagirange=7, nret=9, npartnergain=38, partnergain=39)
+
+count(partner1, taxyear)
+count(partner1, resstat)
+count(partner1, por) # counties
+count(partner1, county) # counties -- better
+count(partner1, por, county)
+count(partner1, state)
+count(partner1, country)
+count(partner1, nyagirange)
+#   nyagirange              n
+#   <chr>               <int>
+# 1 $       1 - 9,999     552
+# 2 $  10,000 - 24,999    552
+# 3 $  25,000 - 49,999    552
+# 4 $  50,000 - 74,999    552
+# 5 $  75,000 - 99,999    552
+# 6 $ 100,000 - 199,999   552
+# 7 $ 200,000 and Over    552
+# 8 All Income Ranges     552
+# 9 Under $1              552
+
+
+mtaplaces <- c("All New York City", "Nassau", "Suffolk", "Dutchess", "Orange", "Putnam", "Rockland", "Westchester")
+places <- c("All Places", mtaplaces)
+
+mta <- partner1 |> 
+  filter(taxyear==2022, county %in% places, nyagirange == "$ 200,000 and Over", resstat=="Full-Year Resident") |> 
+  select(-country, -nyagirange, -state, -taxyear, -resstat, -por) |> 
+  mutate(county = case_when(county == "All New York City" ~ "New York City",
+                            county == "All Places" ~ "New York State Resident Total",
+                            .default = county))
+mta
+
+mtatot <- mta |>
+  filter(county != "New York State Resident Total") |> 
+  summarise(across(c(nret, npartnergain, partnergain), \(x) sum(x))) |> 
+  mutate(county = "MTA total")
+mtatot
+
+ros <- bind_rows(mtatot,
+                 mta |> filter(county=="New York State Resident Total")) |> 
+  mutate(across(c(nret, npartnergain, partnergain), 
+                \(x) ifelse(county=="MTA total", -x, x))) |>
+  summarise(across(c(nret, npartnergain, partnergain), \(x) sum(x))) |> 
+  mutate(county = "Rest of state")
+ros
+
+combo1 <- bind_rows(mta, mtatot, ros) |> 
+  rename(area=county) |> 
+  mutate(
+    sort = case_when(area == "New York City" ~ 1,
+                     area %in% mtaplaces ~ 2,
+                     area %in% "MTA total" ~ 3,
+                     area == "Rest of state" ~ 4,
+                     .default = 5),) |> 
+  arrange(sort, area)
+combo1
+
+combo2 <- combo1 |> 
+  mutate(across(c(nret, npartnergain, partnergain), list(pct = \(x) x / x[sort==5])))
+combo2
+
+
+```
+
+```{r}
+#| label: show-geography
+#| output: true
+
+combo2 |> 
+  select(-sort) |> 
+  gt() |> 
+  tab_header(title = "NYS Partnership, Rent, Royalties, Estates & Trust Positive Income by Area, Full-Year Residents",
+             subtitle = "Returns with NY AGI >= $200K, $ millions, 2022 Tax Year") |>
+  fmt_number(columns = c(nret, npartnergain), decimals = 0) |>
+  fmt_number(columns = c(partnergain), scale = 1e-6, decimals = 0) |> 
+  fmt_percent(columns = contains("pct"), decimals = 1) |> 
+  cols_label(nret = "Total Number of Returns",
+             npartnergain = "# with Partnership etc. gain",
+             partnergain = "Partnership etc. gain ($ millions)",
+             nret_pct = "# Returns",
+             partnergain_pct = "$ Partnership etc. gain",
+             npartnergain_pct = "# returns with Partnership etc. gain") |> 
+  tab_spanner(label = "Percentage of Resident Total", columns = contains("pct")) |> 
+  tab_footnote("Source: New York State Department of Taxation and Finance") |> 
+  sub_missing(missing_text = "-")
+
+
+```

@@ -8,3 +8,31 @@ editor_options:
 
 Analysis of MTA PMT 2025
 
+## Goals
+
+-   PMT
+    -   25 bp on large NYC employers
+    -   25 bp large suburban employers
+    -   comparable self employment tax
+    -   full year amounts, say 2025
+    -   wage growth scenarios (just the wages, not the revenue) going out years - eea growth
+    -   **how much increase in top rate needed to buy down lower rates**
+-   Corporate surcharge
+    -   revenue was "fixed" recently
+    -   what's the uncertainty going forward?
+    -   I said 3 major uncertainties
+        -   corporate profits
+        -   corporate payment behavior
+        -   federal tax reform
+
+## Boyd MTA web pages
+
+-   [MTA baseline](https://mta-baseline.netlify.app/) (March 30, 2023)
+-   [PMT Forecast](June%206,%202023) (June 6, 2023)
+-   [MTA 2023-24](https://boyd-mta202324.netlify.app/) (Oct 20, 2023)
+-   [PMT analysis for Nov 2023 forecast](https://boyd-mta-forecast-fall2023.netlify.app/) (Dec 22, 2023)
+-   [MTA 2025 analysis](https://boyd-mta2025-pmt.netlify.app/) (current)
+
+## Notes
+
+-   [Data on employer size -- see discussion](https://mta-baseline.netlify.app/pmtbase/pmt_stopgap)

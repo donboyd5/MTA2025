@@ -3,11 +3,17 @@
 .RData
 .Ruserdata
 
+.quarto/
+
 # file types
+~*.doc*
+~*.xlsx
 *.zip
 
 # folders
+_docs/
 _freeze/
 _web/
+
 data/
 !data_raw/

@@ -1,0 +1,926 @@
+---
+output: html_document
+editor_options: 
+  chunk_output_type: console
+---
+
+# Clean QCEW data and save MTA subset
+
+-   get MTA subset
+-   make ownership factor
+-   redefine naics_level so that level 1 is grand total
+-   get naics levels 1, 2, and 3 only
+-   get years 2009 and later (years relevant for the pmt)
+-   save 
+
+## Setup
+
+```{r}
+#| label: setup
+#| include: false
+
+source(here::here("R", "libraries.r"))
+source(here::here("R", "libraries_ts.r"))
+source(here::here("R", "constants.r"))
+source(here::here("R", "functions.r"))
+
+```
+
+## Get qcew and do initial cleaning
+
+```{r}
+#| label: get-data
+#| output: false
+
+qcew1 <- readRDS(fs::path(PDINTERMEDIATE, "qcewstco.rds"))
+
+glimpse(qcew1)
+
+```
+
+
+```{r}
+#| label: make-factors
+#| output: false
+
+# I don't know what codes NYSDOL uses so make my own
+# ownf <- c(`1`="Total Private and Government",
+#           `2`="Private",
+#           `3`="Total Government",
+#           `4`="Federal Government",
+#           `5`="State Government",
+#           `6`="Local Government")
+
+owner_factors <- read_csv("
+ownerf, owner, ownershort
+1, Total Private and Government, totown
+2, Private, privown
+3, Total Government, totgovown
+4, Federal Government, fedgovown
+5, State Government, stategovown
+6, Local Government, localgovown
+7, Other Government, othergovown
+")
+write_csv(owner_factors, fs::path(PDINTERMEDIATE, "owner_factors.csv"))
+
+
+qcew_mta <- qcew1 |> 
+  filter(areatype == "county") |> # redundant with mta
+  filter(mta, naics_level <= 3, year >= 2009) |> 
+  left_join(owner_factors, by = join_by(owner)) |> 
+  mutate(naics_level = ifelse(naics == "00", 1, naics_level)) |> 
+  select(county=area, mta, nyc, year, 
+         ownerf, owner, ownershort,
+         naics_level, naics, title,
+         estab, avgemp, totwage, annavgsal) |> 
+  arrange(county, year, ownerf)
+glimpse(qcew_mta)
+count(qcew_mta, ownerf, owner, ownershort)
+count(qcew_mta |> mutate(nlen = nchar(naics)), naics_level, nlen)
+
+saveRDS(qcew_mta, fs::path(PDINTERMEDIATE, "qcew_mta.rds"))
+
+```
+
+## Explore categorical variables
+
+Notes:
+
+-   2000-2023; 2023 looks like a full year (but perhaps preliminary)
+-   areatypes county and state
+-   NAICS level is the number of digits
+-   65 counties: 57 + 5 NYC + 1 each for: Locations Statewide (16), Out of State Locations (2), Unknown Locations (16)   
+
+```{r}
+#| label: explore-categories
+#| eval: false
+#| output: false
+
+glimpse(qcew2)
+
+#.. years ----
+count(qcew2, year) |> ht()
+# # A tibble: 6 × 2
+#    year     n
+#   <dbl> <int>
+# 1  2000 92551
+# 2  2001 92395
+# 3  2002 92018
+# 4  2003 91555
+# 5  2004 92132
+# 6  2005 92000
+# # A tibble: 6 × 2
+#    year     n
+#   <dbl> <int>
+# 1  2018 92668
+# 2  2019 92073
+# 3  2020 91441
+# 4  2021 79216
+# 5  2022 83733
+# 6  2023 84282
+
+#.. areas ----
+count(qcew2, areatype)
+#   areatype       n
+#   <chr>      <int>
+# 1 county   2066833
+# 2 state     112968
+
+count(qcew2 |> filter(areatype=="state"), area)
+count(qcew2 |> filter(areatype=="county"), area)
+# 65: 57 + 5 NYC +
+#     1 each for Locations Statewide (16) + Out of State Locations (2) + Unknown Locations (16)
+
+# mta and nyc indicators ---
+count(qcew2 |> filter(mta), nyc, area)
+
+#    nyc   area                   n
+#    <lgl> <chr>              <int>
+#  1 FALSE Dutchess County    48965
+#  2 FALSE Nassau County      72942
+#  3 FALSE Orange County      56120
+#  4 FALSE Putnam County      29534
+#  5 FALSE Rockland County    50133
+#  6 FALSE Suffolk County     78489
+#  7 FALSE Westchester County 67768
+#  8 TRUE  Bronx County       49150
+#  9 TRUE  Kings County       69233
+# 10 TRUE  New York County    71557
+# 11 TRUE  Queens County      66824
+# 12 TRUE  Richmond County    43771
+
+#.. industries ----
+count(qcew2, naics_level) # 5 categories -- 2-6
+count(qcew2, naics) # 2,572 categories
+count(qcew2, title) # 2,532 categories
+count(qcew2 |> mutate(naics2=str_sub(naics, 1, 2)), naics2) # 26 2-digit categories
+
+count(qcew2, naics_level, naics) # 2,572
+tmp <- count(qcew2, naics_level, naics, title) # 2,572
+
+# NAICS level is the number of digits
+tmp |> mutate(nchar=nchar(naics)) |> 
+  relocate(nchar, .after=naics) |> 
+  filter(nchar != naics_level)
+
+#.. owners ----
+count(qcew2, ownerf, owner) # 6 categories but total government and total private and government arews sums of 4 atomic categories
+#   ownerf owner                              n
+#   <ord>  <chr>                          <int>
+# 1 0      Total Private and Government 1098617
+# 2 1      Private                       948883
+# 3 2      Total Government               71480
+# 4 3      Federal Government             15387
+# 5 4      State Government               15494
+# 6 5      Local Government               29940
+
+#.. major industry by owner ----
+count(qcew2, ownerf, owner, naics_level) # all combinations are in the data
+
+#.. industry codes ----
+
+
+```
+
+## Explore group sums
+
+### Owners
+
+For state:
+-   Private + government ~ total, but
+-   Fed + state + local only ~ 92% of govt total
+
+For MTA region, they are 97% and 91%
+
+#### Statewide
+
+```{r}
+#| label: owner-sums-statewide
+#| eval: false
+#| output: false
+
+tabdata <- qcew2 |> 
+  filter(areatype=="state", year==2022) |> 
+  summarise(totwage=sum(totwage),
+            .by=c(ownerf, owner)) |>
+  arrange(ownerf) |> 
+  mutate(check=case_when(ownerf==0 ~ 
+                           totwage[ownerf==1] + 
+                           totwage[ownerf==2],
+                         ownerf==2 ~ 
+                           totwage[ownerf==3] +
+                           totwage[ownerf==4] +
+                           totwage[ownerf==5]),
+         pct=check / totwage)
+
+tabdata |> 
+  mutate(across(c(totwage, check), \(x) scales::label_comma()(x)),
+         pct=scales::label_percent(accuracy = .01)(pct)) |> 
+  kable()
+
+# |ownerf |owner                        |totwage           |check             |pct    |
+# |:------|:----------------------------|:-----------------|:-----------------|:------|
+# |0      |Total Private and Government |4,936,013,939,388 |4,926,553,544,118 |99.81% |
+# |1      |Private                      |4,282,211,154,460 |NA                |NA     |
+# |2      |Total Government             |644,342,389,658   |594,463,067,947   |92.26% |
+# |3      |Federal Government           |59,999,215,092    |NA                |NA     |
+# |4      |State Government             |128,095,947,960   |NA                |NA     |
+# |5      |Local Government             |406,367,904,895   |NA                |NA     |
+
+# tabdata |> 
+#   gt() |> 
+#   fmt_number(columns=c(totwage, check), decimals=0) |> 
+#   fmt_percent(columns = pct, decimals = 2)
+
+
+  # kable(digits = 2,
+  #       format.args = list(big.mark = ",", scientific = FALSE))
+
+```
+
+#### MTA region
+
+```{r}
+#| label: owner-sums-mta
+#| eval: false
+#| output: false
+
+tabdata <- qcew2 |> 
+  filter(areatype=="county", year==2022, mta) |> 
+  summarise(totwage=sum(totwage),
+            .by=c(ownerf, owner)) |>
+  arrange(ownerf) |> 
+  mutate(check=case_when(ownerf==0 ~ 
+                           totwage[ownerf==1] + 
+                           totwage[ownerf==2],
+                         ownerf==2 ~ 
+                           totwage[ownerf==3] +
+                           totwage[ownerf==4] +
+                           totwage[ownerf==5]),
+         pct=check / totwage)
+
+tabdata |> 
+  mutate(across(c(totwage, check), \(x) scales::label_comma()(x)),
+         pct=scales::label_percent(accuracy = .01)(pct)) |> 
+  kable()
+
+# |ownerf |owner                        |totwage           |check             |pct    |
+# |:------|:----------------------------|:-----------------|:-----------------|:------|
+# |0      |Total Private and Government |3,722,698,229,289 |3,626,866,791,286 |97.43% |
+# |1      |Private                      |3,366,234,753,496 |NA                |NA     |
+# |2      |Total Government             |260,632,037,790   |238,118,458,459   |91.36% |
+# |3      |Federal Government           |40,488,258,790    |NA                |NA     |
+# |4      |State Government             |30,222,943,702    |NA                |NA     |
+# |5      |Local Government             |167,407,255,967   |NA                |NA     |
+
+```
+
+### Industries
+
+Statewide, all owners, 2022 -- industry detail very close to grand total wages.
+
+MTA region -- close, but not as close
+
+#### Statewide
+
+```{r}
+#| label: industry-sums-statewide
+#| eval: false
+#| output: false
+
+tabdata <- qcew2 |> 
+  filter(areatype=="state", year==2022, ownerf==0) |> 
+  mutate(naics_level2=ifelse(naics_level==2 & naics=="00",
+                       1,
+                       naics_level)) |> 
+  summarise(totwage=sum(totwage),
+            .by=c(naics_level2)) |>
+  mutate(pct=totwage / totwage[naics_level2==1])
+
+tabdata |> 
+  mutate(across(c(totwage), \(x) scales::label_comma()(x)),
+         pct=scales::label_percent(accuracy = .01)(pct)) |> 
+  kable()
+
+```
+
+#### MTA region
+
+```{r}
+#| label: industry-sums-mta
+#| eval: false
+#| output: false
+
+tabdata <- qcew2 |> 
+  filter(areatype=="county", year==2022, ownerf==0, mta) |> 
+  mutate(naics_level2=ifelse(naics_level==2 & naics=="00",
+                       1,
+                       naics_level)) |> 
+  summarise(totwage=sum(totwage),
+            .by=c(naics_level2)) |>
+  mutate(pct=totwage / totwage[naics_level2==1])
+
+tabdata |> 
+  mutate(across(c(totwage), \(x) scales::label_comma()(x)),
+         pct=scales::label_percent(accuracy = .01)(pct)) |> 
+  kable()
+
+```
+
+
+
+
+## Fill in gaps
+
+qcew data have gaps in that the sums for levels do not equal level totals. Thus, I'll create all-other naics info to make sure it works.
+
+```{r}
+#| label: explore-state
+#| eval: false
+#| output: false
+
+tmp <- qcew |> filter(areatype=="state", year==2022) # 4529 obs
+glimpse(tmp)
+
+count(tmp, naics_level)
+#   naics_level     n
+#         <dbl> <int>
+# 1           2    86
+# 2           3   262
+# 3           4   716
+# 4           5  1446
+# 5           6  2019
+
+count(tmp, naics_level, title)
+# level 2 without counts
+# naics_level title                                      
+# 2 NAICS 00: Total, All Industries                   
+# 2 NAICS 11: Agriculture, Forestry, Fishing & Hunting
+# 2 NAICS 21: Mining                                  
+# 2 NAICS 22: Utilities                               
+# 2 NAICS 23: Construction                            
+# 2 NAICS 31-33: Manufacturing                        
+# 2 NAICS 42: Wholesale Trade                         
+# 2 NAICS 44-45: Retail Trade                         
+# 2 NAICS 48-49: Transportation and Warehousing       
+# 2 NAICS 51: Information                             
+# 2 NAICS 52: Finance and Insurance                   
+# 2 NAICS 53: Real Estate and Rental and Leasing      
+# 2 NAICS 54: Professional and Technical Services     
+# 2 NAICS 55: Management of Companies and Enterprises 
+# 2 NAICS 56: Administrative and Waste Services       
+# 2 NAICS 61: Educational Services                    
+# 2 NAICS 62: Health Care and Social Assistance       
+# 2 NAICS 71: Arts, Entertainment, and Recreation     
+# 2 NAICS 72: Accommodation and Food Services         
+# 2 NAICS 81: Other Services, Ex. Public Admin        
+# 2 Public Administration                             
+# 2 Unclassified                                      
+
+# totals for naics 00 ----
+tmp |> 
+  filter(naics_level==2, naics=="00") |> 
+  select(area, naics, naics_level, owner, estab, avgemp, totwage, annavgsal) |> 
+  mutate(calc=totwage / avgemp)
+
+#   area           naics naics_level owner                         estab  avgemp      totwage annavgsal    calc
+#   <chr>          <chr>       <dbl> <chr>                         <dbl>   <dbl>        <dbl>     <dbl>   <dbl>
+# 1 New York State 00              2 Total Government              16331 1356540 113031749586     83324  83324.
+# 2 New York State 00              2 Federal Government             2774  113401   9999869182     88181  88181.
+# 3 New York State 00              2 State Government               3759  210850  22974885534    108963 108963.
+# 4 New York State 00              2 Private                      671449 7907843 716692334441     90631  90631.
+# 5 New York State 00              2 Total Private and Government 687780 9264384 829724084027     89561  89561.
+# 6 New York State 00              2 Local Government               9799 1032290  80056994870     77553  77553.
+
+# do the owners add to the total? ----
+tmp |> 
+  filter(naics_level==2, naics=="00") |> 
+  filter(owner != "Total Government") |> 
+  mutate(total=owner=="Total Private and Government") |> 
+  summarise(across(c(estab, avgemp, totwage), sum), .by=total)
+# yes, if we exclude total government double-count they add
+#   total  estab  avgemp      totwage
+#   <lgl>  <dbl>   <dbl>        <dbl>
+# 1 FALSE 687781 9264384 829724084027
+# 2 TRUE  687780 9264384 829724084027
+
+# how far off are the 2-digit totals? ----
+
+
+```
+
+## OLD QCEW STUFF
+
+```{r}
+#| label: OLD-ONETIME-get-save-nysdol-qcew
+#| eval: false
+#| include: false
+
+# caution: NYSDOL uses Unsupported ZIP compression method (9: deflation-64-bit)
+# either convert to regular zip using winrar (or some other method)
+# or extract and read
+
+# qver <- "qcew_dl2023-05-28.zip"
+qver <- "qcew_dl2023-10-12.zip"
+qver <- "qcew_dl2024-06-11.zip"
+# qver <- "E:\R_projects\MTA\MTA_forecast\forecast_2024-06\data"
+
+qurl <- "https://statistics.labor.ny.gov/qcew.zip"
+fname <- fs::path_file(qurl)
+download.file(qurl, destfile = here::here("data", "nyqcew", fname), mode="wb")
+
+pzip <- here::here("data", "nyqcew", qver)
+
+# files <- fs::dir_ls(path=here::here("data", "nyqcew"), glob = "*csv")
+(files <- unzip(pzip, list = TRUE)$Name |>
+    str_subset(".csv") |> 
+    str_subset("quarter"))
+
+# files <- fs::dir_ls(path=here::here("data", "nyqcew"), glob = "*csv")
+
+files2 <- path(here::here("data", ""))
+
+df <- vroom(purrr::map(files[1], ~ unz(pzip, .x)))
+
+vroom(pzip:files)
+vroom(here::here("data", "nycqew", files[1]))
+
+# E:\R_projects\MTA\MTA_forecast\data\nyqcew
+# E:\R_projects\MTA\MTA_forecast\data\nyqcew
+# E:/R_projects/MTA/MTA_forecast/data/nycqew
+fp <- fs::path("E:/R_projects/MTA/MTA_forecast/data/nycqew", files[1])
+fp <- r"(E:\R_projects\MTA\MTA_forecast\data\nyqcew\qcew_quarter_2000.csv)"
+(paths <- paste0("E:\\R_projects\\MTA\\MTA_forecast\\data\\nyqcew\\", files))
+df <- vroom(paths)
+glimpse(df)
+count(df, Owner)
+
+df2 <- df |> 
+  filter(NAICS=="00", Owner=="Total Private and Government") |> 
+  lcnames() |> 
+  select(areatype, area, year, quarter, totwage) |> 
+  mutate(date=yq(paste(year, quarter, sep = "-")))
+glimpse(df2)
+
+count(df2, date)
+count(df2, areatype, area)
+
+areas <- c("Bronx County",
+           "Kings County",
+           "New York County",
+           "Queens County",
+           "Richmond County",
+           
+           "Dutchess County",
+           "Nassau County",
+           "Orange County",
+           "Putnam County",
+           "Rockland County",
+           "Suffolk County",
+           "Westchester County"
+           )
+
+df3 <- df2 |> 
+  filter(areatype=="County", area %in% areas) |> 
+  mutate(group=ifelse(area %in% areas[1:5],
+                      "nyc",
+                      "suburbs"))
+
+count(df3, group, area)
+
+df4 <- df3 |> 
+  summarise(n=n(),
+            totwage=sum(totwage),
+            .by=c(group, date))
+tots <- df4 |> 
+  summarise(n=n(),
+            totwage=sum(totwage),
+            .by=c(date)) |> 
+  mutate(group="mta")
+
+df5 <- bind_rows(df4, tots) |> 
+  arrange(group, date) |> 
+  mutate(pchya=totwage / lag(totwage, 4) - 1, .by=group)
+df5
+
+
+p <- df5 |> 
+  filter(year(date)>=2015) |> 
+  ggplot(aes(date, pchya, colour=group)) +
+  geom_line() +
+  geom_point() +
+  geom_hline(yintercept = 0) +
+  scale_y_continuous(name=NULL, breaks=seq(-.3, .3, .02), labels = scales::percent_format(accuracy = 1)) +
+  scale_x_date(name=NULL, date_breaks = "1 year", labels = scales::date_format(format="%Y")) +
+  ggtitle("MTA region year-over-year growth in non-seasonally adjusted wages",
+          subtitle = "Source: QCEW") +
+  theme_bw()
+p
+ggsave(path(respath, "nswages.png"), plot=p)  
+
+df5 |> 
+  filter(year(date)>=2021) |> 
+  select(group, date, pchya) |> 
+  pivot_wider(names_from = group, values_from = pchya) |> 
+  gt() |> 
+  fmt_percent(columns=-date, decimals=1) |> 
+  fmt_date(
+    columns = date,
+    date_style = "year_quarter"
+  )
+
+
+fpath <- here::here("data", "boyd_analysis_for_July2024_finplan.xlsx")
+fpath <- r"(E:\R_projects\MTA\MTA_forecast\forecast_2024-06\data\boyd_analysis_for_July2024_finplan.xlsx)"
+ihs1 <- read_excel(fpath, sheet="econ", range="a4:n128")
+glimpse(ihs1)
+
+ihs2 <- ihs1 |> 
+  select(qdate=1, ihs=Total) |> 
+  mutate(date=yq(qdate)) |> 
+  select(date, ihs)
+
+ihs3 <- inner_join(
+  tots |> 
+    select(date, qcew=totwage) |> 
+    mutate(qcew=qcew / 1e6),
+  ihs2, 
+  by = join_by(date)) |> 
+  pivot_longer(cols=c(qcew, ihs), names_to = "group") |> 
+  arrange(group, date) |> 
+  mutate(pchya=value / lag(value, 4) - 1, .by=group) |> 
+  mutate(fgroup=factor(group, levels=c("ihs", "qcew"), labels=c("seas (IHS)", "notseas (QCEW)")))
+
+p <- ihs3 |> 
+  filter(year(date)>=2015) |> 
+  ggplot(aes(date, pchya, colour=fgroup)) +
+  geom_line() +
+  geom_point() +
+  geom_hline(yintercept = 0) +
+  scale_y_continuous(breaks=seq(-.3, .3, .01), labels = scales::percent_format(accuracy = .1)) +
+  ggtitle("MTA region year-over-year growth in seasonally adjusted and non-adjusted wages") +
+  theme_bw()
+p  
+ggsave(path(respath, "ns_vs_sa_wages.png"), plot=p)  
+
+ihs3 |> 
+  filter(year(date)>=2021) |> 
+  select(group, date, pchya) |> 
+  pivot_wider(names_from = group, values_from = pchya) |> 
+  gt() |> 
+  fmt_percent(columns=-date, decimals=1) |> 
+  fmt_date(
+    columns = date,
+    date_style = "year_quarter"
+  )
+
+library(archive)
+archive_extract(pzip) # Unsupported ZIP compression method (9: deflation-64-bit)
+
+
+
+unzip(pzip)
+
+temp_dir <- tempdir()
+utils::unzip(pzip, files=files, exdir = temp_dir)
+
+dir.create(tmp <- tempfile())
+list.dirs(tmp)
+utils::unzip(pzip, files=files, exdir = tmp)
+
+
+zip::unzip(pzip, files = files, overwrite = TRUE, junkpaths = FALSE, exdir = temp_dir)
+
+
+
+vroom(pzip)
+
+
+glimpse(df)
+names(df)
+# [1] "AREATYPE"    "AREA"        "YEAR"        "QUARTER"     "NAICS"       "NAICS_LEVEL" "NAICS_TITLE" "ESTAB"       "MNTH1EMP"    "MNTH2EMP"   
+# [11] "MNTH3EMP"    "TOTWAGE"     "Owner"  
+count(df, AREATYPE) # County, State
+count(df |> filter(AREATYPE=="County"), AREA)
+count(df, Owner)
+# Owner                              n
+# <chr>                          <int>
+# 1 Federal Government            102215
+# 2 Local Government              245916
+# 3 Private                      7052970
+# 4 State Government              134571
+# 5 Total Government              558464
+# 6 Total Private and Government 8068156
+
+
+df1 <- df |> 
+  rename_with(tolower) |> 
+  filter(areatype %in% c("County", "State"),
+         owner %in% c("Total Private and Government", "Local Government", "Federal Government")) |> 
+  filter(naics=="00" | (naics_level==4 & naics=="6111"))
+skim(df1)
+
+saveRDS(df1, here::here("data", "nyqcew", "mtaqcew_raw.rds"))
+
+```
+
+```{r}
+#| label: ONETIME-save-nysdol-qcew-slim
+#| eval: false
+#| include: false
+
+
+mtawage1 <- readRDS(here::here("data", "nyqcew", "mtaqcew_raw.rds"))
+count(mtawage1, year, quarter) |> ht()
+
+mtawage2 <- mtawage1 |> 
+  filter(area=="New York State" | area %in% constants$mtaregion$area) |> 
+  mutate(date=yq(paste0(year, "-", quarter)),
+         areatype=str_to_lower(areatype),
+         region=case_when(area %in% constants$mtaregion$area[1:5] ~ "nyc",
+                          area %in% constants$mtaregion$area[6:12] ~ "suburban",
+                          area == "New York State" ~ "nys",
+                          TRUE ~ "ERROR"),
+         owncode=factor(owner, 
+                        levels=c("Total Private and Government", "Local Government", "Federal Government"),
+                        labels=c("total", "locgov", "fedgov")),
+         ind=case_when(naics=="00" ~ "allind",
+                       naics=="6111" ~ "k12"))
+count(mtawage2, areatype, region, area)
+count(mtawage2, owncode, owner)
+count(mtawage2, ind, naics, naics_level, naics_title)
+
+mtawage3 <- mtawage2 |> 
+  select(date, year, qtr=quarter, region, area, ind, owncode, estab:totwage) |> 
+  pivot_longer(cols=estab:totwage)
+
+saveRDS(mtawage3, here::here("data", "nyqcew", "mtaqcew_slim.rds"))
+
+```
+
+```{r}
+#| label: ONETIME-mta-wagebase
+#| eval: false
+#| include: false
+
+mtawage3 <- readRDS(here::here("data", "nyqcew", "mtaqcew_slim.rds"))
+
+mtawage3 |> 
+  filter(area=="Dutchess County",
+         ind=="allind",
+         name=="totwage") |> 
+  filter(year(date)>=2010) |> 
+  ggplot(aes(date, value)) +
+  geom_line() +
+  geom_point() +
+  geom_smooth() +
+  scale_x_date(breaks = "3 months") +
+  facet_wrap(~owncode, scales="free_y", ncol=1) +
+  theme(axis.text.x = element_text(angle = -90, vjust = 0, hjust=0.5)) 
+
+check <- mtawage3  |> filter(area=="New York County", date==max(date))
+check <- mtawage3  |> filter(region=="nyc", date==max(date))
+count(check, area)
+count(check, ind)
+count(check, owncode)
+
+xk12 <-  mtawage3 |> 
+  filter(ind=="k12" & owncode=="locgov")
+
+xk12all <-  mtawage3 |> 
+  filter(ind=="k12")
+xk12all |> filter(region=="nys", date==max(date))
+xk12all |> filter(region=="nyc", date==max(date)) # no local gov k12 data for nyc -- so must subtract the total owner
+
+xfed <- mtawage3 |> 
+  filter(ind=="allind" & owncode=="fedgov")
+xfed |> filter(region=="nys", date==max(date))
+xfed |> filter(region=="nyc", date==max(date))
+
+count(xk12, area)
+
+
+mtabase1 <- mtawage3 |> 
+  filter(ind=="allind", owncode=="total") |> 
+  select(-c(ind, owncode)) |> 
+  rename(total=value) |> 
+  left_join(xk12all |> 
+              filter(owncode=="total") |> # use this due to data limitations
+              select(date, area, name, xk12=value),
+            by = join_by(date, area, name)) |> 
+  left_join(xfed |> 
+              select(date, area, name, xfed=value),
+            by = join_by(date, area, name)) |> 
+  mutate(pmtbase=total - naz(xk12) - naz(xfed))
+
+count(mtabase1, area, region)
+skim(mtabase1)
+glimpse(mtabase1)
+
+saveRDS(mtabase1, here::here("data", "mta_wagebase.rds"))
+
+
+```
+
+Here is a summary of the resulting data file.
+
+```{r}
+#| label: summary
+#| eval: false
+#| include: true
+
+mtabase1 <- readRDS(here::here("data", "mta_wagebase.rds"))
+skim(mtabase1)
+
+```
+
+And correlation between total wages and the tax base after removing federal wages and K12 wages:
+
+```{r}
+#| label: correlation
+#| eval: false
+#| include: true
+
+mtabase1 |> filter(name=="totwage") |> select(total, pmtbase) |> cor()
+
+```
+
+```{r}
+#| label: explore
+#| eval: false
+#| include: false
+
+mtabase1 <- readRDS(here::here("data", "mta_wagebase.rds"))
+
+count(mtabase1, region)
+
+mtabase1 |> filter(name=="totwage") |> select(total, pmtbase) |> cor()
+
+mtabase1 |> 
+  filter(name=="totwage") |> 
+  summarise(total=sum(total), .by=c(date, region)) |> 
+  ggplot(aes(date, total)) +
+  geom_line() +
+  geom_point() +
+  geom_smooth() +
+  scale_x_date(breaks = "6 months", date_labels = "%Y-%b") +
+  facet_wrap(~region, scales="free_y", ncol=1) +
+  theme(axis.text.x = element_text(angle = -90, vjust = 0, hjust=0.5)) 
+
+
+mtabase1 |> 
+  filter(name=="totwage") |> 
+  summarise(total=sum(total), .by=c(date, region)) |> 
+  arrange(date) |> 
+  mutate(pch=total / lag(total) - 1, .by=region) |> 
+  mutate(region=factor(region, levels=c("nyc", "suburban", "nys"))) |> 
+  filter(year(date) >= 2010) |> 
+  ggplot(aes(date, pch)) +
+  geom_line() +
+  geom_point() +
+  geom_smooth() +
+  geom_hline(yintercept = 0) +
+  scale_x_date(name=NULL, breaks = "3 months",  date_labels = "%Y-%b") +
+  scale_y_continuous(name="% change from year ago", 
+                     breaks=seq(-.5, .5, .05),
+                     labels=label_percent(accuracy=1)) +
+  facet_wrap(~region, ncol=1) +
+  theme_bw() +
+  theme(axis.text.x = element_text(angle = -90, vjust = 0, hjust=0.5))
+
+
+```
+
+```{r}
+#| label: levels
+#| eval: false
+#| include: true
+#| fig-width: 8
+#| fig-height: 10
+
+mtabase1 <- readRDS(here::here("data", "mta_wagebase.rds"))
+
+# count(mtabase1, region)
+
+pdata1 <- mtabase1 |> 
+  filter(name=="totwage") |> 
+  summarise(pmtbase=sum(pmtbase), .by=c(date, region)) |> 
+  arrange(date)
+
+mtasum <- pdata1 |> 
+  filter(region %in% c("nyc", "suburban")) |> 
+  summarise(pmtbase=sum(pmtbase), .by=c(date)) |> 
+  mutate(region="mta")
+
+pdata <- bind_rows(pdata1, mtasum) |>
+  mutate(region=factor(region, levels=c("nyc", "suburban", "mta", "nys")))
+
+
+brks <- seq.Date(from=as.Date("2000-01-01"),
+                 to=as.Date("2030-01-01"),
+                 by="3 months")
+
+pdata |> 
+  filter(year(date) >= 2015, region!="nys") |> 
+  ggplot(aes(date, pmtbase)) +
+  geom_line() +
+  geom_point() +
+  geom_smooth() +
+  scale_x_date(name=NULL, breaks = brks,  date_labels = "%Y-%b") +
+  scale_y_continuous(name="amount ($billions)", 
+                     labels=scales::label_comma(accuracy=1, scale=1e-9)) +
+  facet_wrap(~region, ncol=1, scales = "free_y") +
+  theme_bw() +
+  theme(axis.text.x = element_text(angle = -90, vjust = 0, hjust=0.5))
+
+```
+
+```{r}
+#| label: growth-rates
+#| eval: false
+#| include: true
+#| fig-width: 8
+#| fig-height: 10
+
+mtabase1 <- readRDS(here::here("data", "mta_wagebase.rds"))
+
+# count(mtabase1, region)
+
+pdata1 <- mtabase1 |> 
+  filter(name=="totwage") |> 
+  summarise(pmtbase=sum(pmtbase), .by=c(date, region)) |> 
+  arrange(date)
+
+mtasum <- pdata1 |> 
+  filter(region %in% c("nyc", "suburban")) |> 
+  summarise(pmtbase=sum(pmtbase), .by=c(date)) |> 
+  mutate(region="mta")
+
+pdata <- bind_rows(pdata1, mtasum) |>  
+  mutate(pch=pmtbase / lag(pmtbase) - 1, .by=region) |> 
+  mutate(region=factor(region, levels=c("nyc", "suburban", "mta", "nys")))
+
+brks <- seq.Date(from=as.Date("2000-01-01"),
+                 to=as.Date("2030-01-01"),
+                 by="3 months")
+
+pdata |> 
+  filter(year(date) >= 2015, region!="nys") |> 
+  ggplot(aes(date, pch)) +
+  geom_line() +
+  geom_point() +
+  geom_smooth() +
+  geom_hline(yintercept = 0) +
+  scale_x_date(name=NULL, breaks = brks,  date_labels = "%Y-%b") +
+  scale_y_continuous(name="% change from year ago", 
+                     breaks=seq(-.5, .5, .05),
+                     labels=label_percent(accuracy=1)) +
+  facet_wrap(~region, ncol=1) +
+  theme_bw() +
+  theme(axis.text.x = element_text(angle = -90, vjust = 0, hjust=0.5))
+
+
+```
+
+```{r}
+#| label: unknown
+#| eval: false
+
+# Example date
+date_example <- as.Date("2023-05-15")
+
+# Find the first day of the quarter
+first_day_of_quarter <- floor_date(date_example, "quarter")
+first_day_of_quarter
+
+
+pmtfixed <- readRDS(here::here("data", "mta_pmt_collections.rds"))
+count(pmtfixed, vname)
+
+wtax <- pmtfixed |> 
+  filter(vname=="pmt_wage", date >= "2009-10-01") |> 
+  select(date, wagetax=value) |> 
+  mutate(date=floor_date(date, "quarter")) |> 
+  summarise(wagetax=sum(wagetax), .by=date) |> 
+  arrange(date) |> 
+  mutate(fgroup="wagetax", pchya=wagetax / lag(wagetax, 4) - 1)
+
+comp <- bind_rows(ihs3,
+                  wtax |> select(date, value=wagetax, fgroup, pchya))
+    
+p <- comp |> 
+  filter(year(date)>=2015, date <= "2023-04-01") |> 
+  ggplot(aes(date, pchya, colour=fgroup)) +
+  geom_line() +
+  geom_point() +
+  geom_hline(yintercept = 0) +
+  scale_y_continuous(breaks=seq(-.3, .3, .01), labels = scales::percent_format(accuracy = .1)) +
+  ggtitle("MTA region year-over-year growth in seasonally adjusted and non-adjusted wages") +
+  theme_bw()
+p  
+ggsave(path(respath, "ns_vs_sa_wages.png"), plot=p)  
+
+
+```
+
+## Documentation
