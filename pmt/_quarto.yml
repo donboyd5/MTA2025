@@ -23,6 +23,7 @@ book:
       - pmt_rules.qmd
     - part: "Prepare data"
       chapters:
+      - method_steps.qmd
       - get_cbp_data.qmd
       - get_susb_data.qmd    
       - get_qcew_data.qmd

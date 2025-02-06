@@ -1,0 +1,18 @@
+---
+output: html_document
+editor_options: 
+  chunk_output_type: console
+---
+
+# PMT database development steps
+
+Goals:
+
+-   Database suitable for estimating PMT with different rates for NYC and rest of MTA and different rates by size of firm
+-   With wages, \# of firms or establishments, \# of employees
+-   By industry, year, size of firm, county
+-   Calibrated to QCEW wages and to tax revenue
+
+Steps:
+
+-   
