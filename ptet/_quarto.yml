@@ -1,0 +1,55 @@
+project:
+  type: book
+  output-dir: _docs
+  
+book:
+  title: "Pass Through Entity Tax (PTET) Analysis"
+  author: "Don Boyd"
+  date: today
+  date-format: long
+  chapters:
+    - index.qmd
+    - data.qmd
+
+execute:
+  eval: true
+  echo: false
+  output: false
+  # freeze: auto
+  # clean: false # don't delete old files -- e.g. html when rendering new e.g. pdf
+  
+editor_options:
+  chunk_output_type: console
+  
+editor:
+  markdown:
+    wrap: 72
+    canonical: true
+
+format:
+  html:
+    code-fold: true
+    theme: cosmo
+    toc: true
+    toc-depth: 3
+    number-sections: true    
+    fig-width: 11
+    fig-height: 8
+  # docx:
+  #   toc: true
+  #   toc-depth: 3
+  #   number-sections: true
+  #   fig-width: 11
+  #   fig-height: 8
+  #   reference-doc: custom-reference.docx
+
+
+
+# quarto publish netlify --no-render
+# quarto publish netlify --no-browser --no-prompt
+# quarto publish netlify --no-render --no-browser --no-prompt
+
+
+# bibliography: _baseline.bib
+# nocite: |
+#   @*
