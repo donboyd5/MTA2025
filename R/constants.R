@@ -8,6 +8,7 @@ constants$mtaout <- r"(G:\My Drive\Consulting\MTA revenue\DataForMTA\)"
 PDATA <- here::here("pmt", "data")
 PDRAW <- fs::path(PDATA, "data_raw")
 PDINTERMEDIATE <- fs::path(PDATA, "intermediate")
+PDSCRATCH <- fs::path(PDATA, "scratch")
 
 # plot items ---------------------------------------------------------------
 legend_none <- theme(legend.position = "None")

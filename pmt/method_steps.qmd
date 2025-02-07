@@ -12,7 +12,10 @@ Goals:
 -   With wages, \# of firms or establishments, \# of employees
 -   By industry, year, size of firm, county
 -   Calibrated to QCEW wages and to tax revenue
+-   [Old notes: Data on employer size -- see discussion](https://mta-baseline.netlify.app/pmtbase/pmt_stopgap)
 
-Steps:
+Current approach steps:
 
--   
+-   Get County Business Patterns 2022 (latest) for NY counties, with employment and wages by industry and establishment size
+    -   Estimate number of establishments and average employment by county-naics-size group
+    -   Estimate average employment by establishment size-group

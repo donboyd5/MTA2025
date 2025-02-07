@@ -217,6 +217,9 @@ Prepare a base file with groups for the estimation:
 #| eval: false
 
 cbpny <- readRDS(fs::path(PDINTERMEDIATE, "cbpny.rds"))
+summary(cbpny)
+
+tmp <- cbpny |> filter(!is.na(n1000_4))
 
 cbpny2 <- cbpny |> 
   mutate(across(where(is.numeric), ~replace_na(., 0))) |> 

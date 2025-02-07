@@ -4,7 +4,33 @@ editor_options:
   chunk_output_type: console
 ---
 
-# Get Statistics of U.S. Businesses (SUSB) -- 2021 (latest)
+# Data
+
+Plan:
+
+-   Get 2021 SUSB data for counties in the MTA region, which have number of firms, estabs, employment, and payroll by broad firm size groups, measured by employees
+
+-   Get 2021 SUSB data for US and the states, which have number of firms, estabs, employment, and payroll by detailed firm size groups, measured by employees
+
+-   Use the US-state data to expand the MTA data to more detailed firm size groups
+
+-   Get QCEW data for the MTA region, which has employment and payroll by detailed firm size groups, measured by employees
+
+```{r}
+#| label: setup
+#| output: false
+
+source(here::here("R", "libraries.r"))
+source(here::here("R", "libraries_ts.r"))
+source(here::here("R", "constants.r"))
+source(here::here("R", "functions.r"))
+
+library(zip)
+library(lobstr)
+
+```
+
+## Get latest Statistics of U.S. Businesses (SUSB) -- 2021
 
 SUSB links
 
@@ -25,30 +51,20 @@ J High noise; cell value was changed by 5 percent or more by the application of 
 
 S Withheld because estimate did not meet publication standards N Not available or not comparable
 
-```{r}
-#| label: setup
-#| include: false
-
-source(here::here("R", "libraries.r"))
-source(here::here("R", "libraries_ts.r"))
-source(here::here("R", "constants.r"))
-source(here::here("R", "functions.r"))
-
-library(zip)
-library(lobstr)
-
-```
-
-## SUSB US-state with detailed firm-size groupings -- read from Excel and save
+### Read SUSB US-state detailed data from Excel and save
 
 ```{r}
-#| label: get-susb-us-states
+#| label: get-susb-us-state
 #| output: false
+#| eval: false
 
 # https://www2.census.gov/programs-surveys/susb/tables/2021/us_state_naics_detailedsizes_2021.xlsx
 fname <- "us_state_naics_detailedsizes_2021.xlsx"
 susbdetail <- read_excel(fs::path(PDRAW, "susb", fname), skip=2)
 glimpse(susbdetail)
+# sizelb <- c("1" = 0, "2" = 0, "3" = 20, "4" = 100, "5" = 500)
+# sizeub <- c("1" = Inf, "2" = 19, "3" = 99, "4" = 499, "5" = Inf)
+# cbind(sizelb, sizeub)
 
 susbdtl2 <- susbdetail |> 
   select(statefips=1,
@@ -95,14 +111,11 @@ saveRDS(susbdtl3, fs::path(PDINTERMEDIATE, "susb2021_usstate_details.rds"))
 
 ```
 
-## SUSB Read and save MTA subset of the county SUSB data
-
-### Get SUSB data for all counties in the US
+### Read and save MTA subset of the county SUSB data
 
 ```{r}
-#| label: get-susb-counties
+#| label: susb-mta
 #| output: false
-#| eval: true
 
 fname <- "county_3digitnaics_2021.xlsx"
 susb1 <- read_excel(fs::path(PDRAW, "susb", fname), skip=2)
@@ -130,21 +143,15 @@ susb2 <- susb1 |>
   mutate(payroll=payroll * 1000,
          fscode = str_sub(firmsize, 1, 1),
          fslb = sizelb[fscode],
-         fsub = sizeub[fscode])
+         fsub = sizeub[fscode],
+         fscode = as.integer(fscode))
 
 glimpse(susb2)
 count(susb2, fscode, firmsize, fslb, fsub) # note that we do not have the same number of recs per code!
 
-saveRDS(susb2, fs::path(PDINTERMEDIATE, "susb2021_counties.rds"))
-```
+saveRDS(susb2, fs::path(PDINTERMEDIATE, "susb2021_raw.rds"))
 
-### Get MTA subset of the SUSB counties
-
-```{r}
-#| label: susb-mta
-#| output: false
-
-susb <- readRDS(fs::path(PDINTERMEDIATE, "susb2021_counties.rds"))
+susb <- readRDS(fs::path(PDINTERMEDIATE, "susb2021_raw.rds"))
 
 susb |> 
   filter(state=="New York") |> 
@@ -161,71 +168,212 @@ saveRDS(mta, fs::path(PDINTERMEDIATE, "susb2021_mta.rds"))
 
 ```
 
-## Fill out the missing firm size information using NY state data
+### Fill in SUSB data and create shares
 
 ```{r}
-#| label: pre-process-nys-data
+#| label: fill-susb
+#| output: false
 
-usstate <- readRDS(fs::path(PDINTERMEDIATE, "susb2021_usstate_details.rds"))
-glimpse(usstate)
-count(usstate, statefips, state)
+mta <- readRDS(fs::path(PDINTERMEDIATE, "susb2021_mta.rds"))
 
-nys1 <- usstate |> 
-  filter(statefips == "36")
-count(nys, firmsize)
+check <- mta |> 
+  mutate(lnaics = ifelse(naics == "--", 1, nchar(naics))) |>
+  count(lnaics, naics, description)
 
-nys1 |> 
-  filter(naics=="99")
+# do the level 2 codes add to the level one codes
+check <- mta |> 
+  filter(county=="Bronx", fscode==1) |> 
+  mutate(lnaics = ifelse(naics == "--", 1, nchar(naics))) |> 
+  # mutate(lnaics = ifelse(lnaics==5, 2, lnaics)) |>
+  summarise(firms=sum(firms),
+            estabs=sum(estabs),
+            emp=sum(emp),
+            payroll=sum(payroll),
+            .by=c(lnaics, firmsize))
 
-fsstubs <- nys1 |> 
-  select(fscode, firmsize, fslb, fsub) |> 
-  distinct() |> 
-  # drop the total and subtotals
-  filter(!fscode %in% c("01", "06", "19"))
-fsstubs
+check <- mta |> 
+  filter(county=="Bronx", fscode==1) |> 
+  mutate(lnaics = ifelse(naics == "--", 1, nchar(naics))) |> 
+  write.xlsx(fs::path(PDSCRATCH, "susb2021_bronx.xlsx"))
 
-naicsstubs <- nys1 |> 
+
+check <- mta |> 
+  summarise(n=n(), .by=c(cofips, county, naics, description))
+
+
+# create shares by county and naics
+costubs <- mta |> 
+  select(statefips, cofips, county, mta, nyc) |> 
+  distinct() # 12
+
+naicsstubs <- mta |> 
   select(naics, description) |> 
-  distinct()
+  distinct() # 105
 
-stubs <- crossing(fsstubs, naicsstubs) |> 
-  mutate(statefips = "36",
-         state = "New York")
+fsstubs <- mta |> 
+  select(fscode, firmsize, fslb, fsub) |> 
+  distinct() # 5
 
-# create all-industries all-firm-sizes data with missing values for empty cells
-nys2 <- stubs |> 
-  left_join(nys1 |> 
-              select(-c(firmsize, fslb, fsub, description, state)),
-            by = join_by(fscode, naics, statefips)) |> 
-  arrange(naics, fscode)
+stubs <- crossing(costubs, naicsstubs, fsstubs) # 12 x 105 x 5 = 6,300
 
-nys2 |> filter(is.na(firms))
-  
-count(nys2, fscode, firmsize)
-count(nys2, naics, description)  
+full <- stubs |> 
+  left_join(mta |> select(-c(state, county, mta, nyc)),
+            by = join_by(statefips, cofips, naics, description, fscode, firmsize, fslb, fsub)) |> 
+  arrange(statefips, cofips, county, naics, description, fscode, firmsize, fslb, fsub)
 
-# get percents for the non-missing value for each naics based on sum of nonmissing (so they add to 100) details
-nys3 <- nys2 |> 
-  select(-empnoise, -paynoise) |> 
+shares <- full |> 
+  select(-c(empnoise, paynoise)) |> 
+  # drop all groups where total is zero
+  mutate(drop = is.na(firms[fscode==1]),
+         .by=c(statefips, cofips, naics)) |>
+  filter(!drop) |> 
+  select(-drop) |> 
+  filter(fscode != 1) |> 
+  # even though some NAs aren't zero, replace them all
   mutate(across(c(firms, estabs, emp, payroll), \(x) replace_na(x, 0))) |> 
+  # now, shares
   mutate(across(c(firms, estabs, emp, payroll), 
-                list(pct = \(x) x / sum(x, na.rm=TRUE))),
-         .by=naics)
-summary(nys3)
+                \(x) x / sum(x)),
+         .by=c(statefips, cofips, naics)) 
 
+full |> filter(cofips=="005", naics=="335")
 
-# check that industry sums are 1
-check <- nys3 |> 
-  summarise(across(c(firms_pct, estabs_pct, emp_pct, payroll_pct), sum),
-            .by=c(naics, description))
+check <- shares |> 
+  summarise(across(c(firms, estabs, emp, payroll), 
+                \(x) sum(x)),
+            .by=c(statefips, cofips, county, naics, description))
+  
 summary(check)
+# drop the few records where totals are low and all details are NA
+drops <- check |> 
+  filter(is.na(firms)) |> 
+  select(statefips, cofips, naics)
 
-# save the filled out NY state data
-saveRDS(nys3, fs::path(PDINTERMEDIATE, "susb2021_nys_shares.rds"))
+shares2 <- shares |> 
+  left_join(drops |> 
+              mutate(bad=TRUE),
+            by = join_by(statefips, cofips, naics)) |> 
+  filter(is.na(bad)) |> 
+  select(-bad)
+
+avgpayroll <- full |> 
+  filter(fscode != 1) |> 
+  select(county, naics, description, firms, payroll, firmsize) |> 
+  mutate(avgpayroll = payroll / firms) |>
+  arrange(desc(avgpayroll)) |> 
+  filter(!is.na(avgpayroll))
+
+avgpayroll |> 
+  filter(avgpayroll >= 1.5e6) |> 
+  count(firmsize)
+
+avgpayroll |> 
+  filter(avgpayroll >= 1.5e6) |> 
+  count(firmsize)
+
+avgpayroll |> 
+  summarise(n=n(), 
+            mean=mean(avgpayroll),
+            .by=firmsize)
+
 
 ```
 
-## Explore 2021 SUSB data for the MTA region
+### SUSB firm size groupings
+
+SUSB county groupings
+
+1: Total
+
+2: \<20 employees
+
+3: 20-99 employees
+
+4: 100-499 employees
+
+5: 500+ employees
+
+SUSB MSA groupings
+
+1: Total
+
+2: \<5 employees
+
+3: 5-9 employees
+
+4: 10-19 employees
+
+5: \<20 employees
+
+6: 20-99 employees
+
+7: 100-499 employees
+
+8: \<500 employees
+
+9: 500+ employees
+
+SUSB detailed US and states
+
+01: Total
+
+02: \<5 employees
+
+03: 5-9 employees
+
+04:10-14 employees
+
+05: 15-19 employees
+
+06: \<20 employees
+
+**07: 20-24 employees**
+
+**08: 25-29 employees**
+
+**09: 30-34 employees**
+
+**10: 35-39 employees**
+
+**11: 40-49 employees**
+
+**12: 50-74 employees**
+
+**13: 75-99 employees**
+
+**14: 100-149 employees**
+
+**15: 150-199 employees**
+
+**16: 200-299 employees**
+
+**17: 300-399 employees**
+
+**18: 400-499 employees**
+
+**19: \<500 employees**
+
+**20: 500-749 employees**
+
+**21: 750-999 employees**
+
+**22: 1,000-1,499 employees**
+
+**23: 1,500-1,999 employees**
+
+**24: 2,000-2,499 employees**
+
+**25: 2,500-4,999 employees**
+
+**26: 5,000+ employees**
+
+we need to break apart the 20-99 group
+
+CBP breaks it into 20-49 and 50-99
+
+do that and then use a spline
+
+### Explore 2021 SUSB data for the MTA region
 
 What share of total MTA wages does NYC have by size of firm?
 
