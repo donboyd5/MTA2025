@@ -418,6 +418,80 @@ count(nysmta, naics_group, naics, description)
 
 ```
 
+```{r}
+
+# allocate excess to lowest first
+adjust_employment <- function(firms, fsub, emp){
+  maxemp <- fsub * firms
+  empadj <- pmin(maxemp, emp)
+  need <- sum(emp) - sum(empadj)
+  for(i in 1:length(firms)){
+    avail <- maxemp[i] - empadj[i]
+    if(avail > 0 & need > 0){
+      empadd <- min(avail, need)
+      empadj[i] <- empadj[i] + empadd
+      need <- need - empadd
+    }
+  }
+  return(empadj)
+}
+
+adjust_employment(firms = df$firms, fsub = df$fsub, emp = df$emp)
+
+nysmta_adj <- nysmta |> 
+  filter(!is.na(cofips)) |> 
+  mutate(empadj = adjust_employment(firms, fsub, emp),
+         payrolladj = payroll_grp / emp_grp * empadj,
+         .by=c(cofips, naics, fs_group))
+  
+nysmta_adj |> 
+  summarise(across(c(firms, estabs, emp, empadj, payroll, payrolladj), sum),
+            .by=c(cofips, county, naics_group, naics, description, fs_group))
+
+nysmta_adj |> 
+  mutate(empavg = empadj / firms,
+         diff = empavg - fsub) |> 
+  filter(empavg > fsub) |> 
+  relocate(empavg, diff, .after = fsub) |> 
+  arrange(desc(diff))
+
+saveRDS(nysmta_adj, fs::path(PDINTERMEDIATE, "susb2021_nys_shares_adj.rds"))
+
+```
+
+```{r}
+
+
+
+nysmta_adj |> 
+  mutate(level = case_when(
+    firmsize == "1: Total" &
+      naics == "--"                              ~ "1 top level naics by total firms",
+    
+    firmsize != "1: Total" &
+      naics == "--"                              ~ "2 top level naics by firm size",
+    
+    firmsize == "1: Total" &
+      naics != "--" &
+      (nchar(naics) ==2 | str_detect(naics, "-")) ~ "3 2-digit naics by total firms",
+        
+    firmsize != "1: Total" & naics != "--" &
+      (nchar(naics) ==2 | str_detect(naics, "-")) ~ "4 2-digit naics by firm sizes",
+    
+    firmsize == "1: Total" & naics != "--" &
+      nchar(naics) == 3                           ~ "5 3-digit naics by total firms",
+    
+    firmsize != "1: Total" & naics != "--" &
+      nchar(naics) == 3                           ~ "6 3-digit naics by firm size",
+    
+    .default = "ERROR")) |> 
+  summarise(n=n(), firms = sum(firms), estabs=sum(estabs), emp=sum(emp), payroll=sum(payroll), .by=level) |> 
+  arrange(level)
+
+# 2-digit and 3-digit still good!
+
+```
+
 Check the MTA data for internal consistency:
 
 -   Check that the sum of detailed cell values equals the group total
@@ -426,12 +500,17 @@ Check the MTA data for internal consistency:
 
 -   Think about \# of employees per firm. The size classification is for the firm everywhere. This can be a large number based on employees everywhere but it can be small in a geographic area. For example, a firm could have 10,000 employees everywhere but only 10 in a given county. So we expect employees per firm in an area to be lower than the lower bound of the firm size range, often. However, I don't think we should expect employees per firm to be higher than the upper bound.
 
--   How is firm size determined for MTA PMT? Is it MTA-area payroll or total firm payroll?
+-   We have 11k records of 16.9k records in MTA where emp / firm is less than the lower bound of the firm size range. This is ok.
+
+-   We have one record where emp / firm is greater than the upper bound of the firm size range. This is NOT ok but it's not a big deal.
 
 ```{r}
 #| label: check-mta-data-consistency
 
 # do some checks on nysmta ----
+# 
+summary(nysmta)
+# 
 # check sums
 nysmta |> 
   summarise(across(c(firms, estabs, emp, payroll), sum),
@@ -446,27 +525,55 @@ tmp <- nysmta |>
          paypf = payroll / firms) |> 
   relocate(ef, pay, paypf, .after = fsub)
 
-tmp |> filter(ef < fslb) # 11k records
+tmp |> filter(ef < fslb) # 11k records but that's ok
+tmp |> filter(ef > fsub) # one record, and just barely so; setting emp to 117 would solve the problem
 
-# note that emp / firm can be outside fslb, fsub
+tmp |>
+  mutate(diff = ifelse(ef > fsub, ef - fsub, 0)) |> 
+  filter(ef > fsub) |> 
+  summary()
+
+tmp |>
+  mutate(diff = ifelse(ef > fsub, ef - fsub, 0)) |> 
+  filter(diff > 100)
+    
+
+# for NYS just one record
+#   firmsize             fslb  fsub    ef lbdiff ubdiff naics description                                firms estabs   emp payroll
+#   <chr>               <dbl> <dbl> <dbl>  <dbl>  <dbl> <chr> <chr>                                      <dbl>  <dbl> <dbl>   <dbl>
+# 1 10: 35-39 employees    35    39  40.7      0   1.67 11    Agriculture, Forestry, Fishing and Hunting     3      3   122 7031000
   
-nysmta |> 
-  select(cofips, county, naics_group, naics, description, fs_group, firmsize, fslb, fsub, emp, firms, payroll, ends_with("grp"), ends_with("pct")) |> 
-  mutate(ef=emp / firms) |> # emp / firm often is lower than fslb
-  mutate(pay=payroll / emp,
-         paypf=payroll / firms) |> 
-  relocate(ef, pay, paypf, .after = fsub) |> 
-  filter(cofips=="005", naics_group=="23") |> 
-  write.xlsx(fs::path(PDINTERMEDIATE, "nysmta_checks.xlsx"))
+# nysmta |> 
+#   select(cofips, county, naics_group, naics, description, fs_group, firmsize, fslb, fsub, emp, firms, payroll, ends_with("grp"), ends_with("pct")) |> 
+#   mutate(ef=emp / firms) |> # emp / firm often is lower than fslb
+#   mutate(pay=payroll / emp,
+#          paypf=payroll / firms) |> 
+#   relocate(ef, pay, paypf, .after = fsub) |> 
+#   filter(cofips=="005", naics_group=="23") |> 
+#   write.xlsx(fs::path(PDINTERMEDIATE, "nysmta_checks.xlsx"))
  
-
 tmp <- nysmta |> filter(is.na(fscode))
 
 # fix: for large firm size, number of firms reported often is inconsistent with number of employees ----
 # treat employment and payroll as reasonable and recalculate # of firms using lower bound of firm size range
+# 
+# try a simple reallocation when emp / firms is greater than fsub
+
+inaics <- "44-45"
+ico <- "085"
+
+tmp <- nysmta |> 
+  # select(cofips, county, naics_group, naics, description, fs_group, firmsize, fslb, fsub, emp, firms, payroll, ends_with("grp"), ends_with("pct")) |> 
+  mutate(empfirm = emp / firms, 
+         maxemp = firms * fsub,
+         excess = emp - maxemp) |> 
+  filter(naics==inaics, cofips==ico)
 
 nysmta_adj <- nysmta |> 
   # select(cofips, county, naics_group, naics, description, fs_group, firmsize, fslb, fsub, emp, firms, payroll, ends_with("grp"), ends_with("pct")) |> 
+  mutate(empfirm = emp / firms, 
+         maxemp = firms * fsub,
+         excess = emp - maxemp)
   mutate(empfirm = emp / firms) |> # emp / firm can be lower than fslb
   # recalculate # of firms using fslb lower bound of firm size range
   mutate(firms_adj = case_when(empfirm < fslb ~ emp / fslb,
