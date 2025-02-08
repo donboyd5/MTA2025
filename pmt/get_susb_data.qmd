@@ -4,6 +4,13 @@ editor_options:
   chunk_output_type: console
 ---
 
+# TODO:
+
+-   Forecast to 2025
+-   Use spline to estimate payroll groups and then force fit to total payroll etc.
+-   Splice onto QCEW for 2023
+-   Use 2025 forecast to estimate tax
+
 # Get Statistics of U.S. Businesses (SUSB) -- 2021 (latest)
 
 SUSB links
@@ -223,6 +230,229 @@ summary(check)
 # save the filled out NY state data
 saveRDS(nys3, fs::path(PDINTERMEDIATE, "susb2021_nys_shares.rds"))
 
+# check internal consistency
+nys <- readRDS(fs::path(PDINTERMEDIATE, "susb2021_nys_shares.rds"))
+
+
+```
+
+## Use NYS shares to fill in missing firm size data for MTA
+
+```{r}
+#| label: fill-mta-missing
+
+mta <- readRDS(fs::path(PDINTERMEDIATE, "susb2021_mta.rds"))
+nys <- readRDS(fs::path(PDINTERMEDIATE, "susb2021_nys_shares.rds"))
+
+count(nys, fscode, firmsize)
+count(mta, fscode, firmsize)
+count(nys, naics, description)
+count(mta, naics, description)
+
+# create match between mta 3-digit naics and nys 2-digit naics
+naics_group <- mta |> 
+  select(naics) |> 
+  distinct() |> 
+  arrange(naics) |> 
+  mutate(naics2=str_sub(naics, 1, 2),
+         naics_group=case_when(
+           naics2 %in% c("31", "32", "33") ~ "31-33",
+           naics2 %in% c("44", "45") ~ "44-45",
+           naics2 %in% c("48", "49") ~ "48-49",
+           .default = naics2)) |> 
+  select(-naics2)
+ht(naics_group)
+
+# prepare NYS data for matching
+nys2 <- nys |> 
+  filter(naics != "--") |> 
+  mutate(fs_group = case_when(
+    as.integer(fscode) %in% 2:5 ~ "<20 employees",
+    as.integer(fscode) %in% 7:13 ~ "20-99 employees",
+    as.integer(fscode) %in% 14:18 ~ "100-499 employees",
+    as.integer(fscode) %in% 20:26 ~ "500+ employees",
+  )) |> 
+  rename(naics_group = naics)
+count(nys2, fs_group, firmsize) |> arrange(firmsize)
+count(nys2, naics_group, description)
+
+# prepare MTA data for matching
+mta2 <- mta |> 
+  filter(naics != "--") |> 
+  mutate(fs_group = str_sub(firmsize, 4, -1)) |> 
+  select(cofips, county, naics, description, fs_group, firmsize, firms, estabs, emp, payroll, mta, nyc) |> 
+  left_join(naics_group, by = join_by(naics))
+count(mta2, fs_group, firmsize)
+count(mta2, naics_group, naics, description)
+glimpse(mta2)
+
+# do the match
+nysmta <- nys2 |> 
+  select(naics_group, fs_group, fscode, firmsize, fslb, fsub, ends_with("_pct")) |>
+  full_join(mta2 |> 
+              select(cofips, county, naics_group, naics, description, fs_group, 
+                     firms_grp=firms, estabs_grp=estabs, emp_grp=emp, payroll_grp=payroll,
+                     mta, nyc), 
+            by=join_by(naics_group, fs_group),
+            relationship = "many-to-many") |> 
+  filter(fs_group != "Total") |>
+  mutate(
+    firms = firms_grp * firms_pct / sum(firms_pct),
+    estabs = estabs_grp * estabs_pct / sum(estabs_pct),
+    emp = emp_grp * emp_pct / sum(emp_pct),
+    payroll = payroll_grp * payroll_pct / sum(payroll_pct),
+    .by=c(cofips, naics, fs_group)) |> 
+  select(cofips, county, naics_group, naics, description, fs_group, fscode, firmsize, fslb, fsub, 
+         firms, estabs, emp, payroll,
+         ends_with("_grp"),
+         ends_with("_pct"),
+         mta, nyc) |> 
+  arrange(cofips, naics_group, naics, fscode, fs_group)
+count(nysmta, fscode, firmsize, fs_group)
+count(nysmta, naics_group, naics, description)
+
+# do some checks on nysmta ----
+# check sums
+nysmta |> 
+  summarise(across(c(firms, estabs, emp, payroll), sum),
+            across(ends_with("_grp"), first),
+            across(ends_with("_pct"), sum),
+            .by=c(cofips, naics, fs_group))
+
+# check internal consistency
+tmp <- nysmta |> 
+  select(cofips, county, naics, description, firmsize, fslb, fsub, emp, firms, payroll) |> 
+  mutate(ef=emp / firms) |> # emp / firm can be lower than fslb
+  mutate(pay=payroll / emp,
+         paypf=payroll / firms) |> 
+  relocate(ef, pay, paypf, .after = fsub)
+# note that emp / firm can be outside fslb, fsub but usually not far
+  
+nysmta |> 
+  select(cofips, county, naics_group, naics, description, fs_group, firmsize, fslb, fsub, emp, firms, payroll, ends_with("grp"), ends_with("pct")) |> 
+  mutate(ef=emp / firms) |> # emp / firm often is lower than fslb
+  mutate(pay=payroll / emp,
+         paypf=payroll / firms) |> 
+  relocate(ef, pay, paypf, .after = fsub) |> 
+  filter(cofips=="005", naics_group=="23") |> 
+  write.xlsx(fs::path(PDINTERMEDIATE, "nysmta_checks.xlsx"))
+ 
+
+tmp <- nysmta |> filter(is.na(fscode))
+
+# fix: for large firm size, number of firms reported often is inconsistent with number of employees ----
+# treat employment and payroll as reasonable and recalculate # of firms using lower bound of firm size range
+
+nysmta_adj <- nysmta |> 
+  # select(cofips, county, naics_group, naics, description, fs_group, firmsize, fslb, fsub, emp, firms, payroll, ends_with("grp"), ends_with("pct")) |> 
+  mutate(empfirm = emp / firms) |> # emp / firm can be lower than fslb
+  # recalculate # of firms using fslb lower bound of firm size range
+  mutate(firms_adj = case_when(empfirm < fslb ~ emp / fslb,
+                               empfirm > fsub ~ emp / fsub,
+                               .default = firms),
+         empfirm_adj = emp / firms_adj)|> 
+  # adjust number of establishments proportionately
+  mutate(estabs_adj = estabs * firms_adj / firms) |>
+  relocate(empfirm, empfirm_adj, .after = fsub) |> 
+  relocate(firms_adj, .after = firms) |> 
+  relocate(estabs_adj, .after = estabs)
+
+saveRDS(nysmta_adj, fs::path(PDINTERMEDIATE, "susb2021_nysmta_shares_adj.rds"))
+
+
+nysmta_adj |> 
+  filter(empfirm_adj < fslb | empfirm_adj > fsub)
+
+nysmta_adj |> 
+  summarise(across(c(firms, firms_adj, estabs, emp, payroll), sum),
+            across(ends_with("_grp"), first),
+            across(ends_with("_pct"), sum),
+            .by=c(cofips, naics, fs_group))
+
+tmp <- nysmta_adj |> 
+  select(naics_group, naics, description) |>
+  distinct()
+  
+
+```
+
+## Quick and dirty \# firms and establishments and amount of payroll by firm size
+
+```{r}
+#| label: quick-dirty
+
+
+nysmta_adj <- readRDS(fs::path(PDINTERMEDIATE, "susb2021_nysmta_shares_adj.rds"))
+
+count(nysmta_adj, naics_group, naics, description)
+
+tabdata <- nysmta_adj |> 
+  filter(nchar(naics) == 3) |>
+  mutate(payfirm=payroll / firms_adj,
+         paygroup=case_when(
+           payfirm < 1.5e6 ~ "tier1",  # .11
+           payfirm >= 1.5e6 & payfirm < 1.75e6 ~ "tier2", # .23
+           payfirm >= 1.75e6 ~ "tier3", # .34 or .60
+           is.na(payfirm) ~ "napayfirm",
+           .default = "ERROR")) |>
+  mutate(taxrate=case_when(
+    paygroup == "tier1" ~ 0.0011,
+    paygroup == "tier2" ~ 0.0023,
+    paygroup == "tier3" & !nyc ~ 0.0034,
+    paygroup == "tier3" & nyc ~ 0.0060,
+    .default = 0)) |>
+  mutate(tax=payroll * taxrate) |>
+  summarise(n=n(),
+            firms=sum(firms_adj, na.rm=TRUE),
+            estabs=sum(estabs_adj, na.rm=TRUE),
+            emp=sum(emp, na.rm=TRUE),
+            payroll=sum(payroll, na.rm=TRUE),
+            tax = sum(tax, na.rm=TRUE),
+            .by=c(paygroup, nyc)) |> 
+  filter(paygroup != "napayfirm") |>
+  arrange(nyc, paygroup) |> 
+  janitor::adorn_totals()
+
+tabdata |> 
+  gt() |> 
+  fmt_number(columns=c(n, firms, estabs, emp)) |> 
+  fmt_number(columns=c(payroll, tax),
+             scale=1e-6,
+             decimals=1)
+  
+# tabdata <- nysmta_adj |> 
+#   mutate(payfirm=payroll / firms_adj,
+#          paygroup=case_when(
+#            payfirm < 1.5e6 ~ "tier1",  # .11
+#            payfirm >= 1.5e6 & payfirm < 1.75e6 ~ "tier2", # .23
+#            payfirm >= 1.75e6 ~ "tier3", # .34 or .60
+#            is.na(payfirm) ~ "napayfirm",
+#            .default = "ERROR")) |>
+#   mutate(taxrate=case_when(
+#     paygroup == "tier1" ~ 0.0011,
+#     paygroup == "tier2" ~ 0.0023,
+#     paygroup == "tier3" & !nyc ~ 0.0034,
+#     paygroup == "tier3" & nyc ~ 0.0060,
+#     .default = 0)) |>
+#   mutate(tax=payroll * taxrate) |>
+#   summarise(n=n(),
+#             firms=sum(firms_adj, na.rm=TRUE),
+#             estabs=sum(estabs_adj, na.rm=TRUE),
+#             emp=sum(emp, na.rm=TRUE),
+#             payroll=sum(payroll, na.rm=TRUE),
+#             tax = sum(tax, na.rm=TRUE),
+#             .by=c(paygroup)) |> 
+#   filter(paygroup != "napayfirm") |>
+#   arrange(paygroup) |> 
+#   janitor::adorn_totals()
+
+tabdata |> 
+  gt() |> 
+  fmt_number(columns=c(n, firms, estabs, emp)) |> 
+  fmt_number(columns=c(payroll, tax),
+             scale=1e-6,
+             decimals=1)
+  
 ```
 
 ## Explore 2021 SUSB data for the MTA region
@@ -303,5 +533,57 @@ nycshare |>
              decimals = 2) |> 
   fmt_percent(columns = nycpct,
               decimals = 1)
+
+```
+
+## Data checks on the MTA
+
+```{r}
+
+mta <- readRDS(fs::path(PDINTERMEDIATE, "susb2021_mta.rds"))
+count(mta, firmsize)
+
+
+mta |> 
+  mutate(level = case_when(
+    firmsize == "1: Total" &
+      naics == "--"                              ~ "1 top level naics by total firms",
+    
+    firmsize != "1: Total" &
+      naics == "--"                              ~ "2 top level naics by firm size",
+    
+    firmsize == "1: Total" &
+      naics != "--" &
+      (nchar(naics) ==2 | str_detect(naics, "-")) ~ "3 2-digit naics by total firms",
+        
+    firmsize != "1: Total" & naics != "--" &
+      (nchar(naics) ==2 | str_detect(naics, "-")) ~ "4 2-digit naics by firm sizes",
+    
+    firmsize == "1: Total" & naics != "--" &
+      nchar(naics) == 3                           ~ "5 3-digit naics by total firms",
+    
+    firmsize != "1: Total" & naics != "--" &
+      nchar(naics) == 3                           ~ "6 3-digit naics by firm size",
+    
+    .default = "ERROR")) |> 
+  summarise(n=n(), firms = sum(firms), estabs=sum(estabs), emp=sum(emp), payroll=sum(payroll), .by=level) |> 
+  arrange(level)
+
+check <- mta |> 
+  mutate(level = case_when(
+    firmsize == "1: Total" &
+      naics == "--"                              ~ "level1",
+    firmsize != "1: Total" &
+      naics == "--"                              ~ "level2",
+    firmsize == "1: Total" &
+      naics != "--" &
+      (nchar(naics) ==2 | str_detect(naics, "-")) ~ "level3",
+    firmsize != "1: Total" & naics != "--" &
+      (nchar(naics) ==2 | str_detect(naics, "-")) ~ "level4",
+    firmsize != "1: Total" & naics != "--" &
+      nchar(naics) == 3 ~ "level5",
+    .default = "other")) |> 
+  filter(level=="other")
+
 
 ```
