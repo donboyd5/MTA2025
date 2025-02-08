@@ -4,8 +4,8 @@ project:
   
 execute:
   eval: true
-  echo: true
-  output: true
+  echo: false
+  output: false
   freeze: auto  # auto: during global project renders, re-render only when source changes
   
 # rm _book/bill_outline.html; quarto render bill_outline.qmd  
@@ -49,6 +49,10 @@ format:
 
 editor_options:
   chunk_output_type: console
+  
+# ```{r stop_here, echo=FALSE}
+# knitr::knit_exit()
+# ```  
 
 # useful reminders of quarto commands:
 # quarto publish netlify --no-render

@@ -50,7 +50,6 @@ library(lobstr)
 
 ```{r}
 #| label: get-susb-us-states
-#| output: false
 
 # https://www2.census.gov/programs-surveys/susb/tables/2021/us_state_naics_detailedsizes_2021.xlsx
 fname <- "us_state_naics_detailedsizes_2021.xlsx"
@@ -85,18 +84,29 @@ eststubs <- susbdtl2 |>
     .default = "00"),
     
     fsub = case_when(
-    fscode == "01" ~ "Inf",
-    str_detect(firmsize, coll("<")) ~ str_extract(firmsize, "(?<=<)\\d{1,3}(?:,\\d{3})*"),
-    str_detect(firmsize, coll("-")) ~ str_extract(firmsize, "(?<=-)\\d{1,3}(?:,\\d{3})*"),
-    str_detect(firmsize, coll("+")) ~ "Inf",
-    .default = "00"),
+    fscode == "01" ~ Inf,
     
-    fslb = as.numeric(str_remove_all(fslb, ",")),
-    fsub = as.numeric(str_remove_all(fsub, ",")))
+    # caution: upper bound when firmsize has "<" is one lower than the < amount
+    str_detect(firmsize, coll("<")) ~ 
+      str_extract(firmsize, "(?<=<)\\d{1,3}(?:,\\d{3})*") |> 
+      str_remove_all(",") |> 
+      as.numeric() - 1,
+    
+    str_detect(firmsize, coll("-")) ~ 
+      str_extract(firmsize, "(?<=-)\\d{1,3}(?:,\\d{3})*") |> 
+      str_remove_all(",") |> 
+      as.numeric(),
+    
+    str_detect(firmsize, coll("+")) ~ Inf,
+    .default = 0),
+    
+    fslb = as.numeric(str_remove_all(fslb, ",")))
 eststubs
 
 susbdtl3 <- susbdtl2 |> 
-  left_join(eststubs |> select(-firmsize), by=join_by(fscode))
+  left_join(eststubs |> 
+              select(-firmsize), 
+            by=join_by(fscode))
 
 saveRDS(susbdtl3, fs::path(PDINTERMEDIATE, "susb2021_usstate_details.rds"))
 
@@ -143,6 +153,7 @@ glimpse(susb2)
 count(susb2, fscode, firmsize, fslb, fsub) # note that we do not have the same number of recs per code!
 
 saveRDS(susb2, fs::path(PDINTERMEDIATE, "susb2021_counties.rds"))
+
 ```
 
 ### Get MTA subset of the SUSB counties
@@ -159,7 +170,8 @@ susb |>
 
 mta <- susb |> 
   filter(state=="New York", paste0(statefips, cofips) %in% constants$mtafips) |> 
-  mutate(mta=TRUE, nyc=paste0(statefips, cofips) %in% constants$nycfips)
+  mutate(mta=TRUE, 
+         nyc=paste0(statefips, cofips) %in% constants$nycfips)
 
 count(mta, nyc, county)
 count(mta, naics, description)
@@ -168,7 +180,7 @@ saveRDS(mta, fs::path(PDINTERMEDIATE, "susb2021_mta.rds"))
 
 ```
 
-## Fill out the missing firm size information using NY state data
+## Fill in fine-grained firm size information using detailed ranges for NY state
 
 ```{r}
 #| label: pre-process-nys-data
@@ -179,11 +191,13 @@ count(usstate, statefips, state)
 
 nys1 <- usstate |> 
   filter(statefips == "36")
-count(nys, firmsize)
+count(nys1, firmsize)
 
 nys1 |> 
-  filter(naics=="99")
+  filter(naics=="99") # hmmm we only have a few sizes for 99
 
+# create stubs to fill in missing values ----
+# firm sizes
 fsstubs <- nys1 |> 
   select(fscode, firmsize, fslb, fsub) |> 
   distinct() |> 
@@ -191,6 +205,7 @@ fsstubs <- nys1 |>
   filter(!fscode %in% c("01", "06", "19"))
 fsstubs
 
+# state data has 2-digit naics (including "--" and range  naics such as "31-33" Manufacturing)
 naicsstubs <- nys1 |> 
   select(naics, description) |> 
   distinct()
@@ -198,6 +213,7 @@ naicsstubs <- nys1 |>
 stubs <- crossing(fsstubs, naicsstubs) |> 
   mutate(statefips = "36",
          state = "New York")
+# we want to fill firmsize data for all cells in stubs
 
 # create all-industries all-firm-sizes data with missing values for empty cells
 nys2 <- stubs |> 
@@ -206,10 +222,10 @@ nys2 <- stubs |>
             by = join_by(fscode, naics, statefips)) |> 
   arrange(naics, fscode)
 
-nys2 |> filter(is.na(firms))
+nys2 |> filter(is.na(firms)) # a few industries don't have data in all cells 
   
-count(nys2, fscode, firmsize)
-count(nys2, naics, description)  
+count(nys2, fscode, firmsize) # 23 mutually exclusive firm sizes
+count(nys2, naics, description)  # 21 2-digit naics including --
 
 # get percents for the non-missing value for each naics based on sum of nonmissing (so they add to 100) details
 nys3 <- nys2 |> 
@@ -218,8 +234,8 @@ nys3 <- nys2 |>
   mutate(across(c(firms, estabs, emp, payroll), 
                 list(pct = \(x) x / sum(x, na.rm=TRUE))),
          .by=naics)
+nys3
 summary(nys3)
-
 
 # check that industry sums are 1
 check <- nys3 |> 
@@ -230,13 +246,9 @@ summary(check)
 # save the filled out NY state data
 saveRDS(nys3, fs::path(PDINTERMEDIATE, "susb2021_nys_shares.rds"))
 
-# check internal consistency
-nys <- readRDS(fs::path(PDINTERMEDIATE, "susb2021_nys_shares.rds"))
-
-
 ```
 
-## Use NYS shares to fill in missing firm size data for MTA
+## Use NYS detailed firmsize shares to fill in detailed firmsize data for MTA
 
 ```{r}
 #| label: fill-mta-missing
@@ -374,6 +386,10 @@ tmp <- nysmta_adj |>
   distinct()
   
 
+```
+
+```{r stop_here, echo=FALSE}
+knitr::knit_exit()
 ```
 
 ## Quick and dirty \# firms and establishments and amount of payroll by firm size
