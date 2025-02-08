@@ -45,6 +45,14 @@ Taxpayers (7/1/2023+) do NOT include:
 
     -   all public library systems \[as defined by section 272(1) of the Education Law\] and all public and free association libraries \[as defined by section 253(2) of the Education Law\] beginning with the first quarter of 2016.
 
+## Small employer exclusion
+
+The tax applies to you if:
+
+-   you are required to withhold New York State income tax from wages; **and**
+
+-   your [payroll expense](https://www.tax.ny.gov/bus/mctmt/def_ps.htm#pe) for covered employees in the Metropolitan Commuter Transportation District (MCTD) exceeds \$312,500 in any calendar quarter. (\$1.25 million)
+
 ## Tax rates
 
 Rates July 1, 2023+:
@@ -63,17 +71,35 @@ Your MCTMT due for a calendar quarter is the sum of:
 
 2.  your payroll expense in the calendar quarter for all covered employees in Zone 2 multiplied by the applicable MCTMT rate from Table 2 below.
 
-**Note:** In order to be subject to the MCTMT for the quarter, the employer must have payroll expense in the entire MCTD (both Zone 1 and Zone 2) greater than \$312,500.
+**Note:** **In order to be subject to the MCTMT for the quarter, the employer must have payroll expense in the entire MCTD (both Zone 1 and Zone 2) greater than \$312,500.**
 
 **Example:** *An employer has payroll expense within the MCTD of \$650,000. \$450,000 of that payroll expense is attributable to Zone 1 and \$200,000 of that payroll expense is attributable to Zone 2. The employer’s MCTMT liability is \$2,920 (\[\$450,000 x 0.60%\] + \[\$200,000 x 0.11%\]).*
 
 ![](images/clipboard-1600659582.png)
+
+## How payroll size determination works (djb)
+
+Payroll appears to be payroll in the region.
+
+## PEOs
+
+A Professional Employer Organization (PEO) (as defined in the Labor Law § 916) must calculate the MCTMT due based separately on the payroll expense of each of its clients and its own payroll expense. See our website for additional information on how to calculate the MCTMT, and filing and payment requirements. <https://www.tax.ny.gov/pdf/current_forms/mctmt/mta305i.pdf>
 
 ## Initial enactment (from my [Fall 2023 forecast](https://boyd-mta-forecast-fall2023.netlify.app/timing_lawchanges.html))
 
 Part C of Chapter 25 of the Laws of 2009 added Article 23 to the Tax Law which establishes the metropolitan commuter transportation mobility tax (MCTMT).
 
 It was signed on May 7, 2009. The wage tax was generally effective March 1, 2009 (September 1, 2009 for public school districts) and the self-employment tax was effective for tax years beginning in 2009. (Part C section 23 of the chapter for effective dates.)
+
+## Are we better off using firm size or establishment size? (djb)
+
+The tax rates are based on firm size based on payroll in the region. As I read it, a large firm that has small payroll in the region will be a small firm. But a large firm in the region will be large even if all its establishments are small. I am not sure yet (2/8/2025) whether firm size is calculated based on payroll in the entire region or in Zone 1 or Zone 2. I think the former.
+
+The data do not align well with these concepts. SUSB data give \# of firms and establishments by firm size in the U.S. (or maybe worldwide) but certainly not state or county. So firm size may be larger than PMT firm size.
+
+CBP data give \# establishments by establishment size. This will certainly be too small in the case of multiestablishment-in-MTA region firms
+
+My thinking is the CBP problem is bigger than the SUSB problem and I should use that. Plus, the firm sizes break out the 20-99 firms data in finer detail than the CBP 20-99 establishments data.
 
 ## **The 2011 payroll mobility tax reductions**
 

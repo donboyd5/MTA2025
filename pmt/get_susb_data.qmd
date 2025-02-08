@@ -388,6 +388,7 @@ glimpse(mta2)
 # do the match
 nysmta <- nys2 |> 
   select(naics_group, fs_group, fscode, firmsize, fslb, fsub, ends_with("_pct")) |>
+  
   # add a "_grp" suffix to mta columns that represent firmsize group totals rather than detailed cell values
   full_join(mta2 |> 
               select(cofips, county, naics_group, naics, description, fs_group, 
@@ -419,7 +420,13 @@ count(nysmta, naics_group, naics, description)
 
 Check the MTA data for internal consistency:
 
--   Sometimes employees / firm can be outside the firm size range, especially for large firm sizes!
+-   Check that the sum of detailed cell values equals the group total
+
+-   Check that the sum of the shares equals 1
+
+-   Think about \# of employees per firm. The size classification is for the firm everywhere. This can be a large number based on employees everywhere but it can be small in a geographic area. For example, a firm could have 10,000 employees everywhere but only 10 in a given county. So we expect employees per firm in an area to be lower than the lower bound of the firm size range, often. However, I don't think we should expect employees per firm to be higher than the upper bound.
+
+-   How is firm size determined for MTA PMT? Is it MTA-area payroll or total firm payroll?
 
 ```{r}
 #| label: check-mta-data-consistency
