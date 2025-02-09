@@ -26,9 +26,10 @@ book:
       - method_steps.qmd
       # - get_cbp_data.qmd
       - get_susb_data.qmd    
-      - get_qcew_data.qmd
+      
+      # - get_qcew_data.qmd
       - clean_qcew_save_mta_subset.qmd
-      - fillin_qcew.qmd
+      # - fillin_qcew.qmd
       # - employer_size.qmd
       # - make_pmt_base.qmd
 
