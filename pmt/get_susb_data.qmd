@@ -7,7 +7,6 @@ editor_options:
 # TODO:
 
 -   Forecast to 2025
--   Use spline to estimate payroll groups and then force fit to total payroll etc.
 -   Splice onto QCEW for 2023
 -   Use 2025 forecast to estimate tax
 
@@ -455,8 +454,20 @@ nysmta_adj |>
   relocate(empavg, diff, .after = fsub) |> 
   arrange(desc(diff))
 
+ht(nysmta_adj)
+
+check <- nysmta_adj |> 
+  mutate(empavg = emp / firms, # use original employment here
+         empavg2 = empadj / firms) |> 
+  filter(empavg > fsub) |> 
+  relocate(empavg, empavg2, .after = fsub)
+
 saveRDS(nysmta_adj, fs::path(PDINTERMEDIATE, "susb2021_nys_shares_adj.rds"))
 
+```
+
+```{r stop_here, echo=FALSE}
+knitr::knit_exit()
 ```
 
 ```{r}
@@ -505,7 +516,7 @@ Check the MTA data for internal consistency:
 -   We have one record where emp / firm is greater than the upper bound of the firm size range. This is NOT ok but it's not a big deal.
 
 ```{r}
-#| label: check-mta-data-consistency
+#| label: check-mta-data-consistency-and-save
 
 # do some checks on nysmta ----
 # 

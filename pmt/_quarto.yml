@@ -53,7 +53,7 @@ editor_options:
   
 # ```{r stop_here, echo=FALSE}
 # knitr::knit_exit()
-# ```  
+# ```
 
 # useful reminders of quarto commands:
 # quarto publish netlify --no-render

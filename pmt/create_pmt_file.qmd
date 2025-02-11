@@ -25,16 +25,33 @@ library(lobstr)
 ```{r}
 #| label: get-data
 
-susb <- readRDS(fs::path(PDINTERMEDIATE, "susb2021_nysmta_shares_adj.rds"))
+# susb <- readRDS(fs::path(PDINTERMEDIATE, "susb2021_nysmta_shares_adj.rds"))
+susb <- readRDS(fs::path(PDINTERMEDIATE, "susb2021_nys_shares_adj.rds"))
 
 qcew <- readRDS(fs::path(PDINTERMEDIATE, "qcewstco.rds"))
-glimpse(qcew)
-count(qcew, areatype)
-tmp <- count(qcew, naics_level, naics, title)
+
+xwalk1 <- read_excel(fs::path(PDINTERMEDIATE, "naics_xwalk.xlsx"),
+                     sheet="xwalk",
+                     skip=2,
+                     col_types="text") |> 
+  select(qnaics_level, qnaics, qtitle, snaics) |> 
+  mutate(owner="Private")
 
 qmta <- qcew |> 
   mutate(naics_level=ifelse(naics=="00", 1, naics_level)) |> 
   filter(areatype == "county", mta, year==max(year), naics_level <= 3)
+
+```
+
+```{r}
+#| label: quick-look
+#| eval: false
+
+glimpse(qcew)
+count(qcew, areatype)
+tmp <- count(qcew, naics_level, naics, title)
+
+
 count(qmta, area)
 count(qmta, owner)
 count(qmta, naics_level)
@@ -48,161 +65,13 @@ tmp <- count(qmta, naics_level, naics, title)
 # 5 Total Government               163
 # 6 Total Private and Government  1161
 
-tmp <- qcew |> 
+tmp <- qcew |>
   filter(areatype == "county", nyc, year==max(year))
 
-tmp |> 
-  filter(naics=="00") |> 
+tmp |>
+  filter(naics=="00") |>
   filter(owner=="Total Private and Government") |>
   summarise(across(c(estab, avgemp, totwage), sum))
-
-
-
-```
-
-```{r}
-#| label: create-qcew-susb-naics-crosswalk
-#| eval: false
-
-
-# I made a qcew-susb naics crosswalk manually - saving unique naics for each and then creating an excel spreadsheet ----
-
-#.. save the two sets of naics codes ----
-count(qmta, naics_level, naics, title) |> 
-  write.xlsx(fs::path(PDINTERMEDIATE, "qmta_naics.xlsx"))
-
-susb |>
-  filter(!is.na(naics)) |> 
-  select(naics, stitle=description) |> 
-  mutate(naics_level=case_when(nchar(naics) == 2 ~ 2,
-                               nchar(naics) == 3 ~ 3,
-                               str_detect(naics, "-") ~ 2,
-                               .default = 0)) |> 
-  count(naics_level, naics, stitle) |> 
-  write.xlsx(fs::path(PDINTERMEDIATE, "susb_naics.xlsx"))
-
-#.. read the hand-created xwalk ----
-
-# qnaics1 <- count(qmta, naics_level, naics, title) # 115
-# 
-# 
-# anyDuplicated(qnaics1$naics) # 0
-# qnaics2 <- qnaics1 |> 
-#     select(naics_level, naics, qtitle=title, qn=n) |> 
-#     mutate(qnaics=naics,
-#            naics=case_when(naics %in% c("31", "32", "33") ~ "31-33",
-#                            naics %in% c("44", "45") ~ "44-45",
-#                            naics %in% c("48", "49") ~ "48-49",
-#                            .default = qnaics))
-# 
-# snaics1 <- count(susb, naics_group, naics, description) # 106
-# anyDuplicated(snaics1$naics) # 0
-# 
-# snaics2 <- snaics1 |> 
-#   filter(!is.na(naics)) |> 
-#   select(naics, stitle=description, sn=n) |> 
-#   mutate(snaics=naics,
-#          naics_level=case_when(nchar(naics) == 2 ~ 2,
-#                                nchar(naics) == 3 ~ 3,
-#                                str_detect(naics, "-") ~ 2,
-#                                .default = 0)) |> 
-#   relocate(naics_level)
-# anyDuplicated(snaics2$naics) # 0
-# 
-# snaics3 <- snaics2 |> 
-#   mutate(naics=case_when(snaics %in% c("442", "443") ~ "449",
-#                          snaics %in% c("446") ~ "456",
-#                          snaics %in% c("447") ~ "457",
-#                          snaics %in% c("448") ~ "458",
-#                          snaics %in% c("451", "453", "454") ~ "459", # 454 not good match
-#                          snaics %in% c("452") ~ "455",
-#                          snaics %in% c("515", "511") ~ "513",
-#                          .default = snaics))
-# 
-# nxw <- full_join(
-#   qnaics2,
-#   snaics3,
-#   by = join_by(naics_level, naics)) |> 
-#   select(naics_level, naics, qnaics, snaics, qtitle, stitle, qn, sn) |> 
-#   filter(!(is.na(naics)), naics != "00") |> 
-#   arrange(naics_level, naics)
-# anyDuplicated(nxw$naics) # 0
-# anyDuplicated(nxw$qnaics) # 59
-# nxw$qnaics[duplicated(nxw$qnaics)]
-# 
-# stoq <- nxw |> 
-#   select(naics_level, naics, snaics, stitle) |> 
-#   distinct()
-
-# snaics3 <- snaics2 |>  
-#     mutate(snaics=naics,
-           # naics=case_when(
-           #                 snaics %in% c("442", "443") ~ "449",
-           #                 snaics %in% c("446") ~ "456",
-           #                 snaics %in% c("447") ~ "457",
-           #                 snaics %in% c("448") ~ "458",
-           #                 snaics %in% c("451", "453", "454") ~ "459", # 454 not good match
-           #                 snaics %in% c("452") ~ "455",
-           #                 snaics %in% c("515", "511") ~ "513",
-           #                 .default = snaics))
-#   
-
-
-
-# 449 459 513
-
-# naics will be the common variable it should have no duplicates
-# multiple snaics can match to one naics
-# multiple qnaics can match to one naics
-# naics_xwalk <- full_join(
-#   qnaics |> 
-#     select(naics, qtitle=title, qn=n) |> 
-#     mutate(qnaics=naics,
-#            naics=case_when(naics %in% c("31", "32", "33") ~ "31-33",
-#                            naics %in% c("44", "45") ~ "44-45",
-#                            naics %in% c("48", "49") ~ "48-49",
-#                            .default = qnaics)),
-#   snaics |> 
-#     select(naics, stitle=description, sn=n) |> 
-#     mutate(snaics=naics,
-#            naics=case_when(
-#                            snaics %in% c("442", "443") ~ "449",
-#                            snaics %in% c("446") ~ "456",
-#                            snaics %in% c("447") ~ "457",
-#                            snaics %in% c("448") ~ "458",
-#                            snaics %in% c("451", "453", "454") ~ "459", # 454 not good match
-#                            snaics %in% c("452") ~ "455",
-#                            snaics %in% c("515", "511") ~ "513",
-#                            .default = snaics)),
-#   by = join_by(naics)) |> 
-#   filter(!(is.na(naics)), naics != "00") |> 
-#   # fix a few more
-#   mutate(snaics = case_when(
-#     naics %in% c("111", "112", "516") ~ str_sub(naics, 1, 2),
-#     .default = snaics)) |> 
-#   # fill in missing stitles
-#   arrange(snaics, stitle) |> 
-#   mutate(stitle= ifelse(is.na(stitle), first(stitle), stitle),
-#          .by=snaics) |> 
-#   mutate(level = nchar(naics),
-#          level = ifelse(str_detect(naics, "-"), 2, level)) |> 
-#   relocate(level) |>
-#   filter(!is.na(naics)) |>
-#   arrange(level, naics)
-# now we should be able to walk between qcew and susb naics except for government, private households, and unclassified
-
-
-# firmsize != "1: Total" & naics != "--" &
-#   (nchar(naics) ==2 | str_detect(naics, "-")) ~ "4 2-digit naics by firm sizes",
-#     firmsize != "1: Total" & naics != "--" &
-#   nchar(naics) == 3                           ~ "6 3-digit naics by firm size",
-
-```
-
-## Merge qcew and susb data
-
-```{r}
-#| label: explore-qmta
 
 # qmta: we want area
 qmta |> 
@@ -220,21 +89,38 @@ qmta |>
 # then build rest of database
 
 
+```
+
+```{r}
+#| label: DONT-RUN-create-qcew-susb-naics-crosswalk
+#| eval: false
+
+# I made a qcew-susb naics crosswalk manually - saving unique naics for each and then creating an excel spreadsheet ----
+
+#.. save the two sets of naics codes ----
+count(qmta, naics_level, naics, title) |> 
+  write.xlsx(fs::path(PDINTERMEDIATE, "qmta_naics.xlsx"))
+
+susb |>
+  filter(!is.na(naics)) |> 
+  select(naics, stitle=description) |> 
+  mutate(naics_level=case_when(nchar(naics) == 2 ~ 2,
+                               nchar(naics) == 3 ~ 3,
+                               str_detect(naics, "-") ~ 2,
+                               .default = 0)) |> 
+  count(naics_level, naics, stitle) |> 
+  write.xlsx(fs::path(PDINTERMEDIATE, "susb_naics.xlsx"))
 
 ```
+
+## Merge qcew and susb data
 
 ```{r}
 #| label: merge-qmta-susb
 
 glimpse(qmta) # 2023 2086 records
 glimpse(susb) # 2021
-
-xwalk1 <- read_excel(fs::path(PDINTERMEDIATE, "naics_xwalk.xlsx"),
-                     sheet="xwalk",
-                     skip=2,
-                     col_types="text") |> 
-  select(qnaics_level, qnaics, qtitle, snaics) |> 
-  mutate(owner="Private")
+glimpse(xwalk1)
 
 # we can only match private sector firms
 qmta_prep <- qmta |> 
@@ -247,12 +133,16 @@ tmp <- count(qmta_prep, owner, naics, qtitle, snaics)
 
 susb_prep <- susb |> 
   mutate(area=paste0(county, " County"), owner="Private") |> 
-  select(owner, cofips, county, area, snaics=naics, stitle=description, fs_group, fscode, firmsize, fslb, fsub,
-         empfirm_adj, firms_adj, estabs_adj, emp, payroll, payroll_grp)
+  select(owner, cofips, county, area, 
+         snaics=naics, stitle=description, 
+         fs_group, fscode, firmsize, fslb, fsub,
+         firms, estabs, empadj, payrolladj)
 
 matched <- qmta_prep |> 
   left_join(susb_prep, by=join_by(owner, area, snaics),
             relationship = "many-to-many")
+
+saveRDS(matched, fs::path(PDINTERMEDIATE, "qcsu_matched.rds"))
 
 glimpse(matched)
 count(qmta_prep, owner)
@@ -261,32 +151,603 @@ count(matched, owner)
 count(matched, fscode, fs_group, firmsize)
 
 # spread 
+
 tmp <- matched |> 
-  filter(owner=="Private", cofips=="005", naics=="23") |> 
-  select(county, title, estab, avgemp, totwage, fs_group:payroll_grp)
+  filter(owner=="Private", cofips=="005", naics=="23")
 tmp
+
+susb |> 
+  filter(cofips=="005", naics=="23") |>  
+  mutate(epf=empadj / firms) |> 
+  select(description, naics, fs_group, firmsize, fslb, fsub, epf, contains("_grp"))
 tmp |> 
-  summarise(firms_adj=sum(firms_adj), estabs_adj=sum(estabs_adj), payroll=sum(payroll), .by=fs_group)
+  summarise(firms=sum(firms), estabs=sum(estabs), empadj=sum(empadj), payrolladj=sum(payrolladj), .by=fs_group) |> 
+  janitor::adorn_totals("row")
 
 
-matched2 <- matched |> 
-  mutate(estab_fs=estabs_adj * estab / sum(estabs_adj),
-         emp_fs = emp * avgemp / sum(emp),
-         payroll_fs = totwage * payroll / sum(payroll),
-         .by=c(area, naics, owner))
+# matched2 <- matched |> 
+#   mutate(estab_fs=estabs_adj * estab / sum(estabs_adj),
+#          emp_fs = emp * avgemp / sum(emp),
+#          payroll_fs = totwage * payroll / sum(payroll),
+#          .by=c(area, naics, owner))
+# 
+# tmp2 <- matched2 |> 
+#   filter(owner=="Private", cofips=="005", naics=="23") |> 
+#   select(county, title, estab, avgemp, totwage, fs_group:payroll_grp, ends_with("_fs"))
+# tmp2
+# tmp2 |> 
+#   summarise(firms_adj=sum(firms_adj), estabs_adj=sum(estabs_adj), payroll=sum(payroll), .by=fs_group)
 
-tmp2 <- matched2 |> 
+# tmp2 |> 
+#   summarise(totwage=first(totwage), firms_adj=sum(firms_adj), estabs_adj=sum(estabs_adj), payroll=sum(payroll), payroll_fs=sum(payroll_fs))
+
+
+# check: why don't i have an emp_adj?? I thought I adjusted it in susb.
+
+```
+
+## Create synthetic firms
+
+```{r}
+#| label: syn-functions
+
+
+abovemid_index <- function(n) {
+  # get the index of the first element in a vector above the middle element
+  # abovemid_index(7) = 5  abovemid_index(8) = 5
+  ceiling(n / 2) + 1L
+}
+
+
+synrecs <- function(nrecs, lb, ub, firms, emp, payroll_grp){
+  # created weighted records where each rec represents a set of firms
+  
+  # the following are scalars
+  ppf <- payroll_grp / firms
+  ppe <- payroll_grp / emp
+  epf <- emp / firms
+  
+  # adjust bounds as needed
+  
+  # lower bounds
+  if(lb == 0) lb <- 1 # don't need to mention this
+  
+  if(epf < 1.1 * lb){ # case where average employment is close to or below the stated lower limit
+    print("Adjusting lower bound...")
+    # print(lb)
+    lb <- min(round(.8 * epf), lb) # note hard-coded 80% of average employment
+    # print(lb)
+  }
+  
+  # infinite bounds
+  if(is.infinite(ub)) ub <- 2 * lb # note hard-coded 2x the lower bound
+  
+  nemp_pf <- sample(lb:ub, size = 
+f2 <- function(n, lb, ub, firms, emp, payroll_grp){
+  # created weighted records where each rec represents a set of firms
+  
+  # the following are scalars
+  ppf <- payroll_grp / firms
+  ppe <- payroll_grp / emp
+  epf <- emp / firms
+  
+  # adjust bounds as needed
+  
+  # lower bounds
+  if(lb == 0) lb <- 1 # don't need to mention this
+  
+  if(epf < 1.1 * lb){ # case where average employment is close to or below the stated lower limit
+    print("Adjusting lower bound...")
+    # print(lb)
+    lb <- min(round(.8 * epf), lb) # note hard-coded 80% of average employment
+    # print(lb)
+  }
+  
+  # infinite bounds
+  if(is.infinite(ub)) ub <- 2 * lb # note hard-coded 2x the lower bound
+  
+  nemp_pf <- sample(lb:ub, size = n, replace = TRUE)
+  nfirms <- firms / n # firms per record
+  # scale employment so that the total is correct
+  scale <- emp / sum(nemp_pf * nfirms)
+  nemp_pf <- nemp_pf * scale # scaled employment per firm
+  payroll_pf <- nemp_pf * ppe
+  tibble(nfirms, lb, ub, nemp_pf, payroll_pf) # one record per firm
+}
+, replace = TRUE)
+  nfirms <- firms / n # firms per record
+  # scale employment so that the total is correct
+  scale <- emp / sum(nemp_pf * nfirms)
+  nemp_pf <- nemp_pf * scale # scaled employment per firm
+  payroll_pf <- nemp_pf * ppe
+  tibble(nfirms, lb, ub, nemp_pf, payroll_pf) # one record per firm
+}
+
+
+
+```
+
+```{r}
+#| label: firms
+
+matched <- readRDS(fs::path(PDINTERMEDIATE, "qcsu_matched.rds"))
+glimpse(matched)
+
+# calc average employment per firm in each new cell
+# distribute firms to cells with equal number per cell
+# calc total firms (should be fine)
+# calc total employment, likely higher than target (too many large firms)
+# calc need vs target (e.g., 70 fewer needed)
+# calc net impact of moving 1 firm from highest to lowest, (3.5 here)
+# calc net impact of moving half firms from highest to lowest (63 here)
+# move up to that amount
+# if more to go (7 here) calc net impact of moving 1 firm from 2nd highest to 2nd lowest (2 here)
+# calc net impact of moving half firms from 2nd highest to 2nd lowest ( here)
+
+test <-  matched |> 
+  filter(owner=="Private", cofips=="005", naics=="23")
+
+
+test
+20: 500
+test2 <- test |> 
+  mutate(fscode = ifelse(as.integer(fscode) >= 20, "99", fscode),
+         firmsize = ifelse(fscode=="99", "99: 500+ employees", firmsize)) |> 
+  summarise(across(
+    c(estab, avgemp, totwage, annavgsal), \(x) first(x)),
+    fslb=first(fslb),
+    fsub=last(fsub),
+    across(c(firms, estabs, empadj, payrolladj),
+           \(x) sum(x)),
+    .by=c(area, year, owner, naics, title, fscode, firmsize))
+test2 |> 
+  janitor::adorn_totals() |> 
+  mutate(ppf=payrolladj / firms)
+
+
+
+```
+
+## OLD Create synthetic firms
+
+```{r}
+#| label: functions
+
+
+# generate_employees <- function(N, E, lower, upper) {
+#   # Function to generate employee counts per firm
+#   avg <- E / N
+#   if (avg == floor(avg)) {
+#     return(rep(avg, N))
+#   } else {
+#     e1 <- floor(avg)
+#     e2 <- ceiling(avg)
+#     x <- round((E - N * e1) / (e2 - e1))
+#     employees <- c(rep(e1, N - x), rep(e2, x))
+#     current_sum <- sum(employees)
+#     if (current_sum != E) {
+#       diff <- E - current_sum
+#       adjustment <- if (diff > 0) 1 else -1
+#       idx <- 1:abs(diff)
+#       employees[idx] <- pmax(lower, pmin(upper, employees[idx] + adjustment))
+#     }
+#     return(employees)
+#   }
+# }
+
+
+generate_employees <- function(N, E, lower, upper, seed=1234) {
+  # deep research
+  set.seed(seed)
+  employees <- rep(lower, N)
+  remaining <- E - (N * lower)
+
+  while(remaining > 0) {
+    candidates <- which(employees < upper)
+    selected <- sample(candidates, 1)
+    employees[selected] <- employees[selected] + 1
+    remaining <- remaining - 1
+  }
+  return(employees)
+}
+# 
+# generate_payroll <- function(employees, total_payroll) {
+#   # deep research
+#   base_ppe <- total_payroll / sum(employees)
+#   set.seed(1234)
+#   variation <- rlnorm(length(employees), meanlog = 0, sdlog = 0.2)  # 20% variation
+#   raw_payroll <- employees * base_ppe * variation
+#   scaling_factor <- total_payroll / sum(raw_payroll)
+#   return(raw_payroll * scaling_factor)
+# }
+
+# generate_employees <- function(N, E, lower, upper) {
+#   # Handle fractional firm counts
+#   N <- max(1, round(N))
+# 
+#   # Empirical: Use truncated Poisson (λ = lower bound + 1)
+#   lambda <- lower + 1
+#   # employees <- rpoist(N, lambda, b = upper - lower) + lower
+#   employees <- rtpois(N, lambda, a = lower, b = upper) # djb
+# 
+#   # Adjust to hit exact total
+#   current_total <- sum(employees)
+#   adjustment <- E - current_total
+# 
+#   while(adjustment != 0) {
+#     candidates <- if(adjustment > 0) which(employees < upper) else which(employees > lower)
+#     if(length(candidates) == 0) break
+# 
+#     selected <- sample(candidates, 1)
+#     employees[selected] <- employees[selected] + sign(adjustment)
+#     adjustment <- adjustment - sign(adjustment)
+#   }
+# 
+#   return(employees)
+# }
+
+generate_payroll <- function(employees, total_payroll, sdvar=0.2, seed=1234) {
+  set.seed(seed)
+  # ---- Realistic PPE generator ----
+  # Log-normal with industry-typical variation (σ=0.2)
+  base_ppe <- total_payroll / sum(employees) # same payroll for all
+  ppe_variation <- rlnorm(length(employees), meanlog = log(base_ppe), sdlog = sdvar) # 0.2
+  
+  # Preserve totals exactly
+  payroll <- employees * ppe_variation
+  payroll * (total_payroll / sum(payroll))
+}
+
+
+
+```
+
+```{r}
+#| label: synthetic-firms
+
+# library(extraDistr)  # For truncated distributions
+
+glimpse(matched)
+
+test <-  matched |> 
+  filter(owner=="Private", cofips=="005", naics=="23")
+
+group <- test[2, ]
+group
+nrecs <- min(10, round(group$firms))
+discount <- .8
+empsize_lower <- group$fslb * discount
+empsize_upper <- group$fsub
+firm_empsize <- seq(empsize_lower, empsize_upper, length.out=nrecs)
+nfirms_target <- group$firms
+emp_target <- group$empadj
+payroll_target <- group$payrolladj
+
+nfirms_lower_unadj <- 2
+nfirms_upper_unadj <- 1
+nfirms_unadj <- seq(nfirms_lower_unadj, nfirms_upper_unadj, length.out=nrecs)
+nfirms_sum_unadj <- sum(nfirms_unadj)
+firms_scale <- nfirms_target / nfirms_sum_unadj
+nfirms <- nfirms_unadj * firms_scale
+sum(nfirms)
+
+firms_emptot <- nfirms * firm_empsize
+firms_payroll <- firms_emptot * group$payrolladj / group$empadj
+sum(firms_emptot)
+sum(firms_payroll)
+
+f <- function(lowhi=c(2, 1), group){
+  nfirms_lower_unadj <- lowhi[1]
+  nfirms_upper_unadj <- lowhi[2]
+  
+  nrecs <- min(10, round(group$firms))
+  discount <- .8
+  
+  empsize_lower <- group$fslb * discount
+  empsize_upper <- group$fsub
+  firm_empsize <- seq(empsize_lower, empsize_upper, length.out=nrecs)
+  nfirms_target <- group$firms
+  emp_target <- group$empadj
+  payroll_target <- group$payrolladj
+  
+  nfirms_unadj <- seq(nfirms_lower_unadj, nfirms_upper_unadj, length.out=nrecs)
+  nfirms_sum_unadj <- sum(nfirms_unadj)
+  firms_scale <- nfirms_target / nfirms_sum_unadj
+  nfirms <- nfirms_unadj * firms_scale
+  
+  firms_emptot <- nfirms * firm_empsize
+  firms_payroll <- firms_emptot * group$payrolladj / group$empadj
+  
+  nfirms_sum <- sum(nfirms)
+  emp_sum <- sum(firms_emptot)
+  payroll_sum <- sum(firms_payroll)
+  
+  err_nfirms <- (nfirms_sum - nfirms_target)^2
+  err_emp <- (emp_sum - emp_target)^2
+  err_nfirms + err_emp
+}
+
+
+f <- function(lowhi=c(2, 1), group){
+  nfirms_lower_unadj <- lowhi[1]
+  nfirms_upper_unadj <- lowhi[2]
+  
+  nrecs <- min(10, round(group$firms))
+  discount <- .8
+  
+  empsize_lower <- group$fslb * discount
+  empsize_upper <- group$fsub
+  firm_empsize <- seq(empsize_lower, empsize_upper, length.out=nrecs)
+  
+  nfirms_target <- group$firms
+  emp_target <- group$empadj
+  payroll_target <- group$payrolladj
+  
+  nfirms_unadj <- seq(nfirms_lower_unadj, nfirms_upper_unadj, length.out=nrecs)
+  nfirms_sum_unadj <- sum(nfirms_unadj)
+  firms_scale <- nfirms_target / nfirms_sum_unadj
+  nfirms <- nfirms_unadj * firms_scale
+  
+  firms_emptot <- nfirms * firm_empsize
+  firms_payroll <- firms_emptot * group$payrolladj / group$empadj
+  
+  nfirms_sum <- sum(nfirms)
+  emp_sum <- sum(firms_emptot)
+  payroll_sum <- sum(firms_payroll)
+  
+  err_nfirms <- (nfirms_sum - nfirms_target)^2
+  err_emp <- (emp_sum - emp_target)^2
+  err_nfirms + err_emp
+}
+
+
+
+get_stubdf <- function(lowhi, group){
+  nfirms_lower_unadj <- lowhi[1]
+  nfirms_upper_unadj <- lowhi[2]
+  
+  nrecs <- min(10, round(group$firms))
+  discount <- .8
+  
+  empsize_lower <- group$fslb * discount
+  empsize_upper <- group$fsub
+  firm_empsize <- seq(empsize_lower, empsize_upper, length.out=nrecs)
+  
+  nfirms_target <- group$firms
+  emp_target <- group$empadj
+  payroll_target <- group$payrolladj
+  
+  nfirms_unadj <- seq(nfirms_lower_unadj, nfirms_upper_unadj, length.out=nrecs)
+  nfirms_sum_unadj <- sum(nfirms_unadj)
+  firms_scale <- nfirms_target / nfirms_sum_unadj
+  nfirms <- nfirms_unadj * firms_scale
+  
+  firms_emptot <- nfirms * firm_empsize
+  firms_payroll <- firms_emptot * group$payrolladj / group$empadj
+  df <- tibble(row=1:nrecs, firm_empsize, nfirms, firms_emptot, firms_payroll)
+  df
+}
+
+f2 <- function(lowhi, group){
+  df <- get_stubdf(lowhi, group)
+  
+  nfirms_target <- group$firms
+  emp_target <- group$empadj
+  
+  nfirms_unadj <- seq(2, 1, length.out=nrow(df))
+  nfirms_sum_unadj <- sum(nfirms_unadj)
+  firms_scale <- nfirms_target / nfirms_sum_unadj
+  nfirms_ideal_shape <- nfirms_unadj * firms_scale
+  emp_sum <- sum(df$firms_emptot)
+  
+  # print(emp_target); print(emp_sum)
+  
+  err_shape <- sum((df$nfirms - nfirms_ideal_shape)^2)
+  err_emp <- (emp_sum - emp_target)^2
+  err_shape + err_emp
+}
+
+
+res <- optim(c(2, 1), f2, method = "L-BFGS-B", group=group)
+res
+df <- get_stubdf(res$par, group)
+df |> janitor::adorn_totals()
+group
+
+get_stubdf(c(10, 9), group) |> 
+  janitor::adorn_totals()
+
+
+f(lowhi=c(2, 1), group)
+res <- optim(c(2, 1), f, method = "L-BFGS-B", group=group)
+
+lowhi <- res$par
+
+get_stubdf(c(2, 1), group) |> 
+  janitor::adorn_totals()
+
+df <- get_stubdf(lowhi, group)
+df |> 
+  janitor::adorn_totals()
+group
+f(lowhi, group)
+
+
+df <- tibble(row=1:nrecs, firm_empsize, nfirms, firms_emptot, firms_payroll)
+df |> 
+  janitor::adorn_totals()
+
+nfirms_target; emp_target; payroll_target
+
+emp_calc_unadj <- sum(firm_empsizes * firms_unadj)
+scale <- emp_target / emp_calc_unadj
+firms <- firms_unadj * scale
+sum(firm_empsizes * firms)
+emp_avgwage <- group$payrolladj / group$empadj
+firm_emp <- firms * firm_empsizes
+firms_payroll <- firm_emp * emp_avgwage
+sum(firms_payroll)
+group$payrolladj
+
+df <- tibble(row=1:nrecs,firm_empsize=firm_empsizes, nfirms=firms, firm_emp, payroll=firms_payroll)
+df
+df |> janitor::adorn_totals()
+group
+
+
+f <- function(fslb, fsub, nfirms, nemp, payroll, discount=.8, seed=1234){
+  print(fslb); print(fsub)
+  avgnemp <- nemp / nfirms
+  print(avgnemp)
+  lower <- min(fslb, avgnemp)
+  lower <- round(lower * discount)
+  upper <- fsub
+  print(lower); print(upper)
+  iemployees <- generate_employees(nfirms, nemp, lower, upper, seed=12345)
+  # generate_employees(N, E, lower, upper, seed=12345)
+  iemployees
+}
+
+i <- 15
+f(fslb=test$fslb[i], fsub=test$fsub[i], nfirms=test$firms[i], nemp=test$empadj[i], payroll=test$payrolladj[i], discount=.9, seed=1234)
+
+
+  original_data <- test
+  i <- 15
+  group <- original_data[i, ]
+  group
+  N <- group$firms
+  N <- 19
+  E <- group$empadj
+  # E <- 452
+  E / N
+  lower <- round(min(group$fslb, E/N))
+  discount <- .6
+  lower <- round(max(lower * discount, 1))
+  upper <- group$fsub
+  N * lower
+  
+  gpayroll <- group$payrolladj
+  gpayroll / E
+  
+  # samp <- sample(lower:upper, N, replace = TRUE)
+  # sum(samp)
+  
+  iemployees <- generate_employees(N, E, lower, upper, seed=12345)
+  length(iemployees) # number of employees, E
+  table(iemployees)
+  hist(iemployees)
+  sum(iemployees)
+  
+  ipayroll <- generate_payroll(
+    employees = iemployees,
+    total_payroll = gpayroll,
+    sdvar = 0.4,
+    seed = 1234
+    )
+  length(ipayroll) # number of firms, N 944
+  sum(ipayroll)
+  p <- c(0, .05, .1, .25, .5, .75, .9, .95, 1)
+  quantile(ipayroll, p)
+  hist(ipayroll)
+  
+  pay_per_employee <- gpayroll / E
+  # quantile(pay_per_employee, p)
+  # sd 0.2
+  #        0%        5%       10%       25%       50%       75%       90%       95%      100% 
+  # 0.00000   0.00000   0.00000  31.91161  52.52492  92.10753 137.18617 155.69674 244.95194 
+  # hist(pay_per_employee)
+  
+  payroll_per_firm <- employees * pay_per_employee
+  hist(payroll_per_firm)
+  
+  # cor(pay_per_employee, employees) no
+
+
+
+```
+
+```{r}
+# DJB does not work well
+
+library(dplyr)
+
+# ---- Fast truncated distribution ----
+generate_employees <- function(N, E, lower, upper) {
+  # Handle fractional firms and ensure minimum 1
+  N <- max(1, round(N))
+  target_total <- E
+  
+  # Empirical pattern: 60% at lower bound, 30% mid, 10% upper
+  probs <- c(0.6, rep(0.3/(upper-lower-1), upper-lower-1), 0.1)
+  employees <- sample(lower:upper, N, replace = TRUE, prob = probs)
+  
+  # Fast adjustment to hit exact total
+  current_total <- sum(employees)
+  delta <- target_total - current_total
+  
+  while(delta != 0) {
+    if(delta > 0) {
+      idx <- which(employees < upper)
+      if(length(idx) == 0) break
+      employees[sample(idx, 1)] <- employees[sample(idx, 1)] + 1
+      delta <- delta - 1
+    } else {
+      idx <- which(employees > lower)
+      if(length(idx) == 0) break
+      employees[sample(idx, 1)] <- employees[sample(idx, 1)] - 1
+      delta <- delta + 1
+    }
+  }
+  
+  return(employees)
+}
+
+# ---- Payroll generation ----
+generate_payroll <- function(employees, total_payroll) {
+  # Base pay per employee with 15% variation (BLS-typical)
+  base_ppe <- total_payroll / sum(employees)
+  ppe_variation <- exp(rnorm(length(employees), 0, 0.15))
+  payroll <- employees * base_ppe * ppe_variation
+  payroll * (total_payroll / sum(payroll))  # Exact total
+}
+
+# ---- Full implementation ----
+set.seed(123)
+
+data <- matched |> 
   filter(owner=="Private", cofips=="005", naics=="23") |> 
-  select(county, title, estab, avgemp, totwage, fs_group:payroll_grp, ends_with("_fs"))
-tmp2
-tmp2 |> 
-  summarise(firms_adj=sum(firms_adj), estabs_adj=sum(estabs_adj), payroll=sum(payroll), .by=fs_group)
+  select(firms, emp=empadj, firmsize, fslb, fsub, payroll=payrolladj) |> 
+  mutate(avgemp=emp / firms)
 
-tmp2 |> 
-  summarise(totwage=first(totwage), firms_adj=sum(firms_adj), estabs_adj=sum(estabs_adj), payroll=sum(payroll), payroll_fs=sum(payroll_fs))
+synthetic_firms <- data %>%
+  mutate(fsub=ifelse(is.infinite(fsub), fslb * 10, fsub)) |> 
+  mutate(rounded_firms = sapply(firms, function(x) {
+    # Probabilistic rounding for fractional firms
+    if(x %% 1 < runif(1)) floor(x) else ceiling(x)
+  })) %>%
+  rowwise() %>%
+  reframe(
+    employees = generate_employees(rounded_firms, emp, fslb, fsub),
+    payroll = generate_payroll(employees, payroll),
+    orig_group = firmsize,
+    .groups = "drop"
+  )
 
+# ---- Verification ----
+synthetic_firms %>%
+  summarise(
+    total_firms = n(),
+    total_emp = sum(employees),
+    total_payroll = sum(payroll)
+  )
 
-
+data |> 
+  summarise(
+    total_firms = sum(firms),
+    total_emp = sum(emp),
+    total_payroll = sum(payroll)
+  )
 
 ```
 

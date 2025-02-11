@@ -361,3 +361,36 @@ new_groups <- synthetic_firms %>%
 # Verification checks
 original_total <- colSums(original_data[, c("num_firms", "num_employees", "total_payroll")])
 new_total <- colSums(new_groups[, c("num_firms", "total_employees", "total_payroll")])
+
+
+
+# power law ---------------------------------------------------------------
+
+# Function to generate numbers from a power-law distribution on [L, U]
+rpower <- function(n, L, U, k) {
+  u <- runif(n)
+  U - (U - L) * (1 - u)^(1 / (k + 1))
+}
+
+# Function to generate and scale numbers to the desired total
+generate_scaled_numbers <- function(n, L, U, k, total) {
+  numbers <- rpower(n, L, U, k)
+  scaled_numbers <- numbers * (total / sum(numbers))
+  scaled_numbers
+}
+
+# Example usage
+set.seed(123)  # For reproducibility
+n <- 5         # Number of values
+L <- 1         # Lower bound
+U <- 5         # Upper bound
+k <- 2         # Rate parameter (k > 1 for decreasing decline rate)
+total <- 20    # Target total
+
+# Generate numbers
+scaled_numbers <- generate_scaled_numbers(n, L, U, k, total)
+
+# Output results
+print("Scaled Numbers:")
+print(scaled_numbers)
+print(paste("Sum:", sum(scaled_numbers)))
