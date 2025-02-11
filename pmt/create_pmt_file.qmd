@@ -117,6 +117,7 @@ qmta_prep <- qmta |>
 ```
 
 ```{r}
+#| label: merge-qmta-susb
 
 matched <- qmta_prep |> 
   left_join(susb_prep, by=join_by(owner, area, snaics),
@@ -152,7 +153,7 @@ matched2 |>
             .by=c(year, area, owner, naics_level, naics, qtitle))
 
 
-tmp <- matched |> filter(is.na(payrolladj))
+saveRDS(matched2, fs::path(PDINTERMEDIATE, "qcsu_matched.rds"))
 
 ```
 
@@ -200,59 +201,64 @@ synrecs <- function(nrecs, lb, ub, nfirms, nemp, payroll){
   tibble(nfirms, lb, ub, nemp_pf, payroll_pf) # one record per firm
 }
 
-
-# synrecsx <- function(nrecs, lb, ub, firms, emp, payroll_grp){
-#   # created weighted records where each rec represents a set of firms
-#   # return empty tibble if invalid input
-#   if(nrecs == 1 || lb > ub || is.na(lb) || is.na(ub)) return(tibble(nemp = integer(0)))
-#   
-#   # the following are scalars
-#   ppf <- payroll_grp / firms
-#   ppe <- payroll_grp / emp
-#   epf <- emp / firms
-#   
-#   # adjust bounds as needed
-#   
-#   # lower bounds
-#   if(lb == 0) lb <- 1 # don't need to print an Adjusting lower bound note
-#   
-#   if(epf < 1.1 * lb){ # case where average employment is close to or below the stated lower limit
-#     # print("Adjusting lower bound...")
-#     lb <- min(round(.8 * epf), lb) # note hard-coded 80% of average employment
-#   }
-#   
-#   # infinite bounds
-#   if(is.infinite(ub)) ub <- 2 * lb # note hard-coded 2x the lower bound
-#   
-#   nemp_pf <- sample(lb:ub, size = nrecs, replace = TRUE)
-#   nfirms <- firms / nrecs # firms per record
-#   # scale employment so that the total is correct
-#   scale <- emp / sum(nemp_pf * nfirms)
-#   nemp_pf <- nemp_pf * scale # scaled employment per firm
-#   payroll_pf <- nemp_pf * ppe
-#   tibble(nfirms, lb, ub, nemp_pf, payroll_pf) # one record per firm
-# }
-
-
 ```
 
 ### Test results
 
 ```{r}
-#| label: check
+#| label: create-pmt-database
 
-check <- matched2 |> 
-  filter(owner=="Private", area=="Bronx County", naics=="23") |> 
+matched <- readRDS(fs::path(PDINTERMEDIATE, "qcsu_matched.rds")) 
+glimpse(matched)
+
+a <- proc.time()
+pmt_final <- matched |> 
+  filter(owner=="Private") |> 
+  filter(!naics %in% c("99", "999")) |>
+  filter(!is.na(semp), semp != 0) |> 
   mutate(nrecs = case_when(as.integer(fscode) %in% 2:18 ~ 20,
                            fscode == "99" ~ 20,
                            .default = 1)) |> 
   mutate(data = pmap(
     list(nrecs, fslb, fsub, sfirms, semp, qpayroll_tot),
     synrecs))
+b <- proc.time()
+b - a # 11 secs
+
+saveRDS(pmt_final, fs::path(PDINTERMEDIATE, "pmt_final.rds"))
+
+```
+
+```{r stop_here, echo=FALSE}
+knitr::knit_exit()
+```
+
+# examine results, explore below here
+
+```{r}
+#| label: explore
+
+pmtdb <- readRDS(fs::path(PDINTERMEDIATE, "pmt_final.rds"))
+
+matched2 |> 
+  filter(owner=="Private") |> 
+  filter(!naics %in% c("99", "999")) |>
+  filter(!is.na(semp)) |> 
+  filter(row_number()==1702)
+
+tmp <- check |> 
+  unnest(cols=data)
+
+count(check, naics_level)
+check |> 
+  group_by(naics_level, naics) |> 
+  summarise(n=n())
+
+  
+
 
 check |> 
   unnest(cols=data) |> 
-  select(-data) |> 
   janitor::adorn_totals()
 
 check |> 
@@ -266,12 +272,64 @@ check |>
             nemp_sum = sum(nemp_pf * nfirms),
             nfirms=sum(nfirms))
 
+matched2 |> 
+  filter(area=="Bronx County", naics=="484", fscode=="02")
+
+tmp <- matched2 |> 
+  filter(owner=="Private", area=="Bronx County", naics=="484", fscode=="02") |> 
+  mutate(nrecs = case_when(as.integer(fscode) %in% 2:18 ~ 20,
+                           fscode == "99" ~ 20,
+                           .default = 1)) |> 
+  mutate(data = pmap(
+    list(nrecs, fslb, fsub, sfirms, semp, spayroll),
+    synrecs)) |>
+  # filter(fscode=="02") |> 
+  unnest(cols=data)
+
+tmp
+sum(tmp$nfirms) # sfirms for an fscode
+sum(tmp$nfirms * tmp$nemp_pf) # semp for an fscode
+sum(tmp$nfirms * tmp$payroll_pf) # qpayroll_tot for an entire naics!!
+
+matched2 |> 
+  filter(owner=="Private", area=="Bronx County", naics=="484", fscode=="02") 
+
+check |> 
+  filter(owner=="Private", area=="Bronx County", naics=="484") |> 
+  unnest(cols=data) |> 
+  summarise(n=n(),
+            qestabs_tot=first(qestabs_tot),
+            qemp_tot=first(qemp_tot),
+            qpayroll_tot=first(qpayroll_tot),
+            payroll=sum(nfirms * payroll_pf))
+            
+
+qcew |> filter(owner=="Private", area=="Bronx County", naics=="484", year==2023) 
+qmta |> filter(owner=="Private", area=="Bronx County", naics=="484", year==2025) 
+
+check |> filter(owner=="Private", area=="Bronx County", naics=="484") |> 
+  summarise(spayroll=sum(spayroll)) # good 73,222,879
+
+check |> 
+  filter(owner=="Private", area=="Bronx County", naics=="484") |> 
+  unnest(cols = data) |> 
+  mutate(pay=payroll_pf * nfirms) |> 
+  summarise(nfirms=sum(nfirms), # 138 good
+            emp=sum(nemp_pf * nfirms), # 1,281,513 bad
+            sum(pay)) # 1,244,788,935. bad
+
+
+check |> 
+  filter(owner=="Private", area=="Bronx County", naics=="484", fscode=="02") |> 
+  unnest(cols=data)
+
+
 ```
 
 ## Merge qcew and susb data
 
 ```{r}
-#| label: merge-qmta-susb
+#| label: merge-qmta-susb-old
 
 glimpse(qmta) # 2023 2086 records
 glimpse(susb) # 2021
@@ -370,10 +428,6 @@ test3 |>
   unnest(cols=data)
 
 
-```
-
-```{r stop_here, echo=FALSE}
-knitr::knit_exit()
 ```
 
 ```{r}
