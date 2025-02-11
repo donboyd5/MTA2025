@@ -214,48 +214,14 @@ synrecs <- function(nrecs, lb, ub, firms, emp, payroll_grp){
   
   if(epf < 1.1 * lb){ # case where average employment is close to or below the stated lower limit
     print("Adjusting lower bound...")
-    # print(lb)
     lb <- min(round(.8 * epf), lb) # note hard-coded 80% of average employment
-    # print(lb)
   }
   
   # infinite bounds
   if(is.infinite(ub)) ub <- 2 * lb # note hard-coded 2x the lower bound
   
-  nemp_pf <- sample(lb:ub, size = 
-f2 <- function(n, lb, ub, firms, emp, payroll_grp){
-  # created weighted records where each rec represents a set of firms
-  
-  # the following are scalars
-  ppf <- payroll_grp / firms
-  ppe <- payroll_grp / emp
-  epf <- emp / firms
-  
-  # adjust bounds as needed
-  
-  # lower bounds
-  if(lb == 0) lb <- 1 # don't need to mention this
-  
-  if(epf < 1.1 * lb){ # case where average employment is close to or below the stated lower limit
-    print("Adjusting lower bound...")
-    # print(lb)
-    lb <- min(round(.8 * epf), lb) # note hard-coded 80% of average employment
-    # print(lb)
-  }
-  
-  # infinite bounds
-  if(is.infinite(ub)) ub <- 2 * lb # note hard-coded 2x the lower bound
-  
-  nemp_pf <- sample(lb:ub, size = n, replace = TRUE)
-  nfirms <- firms / n # firms per record
-  # scale employment so that the total is correct
-  scale <- emp / sum(nemp_pf * nfirms)
-  nemp_pf <- nemp_pf * scale # scaled employment per firm
-  payroll_pf <- nemp_pf * ppe
-  tibble(nfirms, lb, ub, nemp_pf, payroll_pf) # one record per firm
-}
-, replace = TRUE)
-  nfirms <- firms / n # firms per record
+  nemp_pf <- sample(lb:ub, size = nrecs, replace = TRUE)
+  nfirms <- firms / nrecs # firms per record
   # scale employment so that the total is correct
   scale <- emp / sum(nemp_pf * nfirms)
   nemp_pf <- nemp_pf * scale # scaled employment per firm
@@ -288,8 +254,6 @@ test <-  matched |>
   filter(owner=="Private", cofips=="005", naics=="23")
 
 
-test
-20: 500
 test2 <- test |> 
   mutate(fscode = ifelse(as.integer(fscode) >= 20, "99", fscode),
          firmsize = ifelse(fscode=="99", "99: 500+ employees", firmsize)) |> 
@@ -303,6 +267,27 @@ test2 <- test |>
 test2 |> 
   janitor::adorn_totals() |> 
   mutate(ppf=payrolladj / firms)
+
+
+test3 <- test2 |> 
+  mutate(nrecs = case_when(as.integer(fscode) %in% 2:18 ~ 20,
+                           fscode == "99" ~ 20,
+                           .default = 1)) |> 
+  mutate(
+    data = pmap(
+      list(nrecs, fslb, fsub, firms, empadj, payrolladj),
+      \(n, lb, ub, firms, empadj, payrolladj) {
+        if (n > 1 && lb <= ub && !is.na(lb) && !is.na(ub)) {
+          # Valid case: generate the dataframe
+          f2(n, lb, ub, firms, empadj, payrolladj)
+        } else {
+          # Invalid case: return a dummy/empty dataframe
+          tibble(nemp = integer(0))  # Empty, or use tibble(nfirms = NA) for a placeholder
+        }
+      }
+    )
+  )
+test3
 
 
 
