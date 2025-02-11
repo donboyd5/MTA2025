@@ -20,8 +20,6 @@ library(lobstr)
 
 ```
 
-## Match QCEW and SUSB firm sizes
-
 ```{r}
 #| label: get-data
 
@@ -37,79 +35,236 @@ xwalk1 <- read_excel(fs::path(PDINTERMEDIATE, "naics_xwalk.xlsx"),
   select(qnaics_level, qnaics, qtitle, snaics) |> 
   mutate(owner="Private")
 
+
+```
+
+## Create and forecast qcew_mta
+
+```{r}
+#| label: create-forecast-qmta
+
+# year is 2023; key variables are estab, avgemp, totwage, annavgsal
+count(qcew, owner)
+
+# two year total growth rates; don't change estab
+empgrowth <- .035 # see NYC Council; my rough guess; https://council.nyc.gov/wp-content/uploads/2024/03/Dashboard_FY25-Prelim_EMBARGOED.pdf
+avgwagegrowth <- .04
+
 qmta <- qcew |> 
   mutate(naics_level=ifelse(naics=="00", 1, naics_level)) |> 
-  filter(areatype == "county", mta, year==max(year), naics_level <= 3)
+  filter(areatype == "county", mta, year==2023, naics_level <= 3) |> 
+  filter(owner %in% c("Private", "State Government", "Local Government", "Federal Government", "Total Private and Government")) |>
+  mutate(year=2025,
+         avgemp=avgemp * (1 + empgrowth),
+         totwage=totwage * (1 + empgrowth) * (1 + avgwagegrowth),
+         annavgsal = totwage / avgemp)
 
-```
-
-```{r}
-#| label: quick-look
-#| eval: false
-
-glimpse(qcew)
-count(qcew, areatype)
-tmp <- count(qcew, naics_level, naics, title)
-
-
-count(qmta, area)
-count(qmta, owner)
-count(qmta, naics_level)
-tmp <- count(qmta, naics_level, naics, title)
-#   owner                            n
-#   <chr>                        <int>
-# 1 Federal Government             204
-# 2 Local Government                95
-# 3 Private                       1102
-# 4 State Government                81
-# 5 Total Government               163
-# 6 Total Private and Government  1161
-
-tmp <- qcew |>
-  filter(areatype == "county", nyc, year==max(year))
-
-tmp |>
-  filter(naics=="00") |>
-  filter(owner=="Total Private and Government") |>
-  summarise(across(c(estab, avgemp, totwage), sum))
-
-# qmta: we want area
 qmta |> 
-  select(-areatype) |> 
-  summarise(avgemp=sum(avgemp),
-            totwage=sum(totwage),
+  summarise(across(c(estab, avgemp, totwage, annavgsal), sum),
             .by=c(owner, naics_level)) |> 
-  arrange(owner, naics_level)
-# sums are very good / close across naics_levels for
-#   federal govt, private, private and govt
-#   not close for local govt, state govt where
-#     IF we want completeness we need level 1
-            
-# match private qmta with susb
-# then build rest of database
+  arrange(naics_level, owner)
+
+```
+
+## Match QCEW and SUSB firm sizes
+
+### Prepare the two data files, including collapsing susb
+
+```{r}
+#| label: prep-susb
+
+# pare down and collapse the susb data
+ 
+susb_prep <- susb |> 
+  # collapse
+  mutate(fscode = ifelse(as.integer(fscode) >= 20, "99", fscode),
+         firmsize = ifelse(fscode=="99", "99: 500+ employees", firmsize)) |> 
+  summarise(fslb=first(fslb),
+            fsub=last(fsub),
+    across(c(firms, estabs, empadj, payrolladj),
+           \(x) sum(x)),
+    .by=c(cofips, county, naics, description, fscode, firmsize)) |> 
+  select(county,
+         snaics=naics, stitle=description, 
+         fscode, firmsize, fslb, fsub,
+         sfirms=firms, sestabs=estabs, semp=empadj, spayroll=payrolladj) |> 
+  mutate(area=paste0(county, " County"), owner="Private")
+
+# test2 <- test |> 
+#   mutate(fscode = ifelse(as.integer(fscode) >= 20, "99", fscode),
+#          firmsize = ifelse(fscode=="99", "99: 500+ employees", firmsize)) |> 
+#   summarise(across(
+#     c(estab, avgemp, totwage, annavgsal), \(x) first(x)),
+#     fslb=first(fslb),
+#     fsub=last(fsub),
+#     across(c(firms, estabs, empadj, payrolladj),
+#            \(x) sum(x)),
+#     .by=c(area, year, owner, naics, title, fscode, firmsize))
+```
+
+```{r}
+#| label: prep-qcew
+
+# we can only match private sector firms
+qmta_prep <- qmta |> 
+  select(year, area, owner, naics_level, naics, qtitle=title, qestabs_tot=estab, qemp_tot=avgemp, qpayroll_tot=totwage, mta, nyc) |> 
+  filter(owner %in% c("Private", "State Government", "Local Government", "Federal Government")) |> 
+  left_join(xwalk1 |> 
+              select(qnaics, snaics, owner),
+            by = join_by(owner, naics==qnaics))
 
 
 ```
 
 ```{r}
-#| label: DONT-RUN-create-qcew-susb-naics-crosswalk
-#| eval: false
 
-# I made a qcew-susb naics crosswalk manually - saving unique naics for each and then creating an excel spreadsheet ----
+matched <- qmta_prep |> 
+  left_join(susb_prep, by=join_by(owner, area, snaics),
+            relationship = "many-to-many")
 
-#.. save the two sets of naics codes ----
-count(qmta, naics_level, naics, title) |> 
-  write.xlsx(fs::path(PDINTERMEDIATE, "qmta_naics.xlsx"))
+matched |> 
+  summarise(n=n(),
+            qestabs_tot=first(qestabs_tot),
+            sestabs=sum(sestabs, na.rm=TRUE),
+            qemp_tot=first(qemp_tot),
+            semp=sum(semp, na.rm=TRUE),
+            qpayroll_tot=first(qpayroll_tot),
+            spayroll=sum(spayroll, na.rm=TRUE),
+            .by=c(year, area, owner, naics_level, naics, qtitle))
 
-susb |>
-  filter(!is.na(naics)) |> 
-  select(naics, stitle=description) |> 
-  mutate(naics_level=case_when(nchar(naics) == 2 ~ 2,
-                               nchar(naics) == 3 ~ 3,
-                               str_detect(naics, "-") ~ 2,
-                               .default = 0)) |> 
-  count(naics_level, naics, stitle) |> 
-  write.xlsx(fs::path(PDINTERMEDIATE, "susb_naics.xlsx"))
+summary(matched)
+
+matched2 <- matched |> 
+  mutate(sfirms = sfirms * qestabs_tot / sum(sestabs, na.rm=TRUE), # inflate # firms by estabs ratio
+         sestabs = sestabs * qestabs_tot / sum(sestabs, na.rm=TRUE),
+         semp = semp * qemp_tot / sum(semp, na.rm=TRUE),
+         spayroll = spayroll * qpayroll_tot / sum(spayroll, na.rm=TRUE),
+         .by=c(year, area, owner, naics_level, naics, qtitle))
+
+matched2 |> 
+  summarise(n=n(),
+            qestabs_tot=first(qestabs_tot),
+            sestabs=sum(sestabs, na.rm=TRUE),
+            qemp_tot=first(qemp_tot),
+            semp=sum(semp, na.rm=TRUE),
+            qpayroll_tot=first(qpayroll_tot),
+            spayroll=sum(spayroll, na.rm=TRUE),
+            .by=c(year, area, owner, naics_level, naics, qtitle))
+
+
+tmp <- matched |> filter(is.na(payrolladj))
+
+```
+
+## Create synthetic firms
+
+```{r}
+#| label: syn-functions
+
+
+abovemid_index <- function(n) {
+  # get the index of the first element in a vector above the middle element
+  # abovemid_index(7) = 5  abovemid_index(8) = 5
+  ceiling(n / 2) + 1L
+}
+
+synrecs <- function(nrecs, lb, ub, nfirms, nemp, payroll){
+  # created weighted records where each rec represents a set of firms
+  # return empty tibble if invalid input
+  if(nrecs == 1 || lb > ub || is.na(lb) || is.na(ub)) return(tibble(nemp = integer(0)))
+  
+  # the following are scalars
+  ppf <- payroll / nfirms
+  ppe <- payroll / nemp
+  epf <- nemp / nfirms
+  
+  # adjust bounds as needed
+  
+  # lower bounds
+  if(lb == 0) lb <- 1 # don't need to print an Adjusting lower bound note
+  
+  if(epf < 1.1 * lb){ # case where average employment is close to or below the stated lower limit
+    # print("Adjusting lower bound...")
+    lb <- min(round(.8 * epf), lb) # note hard-coded 80% of average employment
+  }
+  
+  # infinite bounds
+  if(is.infinite(ub)) ub <- 2 * lb # note hard-coded 2x the lower bound
+  
+  nemp_pf <- sample(lb:ub, size = nrecs, replace = TRUE)
+  nfirms <- firms / nrecs # firms per record
+  # scale employment so that the total is correct
+  scale <- emp / sum(nemp_pf * nfirms)
+  nemp_pf <- nemp_pf * scale # scaled employment per firm
+  payroll_pf <- nemp_pf * ppe
+  tibble(nfirms, lb, ub, nemp_pf, payroll_pf) # one record per firm
+}
+
+
+# synrecsx <- function(nrecs, lb, ub, firms, emp, payroll_grp){
+#   # created weighted records where each rec represents a set of firms
+#   # return empty tibble if invalid input
+#   if(nrecs == 1 || lb > ub || is.na(lb) || is.na(ub)) return(tibble(nemp = integer(0)))
+#   
+#   # the following are scalars
+#   ppf <- payroll_grp / firms
+#   ppe <- payroll_grp / emp
+#   epf <- emp / firms
+#   
+#   # adjust bounds as needed
+#   
+#   # lower bounds
+#   if(lb == 0) lb <- 1 # don't need to print an Adjusting lower bound note
+#   
+#   if(epf < 1.1 * lb){ # case where average employment is close to or below the stated lower limit
+#     # print("Adjusting lower bound...")
+#     lb <- min(round(.8 * epf), lb) # note hard-coded 80% of average employment
+#   }
+#   
+#   # infinite bounds
+#   if(is.infinite(ub)) ub <- 2 * lb # note hard-coded 2x the lower bound
+#   
+#   nemp_pf <- sample(lb:ub, size = nrecs, replace = TRUE)
+#   nfirms <- firms / nrecs # firms per record
+#   # scale employment so that the total is correct
+#   scale <- emp / sum(nemp_pf * nfirms)
+#   nemp_pf <- nemp_pf * scale # scaled employment per firm
+#   payroll_pf <- nemp_pf * ppe
+#   tibble(nfirms, lb, ub, nemp_pf, payroll_pf) # one record per firm
+# }
+
+
+```
+
+### Test results
+
+```{r}
+#| label: check
+
+check <- matched2 |> 
+  filter(owner=="Private", area=="Bronx County", naics=="23") |> 
+  mutate(nrecs = case_when(as.integer(fscode) %in% 2:18 ~ 20,
+                           fscode == "99" ~ 20,
+                           .default = 1)) |> 
+  mutate(data = pmap(
+    list(nrecs, fslb, fsub, sfirms, semp, qpayroll_tot),
+    synrecs))
+
+check |> 
+  unnest(cols=data) |> 
+  select(-data) |> 
+  janitor::adorn_totals()
+
+check |> 
+  unnest(cols=data) |> 
+  summarise(qestabs_tot=first(qestabs_tot),
+            nfirms=sum(nfirms))
+
+check |> 
+  unnest(cols=data) |> 
+  summarise(qemp_tot=first(qemp_tot),
+            nemp_sum = sum(nemp_pf * nfirms),
+            nfirms=sum(nfirms))
 
 ```
 
@@ -152,83 +307,17 @@ count(matched, fscode, fs_group, firmsize)
 
 # spread 
 
-tmp <- matched |> 
-  filter(owner=="Private", cofips=="005", naics=="23")
-tmp
-
-susb |> 
-  filter(cofips=="005", naics=="23") |>  
-  mutate(epf=empadj / firms) |> 
-  select(description, naics, fs_group, firmsize, fslb, fsub, epf, contains("_grp"))
-tmp |> 
-  summarise(firms=sum(firms), estabs=sum(estabs), empadj=sum(empadj), payrolladj=sum(payrolladj), .by=fs_group) |> 
-  janitor::adorn_totals("row")
-
-
-# matched2 <- matched |> 
-#   mutate(estab_fs=estabs_adj * estab / sum(estabs_adj),
-#          emp_fs = emp * avgemp / sum(emp),
-#          payroll_fs = totwage * payroll / sum(payroll),
-#          .by=c(area, naics, owner))
+# tmp <- matched |> 
+#   filter(owner=="Private", cofips=="005", naics=="23")
+# tmp
 # 
-# tmp2 <- matched2 |> 
-#   filter(owner=="Private", cofips=="005", naics=="23") |> 
-#   select(county, title, estab, avgemp, totwage, fs_group:payroll_grp, ends_with("_fs"))
-# tmp2
-# tmp2 |> 
-#   summarise(firms_adj=sum(firms_adj), estabs_adj=sum(estabs_adj), payroll=sum(payroll), .by=fs_group)
-
-# tmp2 |> 
-#   summarise(totwage=first(totwage), firms_adj=sum(firms_adj), estabs_adj=sum(estabs_adj), payroll=sum(payroll), payroll_fs=sum(payroll_fs))
-
-
-# check: why don't i have an emp_adj?? I thought I adjusted it in susb.
-
-```
-
-## Create synthetic firms
-
-```{r}
-#| label: syn-functions
-
-
-abovemid_index <- function(n) {
-  # get the index of the first element in a vector above the middle element
-  # abovemid_index(7) = 5  abovemid_index(8) = 5
-  ceiling(n / 2) + 1L
-}
-
-
-synrecs <- function(nrecs, lb, ub, firms, emp, payroll_grp){
-  # created weighted records where each rec represents a set of firms
-  
-  # the following are scalars
-  ppf <- payroll_grp / firms
-  ppe <- payroll_grp / emp
-  epf <- emp / firms
-  
-  # adjust bounds as needed
-  
-  # lower bounds
-  if(lb == 0) lb <- 1 # don't need to mention this
-  
-  if(epf < 1.1 * lb){ # case where average employment is close to or below the stated lower limit
-    print("Adjusting lower bound...")
-    lb <- min(round(.8 * epf), lb) # note hard-coded 80% of average employment
-  }
-  
-  # infinite bounds
-  if(is.infinite(ub)) ub <- 2 * lb # note hard-coded 2x the lower bound
-  
-  nemp_pf <- sample(lb:ub, size = nrecs, replace = TRUE)
-  nfirms <- firms / nrecs # firms per record
-  # scale employment so that the total is correct
-  scale <- emp / sum(nemp_pf * nfirms)
-  nemp_pf <- nemp_pf * scale # scaled employment per firm
-  payroll_pf <- nemp_pf * ppe
-  tibble(nfirms, lb, ub, nemp_pf, payroll_pf) # one record per firm
-}
-
+# susb |> 
+#   filter(cofips=="005", naics=="23") |>  
+#   mutate(epf=empadj / firms) |> 
+#   select(description, naics, fs_group, firmsize, fslb, fsub, epf, contains("_grp"))
+# tmp |> 
+#   summarise(firms=sum(firms), estabs=sum(estabs), empadj=sum(empadj), payrolladj=sum(payrolladj), .by=fs_group) |> 
+#   janitor::adorn_totals("row")
 
 
 ```
@@ -273,23 +362,72 @@ test3 <- test2 |>
   mutate(nrecs = case_when(as.integer(fscode) %in% 2:18 ~ 20,
                            fscode == "99" ~ 20,
                            .default = 1)) |> 
-  mutate(
-    data = pmap(
-      list(nrecs, fslb, fsub, firms, empadj, payrolladj),
-      \(n, lb, ub, firms, empadj, payrolladj) {
-        if (n > 1 && lb <= ub && !is.na(lb) && !is.na(ub)) {
-          # Valid case: generate the dataframe
-          f2(n, lb, ub, firms, empadj, payrolladj)
-        } else {
-          # Invalid case: return a dummy/empty dataframe
-          tibble(nemp = integer(0))  # Empty, or use tibble(nfirms = NA) for a placeholder
-        }
-      }
-    )
-  )
-test3
+  mutate(data = pmap(
+    list(nrecs, fslb, fsub, firms, empadj, payrolladj),
+    synrecs))
+
+test3 |> 
+  unnest(cols=data)
 
 
+```
+
+```{r stop_here, echo=FALSE}
+knitr::knit_exit()
+```
+
+```{r}
+#| label: quick-look-at-sums
+#| eval: false
+
+count(qmta, owner)
+#   owner                            n
+#   <chr>                        <int>
+#   owner                            n
+#   <chr>                        <int>
+# 1 Federal Government             204
+# 2 Local Government                95
+# 3 Private                       1102
+# 4 State Government                81
+# 5 Total Private and Government  1161
+
+# qmta: we want area
+qmta |> 
+  select(-areatype) |> 
+  summarise(avgemp=sum(avgemp),
+            totwage=sum(totwage),
+            .by=c(owner, naics_level)) |> 
+  arrange(owner, naics_level)
+# sums are very good / close across naics_levels for
+#   federal govt, private, private and govt
+#   not close for local govt, state govt where
+#     IF we want completeness we need level 1
+            
+# match private qmta with susb
+# then build rest of database
+
+
+```
+
+```{r}
+#| label: DONT-RUN-create-qcew-susb-naics-crosswalk
+#| eval: false
+
+# I made a qcew-susb naics crosswalk manually - saving unique naics for each and then creating an excel spreadsheet ----
+
+#.. save the two sets of naics codes ----
+count(qmta, naics_level, naics, title) |> 
+  write.xlsx(fs::path(PDINTERMEDIATE, "qmta_naics.xlsx"))
+
+susb |>
+  filter(!is.na(naics)) |> 
+  select(naics, stitle=description) |> 
+  mutate(naics_level=case_when(nchar(naics) == 2 ~ 2,
+                               nchar(naics) == 3 ~ 3,
+                               str_detect(naics, "-") ~ 2,
+                               .default = 0)) |> 
+  count(naics_level, naics, stitle) |> 
+  write.xlsx(fs::path(PDINTERMEDIATE, "susb_naics.xlsx"))
 
 ```
 
@@ -734,8 +872,4 @@ data |>
     total_payroll = sum(payroll)
   )
 
-```
-
-```{r stop_here, echo=FALSE}
-knitr::knit_exit()
 ```
