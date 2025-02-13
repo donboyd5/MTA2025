@@ -169,12 +169,19 @@ abovemid_index <- function(n) {
   ceiling(n / 2) + 1L
 }
 
+# nrecs, fslb, fsub, sfirms, semp, qpayroll_tot
 synrecs <- function(nrecs, lb, ub, nfirms, nemp, payroll){
-  # created weighted records where each rec represents a set of firms
+  # synrecs arguments have info for a single combination:
+  #  year-area-owner-naics-firmsize
+  #  we want to create nrecs records within this group that add up to the totals for the group
+  #  the group totals are sfirms, semp, spayroll 
+  #  they should be inputs to the function 
+  
+  # create nrecs weighted records where each rec represents a set of firms
   # return empty tibble if invalid input
   if(nrecs == 1 || lb > ub || is.na(lb) || is.na(ub)) return(tibble(nemp = integer(0)))
   
-  # the following are scalars
+  # the following are scalars calculated from group totals
   ppf <- payroll / nfirms
   ppe <- payroll / nemp
   epf <- nemp / nfirms
@@ -193,23 +200,47 @@ synrecs <- function(nrecs, lb, ub, nfirms, nemp, payroll){
   if(is.infinite(ub)) ub <- 2 * lb # note hard-coded 2x the lower bound
   
   nemp_pf <- sample(lb:ub, size = nrecs, replace = TRUE)
-  nfirms <- firms / nrecs # firms per record
-  # scale employment so that the total is correct
-  scale <- emp / sum(nemp_pf * nfirms)
+  nfirms_prec <- nfirms / nrecs # firms per record
+  
+  # scale employment per firm nemp_pf so that the total is correct
+  scale <- nemp / sum(nemp_pf * nfirms) # numerator is target, denom is calc nemp before adjustment
   nemp_pf <- nemp_pf * scale # scaled employment per firm
-  payroll_pf <- nemp_pf * ppe
-  tibble(nfirms, lb, ub, nemp_pf, payroll_pf) # one record per firm
+  
+  payroll_pf <- nemp_pf * ppe # payroll per firm is nemp per firm x payroll per employee
+  tibble(lb, ub, nfirms, nemp_pf, payroll_pf) # one record per firm
 }
 
 ```
 
-### Test results
+## Create pmt database
 
 ```{r}
 #| label: create-pmt-database
 
 matched <- readRDS(fs::path(PDINTERMEDIATE, "qcsu_matched.rds")) 
 glimpse(matched)
+
+# each record of matched has info for a 
+#   year, area, owner, naics_level, naics, firmsize group
+#   
+#   it has totals for the naics (sum over the firmsizes): qestabs_tot, qemp_tot, qpayroll_tot
+#     which are the same for each firmsize
+#   
+#   it has totals for the naics-firmsize as well: sfirms, sestabs, semp, and spayroll
+#     these are specific to each firmsize; summed across firmsizes they should equal the naics total
+#     
+#   within each naics-firmsize group we want to create about 20 records that represent firms in that group, with variation
+
+# we send to synrecs: nrecs, fslb, fsub, sfirms, semp, spayroll
+
+naicsgrp <- matched |> 
+  filter(year==2025, area=="Bronx County", owner=="Private", naics_level==2, naics=="23")
+
+naicsgrp |> 
+  summarise(across(c(sfirms, sestabs, semp, spayroll),
+                   sum))
+
+
 
 a <- proc.time()
 pmt_final <- matched |> 
@@ -220,7 +251,7 @@ pmt_final <- matched |>
                            fscode == "99" ~ 20,
                            .default = 1)) |> 
   mutate(data = pmap(
-    list(nrecs, fslb, fsub, sfirms, semp, qpayroll_tot),
+    list(nrecs, fslb, fsub, sfirms, semp, spayroll),
     synrecs))
 b <- proc.time()
 b - a # 11 secs

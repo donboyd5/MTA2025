@@ -1,0 +1,106 @@
+---
+output: html_document
+editor_options: 
+  chunk_output_type: console
+---
+
+# PMT model
+
+```{r}
+#| label: setup
+#| include: false
+
+source(here::here("R", "libraries.r"))
+source(here::here("R", "libraries_ts.r"))
+source(here::here("R", "constants.r"))
+source(here::here("R", "functions.r"))
+
+library(zip)
+library(lobstr)
+
+```
+
+```{r}
+#| label: get-data
+
+pmtdb <- readRDS(fs::path(PDINTERMEDIATE, "pmt_final.rds"))
+
+
+```
+
+```{r}
+#| label: data-checks
+
+glimpse(pmtdb)
+ht(pmtdb)
+
+pmtdb |> 
+  select(year, area, owner, naics_level, naics, qtitle, qemp_tot, qpayroll_tot) |> 
+  distinct() |> 
+  summarise(qemp=sum(qemp_tot),
+            qpayroll=sum(qpayroll_tot),
+            .by=c(naics_level, owner))
+  
+  
+detail <- pmtdb |> 
+  select(year, area, owner, naics_level, naics, qtitle, qemp_tot, qpayroll_tot, fscode, firmsize, fslb, fsub, sfirms, semp, spayroll, data) |> 
+  unnest(cols = data)
+ht(detail)
+summary(detail)
+
+# aggregate all firms with < 1 employee into a single firm in the same group? 
+detail2 <- detail |> 
+  mutate(emp_dtl=nemp_pf * nfirms,
+         small=nemp_pf < 1)
+
+
+
+detail2 |> 
+  group_by(year, owner, naics_level) |> 
+  summarise(n=n(), nfirms=sum(nfirms), emp_dtl=sum(emp_dtl))
+
+ 
+ 
+ 
+
+detail |> 
+  mutate(avgpay = qpayroll_tot / qemp_tot) |>
+  summarise(emp=sum(nfirms * nemp_pf),
+            payroll=sum(nfirms * payroll_pf),
+            .by=c(naics_level, owner))
+
+```
+
+```{r}
+#| label: calc-taxes
+
+
+taxdata <- detail |> 
+  filter(naics_level == 3) |>
+  mutate(payfirm=payroll / firms_adj,
+         paygroup=case_when(
+           payfirm < 1.5e6 ~ "tier1",  # .11
+           payfirm >= 1.5e6 & payfirm < 1.75e6 ~ "tier2", # .23
+           payfirm >= 1.75e6 ~ "tier3", # .34 or .60
+           is.na(payfirm) ~ "napayfirm",
+           .default = "ERROR")) |>
+  mutate(taxrate=case_when(
+    paygroup == "tier1" ~ 0.0011,
+    paygroup == "tier2" ~ 0.0023,
+    paygroup == "tier3" & !nyc ~ 0.0034,
+    paygroup == "tier3" & nyc ~ 0.0060,
+    .default = 0)) |>
+  mutate(tax=payroll * taxrate) |>
+  summarise(n=n(),
+            firms=sum(firms_adj, na.rm=TRUE),
+            estabs=sum(estabs_adj, na.rm=TRUE),
+            emp=sum(emp, na.rm=TRUE),
+            payroll=sum(payroll, na.rm=TRUE),
+            tax = sum(tax, na.rm=TRUE),
+            .by=c(paygroup, nyc)) |> 
+  filter(paygroup != "napayfirm") |>
+  arrange(nyc, paygroup) |> 
+  janitor::adorn_totals()
+
+
+```

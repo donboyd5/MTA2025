@@ -8,9 +8,9 @@ editor_options:
 
 ## QCEW data from the New York State Department of Labor
 
-- [NYSDOL QCEW landing page](https://dol.ny.gov/quarterly-census-employment-and-wages)
-- [direct zip link](https://statistics.labor.ny.gov/qcew.zip)
-- [technical notes](https://dol.ny.gov/qcew-technical-notes)
+-   [NYSDOL QCEW landing page](https://dol.ny.gov/quarterly-census-employment-and-wages)
+-   [direct zip link](https://statistics.labor.ny.gov/qcew.zip)
+-   [technical notes](https://dol.ny.gov/qcew-technical-notes)
 
 The New York State Department of Labor (NYSDOL) provides a version of the BLS Quarterly Census of Employment and Wages (QCEW) that has quarterly county-level wage, establishment, and employment data in a format we need. The data are available from 2000 through a recent quarter. A new quarter and revisions to prior quarters generally are available about 6 months after end of a quarter.
 
@@ -27,7 +27,6 @@ library(zip)
 library(lobstr)
 
 ```
-
 
 ```{r}
 #| label: qcew-names
@@ -58,7 +57,7 @@ download.file(url, zpath, mode="wb")
 
 ## Read, make minor adjustments, and save QCEW data
 
--   variable names --> lower case
+-   variable names --\> lower case
 -   keep only state and county records - drop other kinds of areas and balance of state
 -   add logical indicators for mta and nyc counties
 
@@ -94,7 +93,6 @@ saveRDS(df3, fs::path(PDINTERMEDIATE, "qcewstco.rds"))
 rm(df, df2, df3)
 
 ```
-
 
 ## Explore qcew - NO CHANGES TO SAVED DATA
 
@@ -156,7 +154,6 @@ qcew |>
 
 ```
 
-
 ```{r}
 #| label: nyc-share-of-mta
 #| eval: false
@@ -177,5 +174,3 @@ df |>
 
 
 ```
-
-
