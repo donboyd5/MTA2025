@@ -412,11 +412,11 @@ femp <- function(emp, elb, eub, esize_estabs){
   res$par
 }
 
-fempest <- function(emp, estabs, elb, eub, esize_estabs){
+fempest <- function(emp, estabs, elb, eub, esize_estabs, area=NULL, naics=NULL){
   # estimate esize_estabs and esize_emp jointly, minimizing movement from
   # initial esize_estabs while keeping esize_emp close to bounds
   
-  obj <- function(par, emptot, estabs_tot, initial_estabs){
+  obj <- function(par, emptot, estabs_tot, initial_estabs, area){
     n <- length(par) # must be even
     iemp <- 1:(n / 2)
     iestabs <- (n / 2 + 1):n
@@ -425,10 +425,11 @@ fempest <- function(emp, estabs, elb, eub, esize_estabs){
     
     part1 <- (emptot - sum(es_emp * es_estabs))^2
     part2 <- sum((es_estabs - initial_estabs)^2)
-    part3 <- sum((estabs_tot - sum(esize_estabs))^2)
+    part3 <- sum((estabs_tot - sum(es_estabs))^2)
     part1 + part2 * 1e-3 + part3
     #part1 + part2
   }
+  
   
   # establish lower bound of at least 1 if we have estabs in that range??
   lbx <- elb * .9
@@ -439,25 +440,129 @@ fempest <- function(emp, estabs, elb, eub, esize_estabs){
   iemp <- 1:(n / 2)
   iestabs <- (n / 2 + 1):n
   
+  # scaling_vector <- ifelse(par0==0, 0.1, par0)
+  # conlist <- list(fnscale=1e5, parscale=scaling_vector)
+  conlist <- list(fnscale=1e5)
+  
   res <- optim(
     par = par0,
     fn = obj,
+    # gr = grad_obj2,
     method = "L-BFGS-B",
+    control = conlist,
     lower = c(lbx, rep(0, n/2)),
     # upper = eub * 1.1,
     emptot = emp[1],
     estabs_tot = estabs[1],
     initial_estabs = esize_estabs)
-  return(res)
   
-  esize_emp <- res$par[iemp]
+    if(res$convergence != 0){
+      print(res$convergence)
+      print(res$message)
+      print(area[1])
+      print(naics[1])
+    }
+  
+  esize_avgemp <- res$par[iemp]
   esize_estabs <- res$par[iestabs]
+  return(tibble(esize_estabsadj=esize_estabs, esize_avgemp, converge=res$convergence, res=list(res)))
+}
+
+df <- qclong |> 
+  filter(owner=="Private", status== "tbd") |> 
+  mutate(fempest(emp, estabs, elb, eub, esize_estabs, area, naics),
+         .by=c(year, owner, area, naics)) 
+
+count(df, converge)
+
+df |> 
+  summarise(estabs=first(estabs),
+            estabs_sum=sum(esize_estabsadj),
+            emp=first(emp),
+            emp_sum=sum(esize_estabsadj * esize_emp),
+            payroll=first(payroll),
+            payroll_sum=sum(esize_estabsadj * esize_emp * payroll / emp),
+            paypest = payroll_sum / esize_) |> 
+  mutate(estpd=estabs_sum / estabs - 1,
+         emppd=emp_sum / emp - 1,
+         paypd=payroll_sum / payroll -1)
   
-  return(tibble(esize_estabs2=esize_estabs, esize_emp))
-  }
-res <- fempest(d$emp, d$estabs, d$elb, d$eub, d$esize_estabs)
-res
+
+count(df, converge)
+
+
+
+# df <- d |> 
+#   mutate(fempest(emp, estabs, elb, eub, esize_estabs)) |> 
+#   mutate(esize_payroll=payroll * esize_estabsadj * esize_avgemp / sum( esize_estabsadj),
+#          esize_epest = esize_payroll / esize_estabsadj)
+
+count(qclong, status)
+
+# Dutchess 115, 517, 711
+# Kings 212, 516, 561, 
+# Nassau 316
+
+d <- qclong |> 
+  filter(owner=="Private", status== "tbd") |> 
+  filter(area=="Dutchess", naics=="711") # |>
+  # filter(area=="Dutchess", naics=="115") |> 
 d
+# dput(sv)
+
+df2 <- d |> 
+  mutate(fempest(emp, estabs, elb, eub, esize_estabs, area, naics),
+         .by=c(year, owner, area, naics)) 
+df2
+
+res <- df2$res[[1]]
+res
+knitr::kable(res$par)
+
+
+df2 <- df |> 
+  mutate(esize_emp = esize_avgemp * esize_estabsadj,
+         esize_payroll = (payroll / emp) * esize_emp,
+         payroll_pest = esize_payroll / esize_estabsadj)
+
+summary(df2)
+quantile(df2$payroll_pest, na.rm=TRUE)
+skimr::skim_without_charts(df2)
+
+df2 |> 
+  summarise(esize_payroll=sum(esize_payroll), .by=area) |> 
+  arrange(area)
+
+df2 |> 
+  summarise(payroll=sum(first(payroll)), .by=c(area, naics)) |> 
+  summarise(payroll=sum(payroll), .by=area)
+
+tmp <- count(df, naics, qtitle)
+df2 |> 
+  filter(naics=="236", area=="Bronx") |> 
+  select(-c(year, naicslev, status, rematch, replaced, converge))
+
+df
+count(df, converge)
+df |> filter(area=="Putnam")
+df |> filter(converge==1)
+
+# 35 of 858 groups did not converge properly
+# 8 hit max iter
+# 27 had linesearch error
+
+df |> 
+  summarise(estabs=first(estabs),
+            estabs_sum=sum(esize_estabsadj),
+            emp=first(emp),
+            emp_sum=sum(esize_estabsadj * esize_emp),
+            payroll=first(payroll),
+            payroll_sum=sum(esize_estabsadj * esize_emp * payroll / emp),
+            paypest = payroll_sum / esize_) |> 
+  mutate(estpd=estabs_sum / estabs - 1,
+         emppd=emp_sum / emp - 1,
+         paypd=payroll_sum / payroll -1)
+  
 
 n <- length(res$par) # must be even
 iemp <- 1:(n / 2)
