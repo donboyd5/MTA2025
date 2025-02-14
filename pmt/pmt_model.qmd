@@ -33,41 +33,41 @@ pmtdb <- readRDS(fs::path(PDINTERMEDIATE, "pmt_final.rds"))
 
 glimpse(pmtdb)
 ht(pmtdb)
-
-pmtdb |> 
-  select(year, area, owner, naics_level, naics, qtitle, qemp_tot, qpayroll_tot) |> 
-  distinct() |> 
-  summarise(qemp=sum(qemp_tot),
-            qpayroll=sum(qpayroll_tot),
-            .by=c(naics_level, owner))
-  
-  
-detail <- pmtdb |> 
-  select(year, area, owner, naics_level, naics, qtitle, qemp_tot, qpayroll_tot, fscode, firmsize, fslb, fsub, sfirms, semp, spayroll, data) |> 
-  unnest(cols = data)
-ht(detail)
-summary(detail)
-
-# aggregate all firms with < 1 employee into a single firm in the same group? 
-detail2 <- detail |> 
-  mutate(emp_dtl=nemp_pf * nfirms,
-         small=nemp_pf < 1)
-
-
-
-detail2 |> 
-  group_by(year, owner, naics_level) |> 
-  summarise(n=n(), nfirms=sum(nfirms), emp_dtl=sum(emp_dtl))
-
- 
- 
- 
-
-detail |> 
-  mutate(avgpay = qpayroll_tot / qemp_tot) |>
-  summarise(emp=sum(nfirms * nemp_pf),
-            payroll=sum(nfirms * payroll_pf),
-            .by=c(naics_level, owner))
+# 
+# pmtdb |> 
+#   select(year, area, owner, naics_level, naics, qtitle, qemp_tot, qpayroll_tot) |> 
+#   distinct() |> 
+#   summarise(qemp=sum(qemp_tot),
+#             qpayroll=sum(qpayroll_tot),
+#             .by=c(naics_level, owner))
+#   
+#   
+# detail <- pmtdb |> 
+#   select(year, area, owner, naics_level, naics, qtitle, qemp_tot, qpayroll_tot, fscode, firmsize, fslb, fsub, sfirms, semp, spayroll, data) |> 
+#   unnest(cols = data)
+# ht(detail)
+# summary(detail)
+# 
+# # aggregate all firms with < 1 employee into a single firm in the same group? 
+# detail2 <- detail |> 
+#   mutate(emp_dtl=nemp_pf * nfirms,
+#          small=nemp_pf < 1)
+# 
+# 
+# 
+# detail2 |> 
+#   group_by(year, owner, naics_level) |> 
+#   summarise(n=n(), nfirms=sum(nfirms), emp_dtl=sum(emp_dtl))
+# 
+#  
+#  
+#  
+# 
+# detail |> 
+#   mutate(avgpay = qpayroll_tot / qemp_tot) |>
+#   summarise(emp=sum(nfirms * nemp_pf),
+#             payroll=sum(nfirms * payroll_pf),
+#             .by=c(naics_level, owner))
 
 ```
 
@@ -75,32 +75,84 @@ detail |>
 #| label: calc-taxes
 
 
-taxdata <- detail |> 
-  filter(naics_level == 3) |>
-  mutate(payfirm=payroll / firms_adj,
-         paygroup=case_when(
-           payfirm < 1.5e6 ~ "tier1",  # .11
-           payfirm >= 1.5e6 & payfirm < 1.75e6 ~ "tier2", # .23
-           payfirm >= 1.75e6 ~ "tier3", # .34 or .60
-           is.na(payfirm) ~ "napayfirm",
-           .default = "ERROR")) |>
-  mutate(taxrate=case_when(
-    paygroup == "tier1" ~ 0.0011,
-    paygroup == "tier2" ~ 0.0023,
-    paygroup == "tier3" & !nyc ~ 0.0034,
-    paygroup == "tier3" & nyc ~ 0.0060,
-    .default = 0)) |>
-  mutate(tax=payroll * taxrate) |>
+pmtdb2 <- pmtdb
+
+base_rates <- read_csv(
+"payroll_ub, nyc, suburbs
+1.25e6, 0, 0
+1.5e6, 0.0011, 0.0011
+1.75e6, 0.0023, 0.0023
+Inf, 0.0060, 0.0034
+")
+base_rates
+
+alt_rates <- read_csv(
+"payroll_ub, nyc, suburbs
+1.4e6, 0, 0
+1.5e6, 0.0011, 0.0011
+1.75e6, 0.0023, 0.0023
+Inf, 0.0060, 0.0034
+")
+alt_rates
+
+
+
+get_info <- function(payroll, nyc, rates, prefix=""){
+   # get rate indexes
+   index <- sapply(payroll, \(x) which(rates$payroll_ub > x)[1])
+   colname <- ifelse(nyc, "nyc", "suburbs")
+   ub <- rates$payroll_ub[index]
+   lb <- numeric(length(ub)) # fill with zeros
+   ilbnz <- index[index > 1] - 1
+   lb[index > 1] <- rates$payroll_ub[ilbnz]
+   df <- rates[index, ] |> 
+     mutate(colname=colname,
+            rate=ifelse(colname=="nyc", nyc, suburbs),
+            payroll_lb = lb,
+            payroll_ub = ub) |> 
+     select(payroll_lb, payroll_ub, rate) |> 
+     rename_with(.fn = \(x) paste0(prefix, x))
+   df
+}
+
+
+# , prefix="alt_"
+taxdata <- pmtdb2 |> 
+  filter(esize_estabsadj != 0) |> 
+  mutate(get_info(esize_payestab, nyc, rates=base_rates)) |>
+  mutate(get_info(esize_payestab, nyc, rates=alt_rates, prefix="alt_")) |> 
+  mutate(tax=esize_payestab * taxrate) |>
   summarise(n=n(),
-            firms=sum(firms_adj, na.rm=TRUE),
-            estabs=sum(estabs_adj, na.rm=TRUE),
-            emp=sum(emp, na.rm=TRUE),
-            payroll=sum(payroll, na.rm=TRUE),
-            tax = sum(tax, na.rm=TRUE),
-            .by=c(paygroup, nyc)) |> 
-  filter(paygroup != "napayfirm") |>
-  arrange(nyc, paygroup) |> 
+            estabs=sum(esize_estabsadj, na.rm=TRUE),
+            emp=sum(esize_emp, na.rm=TRUE),
+            payroll=sum(esize_payroll, na.rm=TRUE),
+            tax = sum(tax * esize_estabsadj, na.rm=TRUE),
+            .by=c(nyc, lb, ub, taxrate)) |>
+  arrange(nyc, lb) |> 
   janitor::adorn_totals()
+
+taxdata
+
+taxdata |> 
+  knitr::kable()
+
+taxdata |> gt()
+taxdata |> mutate(etr=tax / payroll) |> gt()
+
+rates
+index <- c(1, 4)
+colname <- c("suburbs", "nyc")
+colnum <- c(3, 2)
+rates[cbind(index, colnum)]
+rates[cbind(index, colname)]
+
+tbl <- tibble(nyc=c(.01, .02, .03, .04),
+              suburbs=c(.09, .08, .07, .06))
+index <- c(1, 4)
+colname <- c("nyc", "suburbs")
+tbl[index, colname]
+result <- tbl[cbind(index, colname)]
+  
 
 
 ```

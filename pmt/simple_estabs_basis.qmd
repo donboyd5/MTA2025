@@ -23,6 +23,7 @@ library(lobstr)
 ## get qcew data and weed out any subtotals
 
 ```{r}
+#| label: create-save-unique-qcew-mta-details
 
 qcew <- readRDS(fs::path(PDINTERMEDIATE, "qcewstco.rds"))
 
@@ -165,6 +166,7 @@ CBP Establishment sizes:
 -   2,500 to 4,999 employees
 
 ```{r}
+#| label: create-save-unique-cbp-mta-details
 
 cbp1 <- readRDS(fs::path(PDINTERMEDIATE, "cbpny.rds")) |> 
   filter(mta) |> 
@@ -194,6 +196,7 @@ saveRDS(cbp3, fs::path(PDINTERMEDIATE, "ucbp.rds"))
 ## CBP to QCEW cross walk
 
 ```{r}
+#| label: create-save-qcew-cbp-xwalk
 
 qinds <- readRDS(fs::path(PDINTERMEDIATE, "uqmta.rds")) |> 
   filter(owner=="Private" & status=="tbd") |> 
@@ -250,6 +253,7 @@ saveRDS(xwalk, fs::path(PDINTERMEDIATE, "qcxwalk.rds"))
 # match and save
 
 ```{r}
+#| label: create-save-matched-qcew-cbp-wide-file
 
 uqmta <- readRDS(fs::path(PDINTERMEDIATE, "uqmta.rds")) 
 ucbp <- readRDS(fs::path(PDINTERMEDIATE, "ucbp.rds"))
@@ -318,6 +322,346 @@ matched4 |>
 # Create long file
 
 ```{r}
+#| label: optimization-function-deepseek
+
+fempest_deep <- function(emp, estabs, elb, eub, esize_estabs, area = NULL, naics = NULL) {
+  # Estimate esize_estabs and esize_emp jointly, minimizing movement from
+  # initial esize_estabs while keeping esize_emp close to bounds
+  
+  obj <- function(par, emptot, estabs_tot, initial_estabs, area) {
+    n <- length(par) # must be even
+    iemp <- 1:(n / 2)
+    iestabs <- (n / 2 + 1):n
+    es_emp <- par[iemp]
+    es_estabs <- par[iestabs]
+    
+    part1 <- (emptot - sum(es_emp * es_estabs))^2
+    part2 <- sum((es_estabs - initial_estabs)^2)
+    part3 <- sum((estabs_tot - sum(es_estabs))^2)
+    
+    # Penalty term for par[10] in (0, 1)
+    penalty <- if (par[10] > 0 && par[10] < 1) 1e6 * (par[10] * (1 - par[10]))^2 else 0
+    
+    part1 + part2 * 1e-3 + part3 + penalty
+  }
+  
+  grad_obj <- function(par, emptot, estabs_tot, initial_estabs, area) {
+    n <- length(par)
+    iemp <- 1:(n / 2)
+    iestabs <- (n / 2 + 1):n
+    es_emp <- par[iemp]
+    es_estabs <- par[iestabs]
+    
+    part1_grad_emp <- -2 * (emptot - sum(es_emp * es_estabs)) * es_estabs
+    part1_grad_estabs <- -2 * (emptot - sum(es_emp * es_estabs)) * es_emp
+    
+    part2_grad_estabs <- 2 * (es_estabs - initial_estabs) * 1e-3
+    
+    part3_grad_estabs <- -2 * (estabs_tot - sum(es_estabs))
+    
+    grad_emp <- part1_grad_emp
+    grad_estabs <- part1_grad_estabs + part2_grad_estabs + part3_grad_estabs
+    
+    # Gradient of penalty term for par[10]
+    penalty_grad <- if (par[10] > 0 && par[10] < 1) 2 * 1e6 * (par[10] * (1 - par[10])) * (1 - 2 * par[10]) else 0
+    grad_emp[1] <- grad_emp[1] + penalty_grad
+    
+    grad <- c(grad_emp, grad_estabs)
+    return(grad)
+  }
+  
+  # Establish lower bound of at least 1 if we have estabs in that range
+  lbx <- elb * .9
+  # lbx[1] <- ifelse(esize_estabs[1] > 0, 1, 0)
+  
+  par0 <- c(lbx, esize_estabs)
+  n <- length(par0) # must be even
+  iemp <- 1:(n / 2)
+  iestabs <- (n / 2 + 1):n
+  
+  # Scaling vector (optional)
+  # scaling_vector <- ifelse(par0 == 0, 0.1, par0)
+  # conlist <- list(fnscale = 1e5, parscale = scaling_vector)
+  conlist <- list(fnscale = 1e10)
+  
+  res <- optim(
+    par = par0,
+    fn = obj,
+    gr = grad_obj,
+    method = "L-BFGS-B",
+    control = conlist,
+    lower = c(lbx, rep(0, n / 2)),
+    # upper = eub * 1.1,
+    emptot = emp[1],
+    estabs_tot = estabs[1],
+    initial_estabs = esize_estabs
+  )
+  
+  if (res$convergence != 0) {
+    print(res$convergence)
+    print(res$message)
+    print(area[1])
+    print(naics[1])
+  }
+  
+  esize_avgemp <- res$par[iemp]
+  esize_estabs <- res$par[iestabs]
+  return(tibble(esize_estabsadj = esize_estabs, esize_avgemp, converge = res$convergence, res = list(res)))
+}
+
+```
+
+```{r}
+#| label: optimization-function
+
+move_estabs <- function(emp, elb, ests){
+  empdiff <- emp - sum(elb * ests)
+  ests2 <- ests
+  need <- empdiff
+  
+  for(i in 1:(length(elb) - 1)){
+    print(need)
+    if(need > 0){
+      # move up to some fraction of ests out
+      maxestmove <- ests2[i] * .75 # allow moves up to this amount
+      maxestneed <- need / lbmoves[i, i+1] # can't be larger than the need
+      imove <- pmin(maxestneed, maxestmove)
+      print(imove)
+      # ests
+      ests2[i] <- ests2[i] - imove
+      ests2[i + 1] <- ests2[i + 1] + imove
+      need <- emp - sum(elb * ests2)
+    } else break
+  }
+  ests2
+}
+
+fempest <- function(emp, estabs, elb, eub, esize_estabs, area=NULL, naics=NULL){
+  # estimate esize_estabs and esize_emp jointly, minimizing movement from
+  # initial esize_estabs while keeping esize_emp close to bounds
+  
+  obj <- function(par, emptot, estabs_tot, initial_estabs, area){
+    n <- length(par) # must be even
+    iemp <- 1:(n / 2)
+    iestabs <- (n / 2 + 1):n
+    es_emp <- par[iemp]
+    es_estabs <- par[iestabs]
+    
+    part1 <- (emptot - sum(es_emp * es_estabs))^2
+    part2 <- sum((es_estabs - initial_estabs)^2)
+    part3 <- sum((estabs_tot - sum(es_estabs))^2)
+    part1 + part2 * 1e-3 + part3
+    #part1 + part2
+  }
+  
+  grad_obj <- function(par, emptot, estabs_tot, initial_estabs, area) {
+    n <- length(par)
+    iemp <- 1:(n / 2)
+    iestabs <- (n / 2 + 1):n
+    es_emp <- par[iemp]
+    es_estabs <- par[iestabs]
+    
+    part1_grad_emp <- -2 * (emptot - sum(es_emp * es_estabs)) * es_estabs
+    part1_grad_estabs <- -2 * (emptot - sum(es_emp * es_estabs)) * es_emp
+    
+    part2_grad_estabs <- 2 * (es_estabs - initial_estabs) * 1e-3
+    
+    part3_grad_estabs <- -2 * (estabs_tot - sum(es_estabs))
+    
+    grad_emp <- part1_grad_emp
+    grad_estabs <- part1_grad_estabs + part2_grad_estabs + part3_grad_estabs
+    
+    grad <- c(grad_emp, grad_estabs)
+    return(grad)
+  }
+  
+  # establish lower bound of at least 1 if we have estabs in that range??
+  lbx <- elb * .9
+  # lbx[1] <- ifelse(esize_estabs[1] > 0, 1, 0)
+  
+  # move initial establishments if we are below employment total
+  empdiff <- emp[1] - sum(esize_estabs * elb)
+  print(empdiff)
+  if(empdiff > 0){
+    # move some establishments into higher estab sizes
+    print("Adjusting establishments...") 
+    esize_estabs <- move_estabs(emp[1], elb, esize_estabs)
+  }
+  
+  par0 <- c(lbx, esize_estabs)
+  n <- length(par0) # must be even
+  iemp <- 1:(n / 2)
+  iestabs <- (n / 2 + 1):n
+  
+  # scaling_vector <- ifelse(par0==0, 0.1, par0)
+  # conlist <- list(fnscale=1e5, parscale=scaling_vector)
+  conlist <- list(fnscale=1e10)
+  
+  res <- optim(
+    par = par0,
+    fn = obj,
+    gr = grad_obj,
+    method = "L-BFGS-B",
+    control = conlist,
+    lower = c(lbx, rep(0, n/2)),
+    # upper = eub * 1.1,
+    emptot = emp[1],
+    estabs_tot = estabs[1],
+    initial_estabs = esize_estabs)
+  
+    if(res$convergence != 0){
+      print(res$convergence)
+      print(res$message)
+      print(area[1])
+      print(naics[1])
+    }
+  
+  esize_avgemp <- res$par[iemp]
+  esize_estabsadj <- res$par[iestabs]
+  return(tibble(esize_estabsadj, esize_avgemp, converge=res$convergence, res=list(res)))
+}
+
+
+  obj <- function(par, emptot, estabs_tot, initial_estabs, area, weights=c(1, 1, 1)){
+    n <- length(par) # must be even
+    iemp <- 1:(n / 2)
+    iestabs <- (n / 2 + 1):n
+    es_emp <- par[iemp]
+    es_estabs <- par[iestabs]
+    
+    part1 <- (emptot - sum(es_emp * es_estabs))^2
+    part2 <- sum((es_estabs - initial_estabs)^2)
+    part3 <- sum((estabs_tot - sum(es_estabs))^2)
+    part1 * weights[1] + part2 * weights[2] + part3 * weights[3]
+    #part1 + part2
+  }
+
+
+```
+
+```{r}
+#| label: optim-function-weighted
+
+move_estabs <- function(emp, elb, ests){
+  empdiff <- emp - sum(elb * ests)
+  ests2 <- ests
+  need <- empdiff
+  
+  for(i in 1:(length(elb) - 1)){
+    print(need)
+    if(need > 0){
+      # move up to some fraction of ests out
+      maxestmove <- ests2[i] * .75 # allow moves up to this amount
+      maxestneed <- need / lbmoves[i, i+1] # can't be larger than the need
+      imove <- pmin(maxestneed, maxestmove)
+      print(imove)
+      # ests
+      ests2[i] <- ests2[i] - imove
+      ests2[i + 1] <- ests2[i + 1] + imove
+      need <- emp - sum(elb * ests2)
+    } else break
+  }
+  ests2
+}
+
+fempest_weighted <- function(emp, estabs, elb, eub, esize_estabs, area=NULL, naics=NULL, weights=c(1, 1, 1)){
+  # estimate esize_estabs and esize_emp jointly, minimizing movement from
+  # initial esize_estabs while keeping esize_emp close to bounds
+  
+  obj <- function(par, emptot, estabs_tot, initial_estabs, area, weights){
+    n <- length(par) # must be even
+    iemp <- 1:(n / 2)
+    iestabs <- (n / 2 + 1):n
+    es_emp <- par[iemp]
+    es_estabs <- par[iestabs]
+    
+    part1 <- (emptot - sum(es_emp * es_estabs))^2 # employment sum
+    part2 <- (estabs_tot - sum(es_estabs))^2
+    part3 <- sum((es_estabs - initial_estabs)^2)
+    
+    part1 * weights[1] + part2 * weights[2] + part3 * weights[3]
+  }
+  
+  grad_obj <- function(par, emptot, estabs_tot, initial_estabs, area, weights) {
+    n <- length(par)  # must be even
+    iemp <- 1:(n / 2)
+    iestabs <- (n / 2 + 1):n
+    es_emp <- par[iemp]
+    es_estabs <- par[iestabs]
+    
+    # Gradient of part1: (emptot - sum(es_emp * es_estabs))^2 * weights[1]
+    grad_part1_emp <- -2 * (emptot - sum(es_emp * es_estabs)) * es_estabs * weights[1]
+    grad_part1_estabs <- -2 * (emptot - sum(es_emp * es_estabs)) * es_emp * weights[1]
+
+    # Gradient of part2: sum((estabs_tot - sum(es_estabs))^2) * weights[2]
+    grad_part2_estabs <- -2 * (estabs_tot - sum(es_estabs)) * weights[2]    
+    
+    # Gradient of part2: sum((es_estabs - initial_estabs)^2) * weights[3]
+    grad_part3_estabs <- 2 * (es_estabs - initial_estabs) * weights[3]
+    
+    # Combine gradients
+    grad_emp <- grad_part1_emp
+    grad_estabs <- grad_part1_estabs + grad_part2_estabs + grad_part3_estabs
+    
+    # Combine gradients into a single vector
+    gradient <- c(grad_emp, grad_estabs)
+    
+    return(gradient)
+    }
+  
+  # establish lower bound of at least 1 if we have estabs in that range??
+  lbx <- elb * .9
+  # lbx[1] <- ifelse(esize_estabs[1] > 0, 1, 0)
+  
+  # move initial establishments if we are below employment total
+  empdiff <- emp[1] - sum(esize_estabs * elb)
+  print(empdiff)
+  if(empdiff > 0){
+    # move some establishments into higher estab sizes
+    print("Adjusting establishments...") 
+    esize_estabs <- move_estabs(emp[1], elb, esize_estabs)
+  }
+  
+  par0 <- c(lbx, esize_estabs)
+  n <- length(par0) # must be even
+  iemp <- 1:(n / 2)
+  iestabs <- (n / 2 + 1):n
+  
+  # scaling_vector <- ifelse(par0==0, 0.1, par0)
+  # conlist <- list(fnscale=1e5, parscale=scaling_vector)
+  conlist <- list(fnscale=1e10)
+  
+  res <- optim(
+    par = par0,
+    fn = obj,
+    gr = grad_obj,
+    method = "L-BFGS-B",
+    control = conlist,
+    lower = c(lbx, rep(0, n/2)),
+    # upper = eub * 1.1,
+    emptot = emp[1],
+    estabs_tot = estabs[1],
+    initial_estabs = esize_estabs,
+    weights = weights)
+  
+    if(res$convergence != 0){
+      print(res$convergence)
+      print(res$message)
+      print(area[1])
+      print(naics[1])
+    }
+  
+  esize_avgemp <- res$par[iemp]
+  esize_estabsadj <- res$par[iestabs]
+  return(tibble(esize_estabsadj, esize_avgemp, converge=res$convergence, res=list(res)))
+}
+
+
+
+```
+
+```{r}
+#| label: create-qcew-long-file-with-estab-sizes
 
 wide <- readRDS(fs::path(PDINTERMEDIATE, "qcwide.rds"))
 
@@ -391,255 +735,91 @@ qclong <- wide2 |>
 qclong
 
 
-femp <- function(emp, elb, eub, esize_estabs){
-  
-  obj <- function(empavg, emptot, estabs){
-    (emptot - sum(empavg * estabs))^2
-  }
-  
-  # establish lower bound of at least 1 if we have estabs in that range
-  lbx <- elb * .9
-  # lbx[1] <- ifelse(esize_estabs[1] > 0, 1, 0)
-  
-  res <- optim(
-    par = elb,
-    fn = obj,
-    method = "L-BFGS-B",
-    lower = lbx,
-    upper = eub * 1.1,
-    emptot = emp[1],
-    estabs = esize_estabs)
-  res$par
-}
-
-fempest <- function(emp, estabs, elb, eub, esize_estabs, area=NULL, naics=NULL){
-  # estimate esize_estabs and esize_emp jointly, minimizing movement from
-  # initial esize_estabs while keeping esize_emp close to bounds
-  
-  obj <- function(par, emptot, estabs_tot, initial_estabs, area){
-    n <- length(par) # must be even
-    iemp <- 1:(n / 2)
-    iestabs <- (n / 2 + 1):n
-    es_emp <- par[iemp]
-    es_estabs <- par[iestabs]
-    
-    part1 <- (emptot - sum(es_emp * es_estabs))^2
-    part2 <- sum((es_estabs - initial_estabs)^2)
-    part3 <- sum((estabs_tot - sum(es_estabs))^2)
-    part1 + part2 * 1e-3 + part3
-    #part1 + part2
-  }
-  
-  
-  # establish lower bound of at least 1 if we have estabs in that range??
-  lbx <- elb * .9
-  # lbx[1] <- ifelse(esize_estabs[1] > 0, 1, 0)
-  
-  par0 <- c(lbx, esize_estabs)
-  n <- length(par0) # must be even
-  iemp <- 1:(n / 2)
-  iestabs <- (n / 2 + 1):n
-  
-  # scaling_vector <- ifelse(par0==0, 0.1, par0)
-  # conlist <- list(fnscale=1e5, parscale=scaling_vector)
-  conlist <- list(fnscale=1e5)
-  
-  res <- optim(
-    par = par0,
-    fn = obj,
-    # gr = grad_obj2,
-    method = "L-BFGS-B",
-    control = conlist,
-    lower = c(lbx, rep(0, n/2)),
-    # upper = eub * 1.1,
-    emptot = emp[1],
-    estabs_tot = estabs[1],
-    initial_estabs = esize_estabs)
-  
-    if(res$convergence != 0){
-      print(res$convergence)
-      print(res$message)
-      print(area[1])
-      print(naics[1])
-    }
-  
-  esize_avgemp <- res$par[iemp]
-  esize_estabs <- res$par[iestabs]
-  return(tibble(esize_estabsadj=esize_estabs, esize_avgemp, converge=res$convergence, res=list(res)))
-}
-
-df <- qclong |> 
+qcopt1 <- qclong |> 
   filter(owner=="Private", status== "tbd") |> 
+  # filter(area=="Bronx", naics=="314") |> 
   mutate(fempest(emp, estabs, elb, eub, esize_estabs, area, naics),
          .by=c(year, owner, area, naics)) 
 
-count(df, converge)
-
-df |> 
-  summarise(estabs=first(estabs),
-            estabs_sum=sum(esize_estabsadj),
-            emp=first(emp),
-            emp_sum=sum(esize_estabsadj * esize_emp),
-            payroll=first(payroll),
-            payroll_sum=sum(esize_estabsadj * esize_emp * payroll / emp),
-            paypest = payroll_sum / esize_) |> 
-  mutate(estpd=estabs_sum / estabs - 1,
-         emppd=emp_sum / emp - 1,
-         paypd=payroll_sum / payroll -1)
-  
-
-count(df, converge)
-
-
-
-# df <- d |> 
-#   mutate(fempest(emp, estabs, elb, eub, esize_estabs)) |> 
-#   mutate(esize_payroll=payroll * esize_estabsadj * esize_avgemp / sum( esize_estabsadj),
-#          esize_epest = esize_payroll / esize_estabsadj)
-
-count(qclong, status)
-
-# Dutchess 115, 517, 711
-# Kings 212, 516, 561, 
-# Nassau 316
-
-d <- qclong |> 
+qcopt1 <- qclong |> 
   filter(owner=="Private", status== "tbd") |> 
-  filter(area=="Dutchess", naics=="711") # |>
-  # filter(area=="Dutchess", naics=="115") |> 
-d
-# dput(sv)
-
-df2 <- d |> 
-  mutate(fempest(emp, estabs, elb, eub, esize_estabs, area, naics),
+  # filter(area=="Bronx", naics=="314") |> 
+  mutate(fempest_weighted(emp, estabs, elb, eub, esize_estabs, area, naics, weights = c(1e3, 1, 1)), # emp, est, est ss
          .by=c(year, owner, area, naics)) 
-df2
 
-res <- df2$res[[1]]
-res
-knitr::kable(res$par)
+# weights: emptot, estabs tot, ss estabs diff
+count(qcopt1, converge)
 
+#.. save optimization results ----
+saveRDS(qcopt1, fs::path(PDINTERMEDIATE, "qcew_cbp_opt_results.rds"))
 
-df2 <- df |> 
-  mutate(esize_emp = esize_avgemp * esize_estabsadj,
-         esize_payroll = (payroll / emp) * esize_emp,
-         payroll_pest = esize_payroll / esize_estabsadj)
+qcopt2 <- qcopt1 |> 
+  mutate(esize_estabsadj = case_when(esize_estabsadj < 0.5 ~ 0,
+                                      esize_estabsadj < 1 ~ 1,
+                                      .default = esize_estabsadj))
 
-summary(df2)
-quantile(df2$payroll_pest, na.rm=TRUE)
-skimr::skim_without_charts(df2)
-
-df2 |> 
-  summarise(esize_payroll=sum(esize_payroll), .by=area) |> 
-  arrange(area)
-
-df2 |> 
-  summarise(payroll=sum(first(payroll)), .by=c(area, naics)) |> 
-  summarise(payroll=sum(payroll), .by=area)
-
-tmp <- count(df, naics, qtitle)
-df2 |> 
-  filter(naics=="236", area=="Bronx") |> 
-  select(-c(year, naicslev, status, rematch, replaced, converge))
-
-df
-count(df, converge)
-df |> filter(area=="Putnam")
-df |> filter(converge==1)
-
-# 35 of 858 groups did not converge properly
-# 8 hit max iter
-# 27 had linesearch error
-
-df |> 
-  summarise(estabs=first(estabs),
+# check totals
+ns(qcopt1)
+qcopt_check <- qcopt2 |> 
+  summarise(festabs=first(estabs),
             estabs_sum=sum(esize_estabsadj),
-            emp=first(emp),
-            emp_sum=sum(esize_estabsadj * esize_emp),
-            payroll=first(payroll),
-            payroll_sum=sum(esize_estabsadj * esize_emp * payroll / emp),
-            paypest = payroll_sum / esize_) |> 
-  mutate(estpd=estabs_sum / estabs - 1,
-         emppd=emp_sum / emp - 1,
-         paypd=payroll_sum / payroll -1)
-  
+            femp=first(emp),
+            emp_sum=sum(esize_estabsadj * esize_avgemp),
+            fpayroll=first(payroll),
+            payroll_sum=sum(esize_estabsadj * esize_avgemp * payroll / emp),
+            .by=c(area, naics, qtitle)) |> 
+  mutate(estdiff=estabs_sum - festabs,
+         empdiff=emp_sum -femp,
+         paydiff= payroll_sum - fpayroll,
+         empdpct = empdiff / femp,
+         paydpct= paydiff / fpayroll)
 
-n <- length(res$par) # must be even
-iemp <- 1:(n / 2)
-iestabs <- (n / 2 + 1):n
-es_emp <- res$par[iemp]
-es_estabs <- res$par[iestabs]
-
-sum(es_emp * es_estabs)
-sum(es_estabs)
-sum(d$esize_estabs * d$elb) # way too high even at lower bound
-sum(d$esize_estabs)
-d
-cbind(d$elb, d$eub, es_emp, d$esize_estabs, es_estabs) |> 
-  knitr::kable()
-
-
-lbx <- d$elb * .9
-lbx
-par0 <- c(lbx, d$esize_estabs)
-n <- length(par0) # must be even
-iemp <- 1:(n / 2)
-iestabs <- (n / 2 + 1):n
-
-sum(d$elb * d$esize_estabs)
-sum(d$esize_estabs)
-
-
-d <- qclong |> filter(area=="Bronx", owner=="Private", naics=="115")
-d <- qclong |> filter(area=="Bronx", owner=="Private", naics=="236")
-d <- qclong |> filter(area=="Bronx", owner=="Private", naics=="238")
-d <- qclong |> filter(area=="New York", owner=="Private", naics=="236")
-d <- qclong |> filter(area=="New York", owner=="Private", naics=="541")
-d <- qclong |> filter(area=="New York", owner=="Private", naics=="561")
-d <- qclong |> filter(area=="New York", owner=="Private", naics=="321")
-d <- qclong |> filter(area=="New York", owner=="Private", naics=="523")
-d <- qclong |> filter(area=="New York", owner=="Private", naics=="312")
-d <- qclong |> filter(area=="Bronx", owner=="Private", naics=="312")
-d <- qclong |> filter(area=="Bronx", owner=="Private", naics=="237")
-d <- qclong |> filter(area=="New York", owner=="Private", naics=="999")
-d <- qclong |> filter(area=="New York", owner=="Private", naics=="513")
-d
-
-fempest(d$emp, d$estabs, d$elb, d$eub, d$esize_estabs)
-
-empavg <- femp(d$emp, d$elb, d$eub, d$esize_estabs)
-cbind(d$elb, empavg, d$eub, d$esize_estabs)
-sum(empavg * d$esize_estabs); d$emp[1]
-d
-
-qclong2 <- qclong |> 
-  mutate(esize_estabs =
-           ifelse(emp / estabs < eub[1],
-                  estabs * (eub == eub[1]),
-                  esize_estabs)) |> 
-  # filter(area=="New York", owner=="Private", naics=="999")
-  mutate(esize_emp = 
-           ifelse(owner == "Private" & status != "untaxable?",
-                  femp(emp, elb, eub, esize_estabs),
-                  NA_real_),
-         .by=c(owner, area, naics))
-
-# check employment results
-check <- qclong2 |> 
-  filter(owner=="Private", status=="tbd") |> 
-  summarise(estabs=first(estabs),
-            estsum=sum(esize_estabs, .na.rm=TRUE),
-            emp=first(emp),
-            empsum=sum(esize_emp * esize_estabs, na.rm=TRUE),
-            .by=c(owner, status, area, naics)) |> 
-  mutate(estdiff=estsum - estabs,
-         empdiff=empsum - emp)
-sum(abs(check$empdiff))
-check |> 
+qcopt_check |> 
   arrange(desc(abs(empdiff)))
 
-wide2 |> filter(area=="New York", naics=="999")
 
+qcopt_check
+
+qcopt2 |> filter(area=="Dutchess", naics=="513")
+
+tmp <- df |> filter(esize_estabsadj >0, esize_estabsadj < 1, elb==0)
+tmp <- df |> filter(esize_estabs >0, esize_estabs < 1, elb==0)
+head(tmp)
+df |> filter(area=="Bronx", naics==622)
+
+```
+
+## Make final database
+
+Forecast Save Don't forget to deal with non tbd records
+
+```{r}
+#| label: final-database
+
+# we only have private - go back and get govt
+count(qcopt2, owner)
+count(qcopt2, status)
+
+qcopt3 <- qcopt1 |> 
+  # add key variables
+  select(year, owner, area, nyc, naics, qtitle, status, estabs, emp, payroll, esize, elb, eub, esize_estabsadj, esize_avgemp) |> 
+  mutate(esize_emp = esize_estabsadj * esize_avgemp,
+         esize_avgpay = payroll / emp, # same for everyone
+         esize_payroll = esize_avgpay * esize_emp,
+         esize_payestab = esize_payroll / esize_estabsadj)
+  
+qcopt3
+
+# check that payroll sums to total
+qcopt3 |> 
+  summarise(fpayroll=first(payroll),
+            paysum=sum(esize_payroll),
+            .by=c(area, naics)) |> 
+  filter(abs(fpayroll / paysum - 1) > 1e-3)
+
+saveRDS(qcopt3, fs::path(PDINTERMEDIATE, "pmt_final.rds"))
+
+pmtdb <- readRDS(fs::path(PDINTERMEDIATE, "pmt_final.rds"))
 
 ```
 
