@@ -309,7 +309,7 @@ tabdata |>
 
 ```{r}
 #| label: tax-mta-suburbs
-
+#| column: page
 
 data1 <- pmtbl2 |> 
   summarise(n=n(),
@@ -320,7 +320,7 @@ data1 <- pmtbl2 |>
                    \(x) sum(x)),
                    .by=c(nyc, paygroup, paylabel))
 
-data1
+# data1
 
 tabdata <- data1 |> 
   select(-n, -esize_emp) |> 
@@ -348,111 +348,155 @@ tabdata |>
              contains("base_tax") ~ "PMT wage tax ($m)",
              base_total_tax = "Total PMT wage tax ($m)",
              nyc_tax_share = "NYC share of tax") |> 
+  tab_spanner(label="New York City", columns=contains("NYC", ignore.case = FALSE)) |> 
+  tab_spanner(label="Suburbs", columns=contains("suburbs", ignore.case = TRUE)) |> 
   fmt_number(columns = contains("estabsadj"), decimals=0) |>
-  fmt_number(columns = c(contains("tax")), scale=1e-6, decimals=1) |>
-  # fmt_currency(rows=c(1, nrow(tabdata)), columns = c(esize_payroll, base_tax), scale=1e-6, decimals=1) |> 
-  fmt_percent(columns = c(taxpct), decimals=1)  |> 
+  fmt_number(columns = c(contains("tax"), contains("payroll")), scale = 1e-6, decimals = 1) |>
+  fmt_currency(rows=c(1, nrow(tabdata)), columns = c(contains("tax"), contains("payroll")), scale=1e-6, decimals=1) |> 
+  fmt_percent(columns = c(nyc_tax_share), decimals=1)  |> 
+  sub_missing(missing_text = "--") |> 
   tab_source_note(source_note = "Source: Melding of Quarterly Census of Employment and Wages with County Business Patterns") |> 
   tab_source_note(source_note = "Note: Estimated tax above is approximately 14% lower than total wage tax collections. Possible reasons: (1) Some state and local government entities are taxed but not included above. This could be a substantial part of the difference. (2) True tax rates are based on firm size in MTA region, for which there is little data, but calculations are based on establishment size. Establishments in multi-establishment firms are smaller than firms so calculated tax rates are biased downward. (3) Estimated distribution of establishments by size rely on County Business Patterns for 2021 plus various estimation techniques. This could result in downward bias of tax revenue, but that seems unlikely given the methods used.")
 
 
-# |> 
-#   mutate(taxpct=base_tax / sum(base_tax)) |> 
-#   select(-paygroup, -n) |> 
-#   janitor::adorn_totals()
+```
 
+## Examine alternative policies
+
+### Raise exclusion from \$1.2m to \$1.6m and raise top rate proportionately in NYC & suburbs to maintain revenue-neutrality, 2024
+
+```{r}
+#| label: calc-revenue-neutral-rate
+
+base_rates
+
+raise_exclusion <- base_rates |> 
+  mutate(payroll_ub = ifelse(payroll_ub==1.25e6, 1.6e6, payroll_ub)) |> # raise the bottom
+  filter(payroll_ub != 1.5e6)
+
+xup <- pmtbl2 |> 
+  mutate(get_info(esize_payestab, nyc, rates=raise_exclusion, prefix="xup_"),
+         xup_tax= esize_payroll * xup_rate)
+
+xup |> 
+  mutate(paygroup = ifelse(esize_payestab >= 1.75e6, 99, paygroup),
+         paylabel=ifelse(paygroup==99, "top", paylabel)) |> 
+  summarise(n=n(),
+          across(c(base_tax, xup_tax),
+                 \(x) sum(x)),
+                 .by=c(paygroup, paylabel)) |> 
+  janitor::adorn_totals() |> 
+  mutate(change=xup_tax - base_tax) |> 
+  knitr::kable(decimals=1, format.args = list(big.mark = ","))
+# 1.7 % rate increase needed
+
+
+adjust <- 1.016996
+raise_exclusion_and_top_rate <- base_rates |> 
+  mutate(payroll_ub = ifelse(payroll_ub==1.25e6, 1.6e6, payroll_ub)) |> # raise the bottom
+  mutate(nyc = ifelse(is.infinite(payroll_ub), nyc * adjust, nyc),
+         suburbs = ifelse(is.infinite(payroll_ub), suburbs * adjust, suburbs)) |> 
+  mutate(across(c(nyc, suburbs), \(x) round(x, 5))) |> 
+  filter(payroll_ub != 1.5e6)
+
+raise_exclusion_and_top_rate |> knitr::kable()
+
+xuptopup <- pmtbl2 |> 
+  mutate(get_info(esize_payestab, nyc, rates=raise_exclusion_and_top_rate, prefix="xuptopup_"),
+         xuptopup_tax= esize_payroll * xuptopup_rate)
+
+xuptopup |>
+  summarise(n=n(),
+          across(c(base_tax, xuptopup_tax),
+                 \(x) sum(x)),
+                 .by=c(paygroup, paylabel)) |> 
+  janitor::adorn_totals() |> 
+  mutate(change=xuptopup_tax - base_tax) |> 
+  knitr::kable(decimals=1, format.args = list(big.mark = ","))
+
+```
+
+```{r}
+#| label: get-rev-neutral-rates
+
+data1 <- xuptopup |> 
+  summarise(n=n(),
+            across(c(esize_estabsadj, 
+                     esize_emp,
+                     # esize_payroll,
+                     base_tax,
+                     xuptopup_tax),
+                   \(x) sum(x)),
+                   .by=c(nyc, paygroup, paylabel))
+
+# data1
+
+tabdata <- data1 |> 
+  select(-n, -esize_emp) |> 
+  mutate(nyc=factor(nyc, levels=c(TRUE, FALSE), labels = c("NYC", "Suburbs"))) |> 
+  pivot_wider(names_from=nyc, values_from = c(esize_estabsadj, base_tax, xuptopup_tax)) |> 
+  mutate(base_total_tax = base_tax_NYC + base_tax_Suburbs,
+         alt_total_tax = xuptopup_tax_NYC + xuptopup_tax_Suburbs) |> 
+  arrange(paygroup) |> 
+  select(paylabel, contains("NYC"), contains("Suburbs"), base_total_tax, alt_total_tax) |> 
+  janitor::adorn_totals() |> 
+  mutate(change=alt_total_tax - base_total_tax,
+         nyc_change_share = (xuptopup_tax_NYC - base_tax_NYC) / change,
+        nyc_change_share = ifelse(paylabel=="Total", NA_real_, nyc_change_share))
+# tabdata
+
+```
+
+```{r}
+#| label: show-tax-rates
+#| output: true
+
+base_rates |> 
+  gt() |> 
+  tab_header("Current PMT rates") |> 
+  cols_label(payroll_ub = "Payroll upper bound") |> 
+  fmt_number(columns = payroll_ub, decimal=0) |> 
+  fmt_percent(columns = c(nyc, suburbs), decimals=3)
+
+ 
+raise_exclusion_and_top_rate |> 
+  gt() |> 
+  tab_header("Revenue neutral rates, increasing exclusion and top rate") |> 
+  cols_label(payroll_ub = "Payroll upper bound") |> 
+  fmt_number(columns = payroll_ub, decimal=0) |> 
+  fmt_percent(columns = c(nyc, suburbs), decimals=3)
+
+```
+
+```{r}
+#| label: examine-revenue-neutral
+#| column: page
+
+tabdata |> 
+  gt() |> 
+  tab_header("Revenue-neutral increase in tax-exclusion threshold (to $1.6m annual from $1.25m) with proportionate increase in top rate (+1.7%)",
+             subtitle = "Private sector only. Amounts in $ millions") |> 
+  cols_label(paylabel="Average establishment payroll ($)",
+             contains("estabsadj") ~ "# of establishments",
+             contains("base_tax") ~ "Baseline PMT wage tax ($m)",
+             contains("xuptopup_tax") ~ "Alternative PMT wage tax ($m)",
+             base_total_tax = "Baseline total PMT wage tax ($m)",
+             alt_total_tax = "Alternative total tax ($m)",
+             change = "Change in tax ($m)",
+             nyc_change_share = "NYC share of tax change") |> 
+  tab_spanner(label="New York City", columns=contains("NYC", ignore.case = FALSE)) |> 
+  tab_spanner(label="Suburbs", columns=contains("suburbs", ignore.case = TRUE)) |> 
+  fmt_number(columns = contains("estabsadj"), decimals=0) |>
+  fmt_number(columns = c(contains("tax"), change), scale = 1e-6, decimals = 1) |>
+  fmt_currency(rows=c(1, nrow(tabdata)), columns = c(contains("tax"), change), scale=1e-6, decimals=1) |> 
+  fmt_percent(columns = c(nyc_change_share), decimals=1)  |> 
+  sub_missing(missing_text = "--") |> 
+  tab_source_note(source_note = "Source: Melding of Quarterly Census of Employment and Wages with County Business Patterns") |> 
+  tab_source_note(source_note = "Note: Estimated tax above is approximately 14% lower than total wage tax collections. Possible reasons: (1) Some state and local government entities are taxed but not included above. This could be a substantial part of the difference. (2) True tax rates are based on firm size in MTA region, for which there is little data, but calculations are based on establishment size. Establishments in multi-establishment firms are smaller than firms so calculated tax rates are biased downward. (3) Estimated distribution of establishments by size rely on County Business Patterns for 2021 plus various estimation techniques. This could result in downward bias of tax revenue, but that seems unlikely given the methods used.")
 
 
 ```
 
 ```{r stop_here, echo=FALSE}
 knitr::knit_exit()
-```
-
-## Examine alternative policies
-
-```{r}
-#| label: get-pmt-2024-baseline
-
-pmtbl <- readRDS(fs::path(PDINTERMEDIATE, "pmt2024_baseline.rds"))
-glimpse(pmtbl)
-
-```
-
-### What combination of raising bottom bracket (exclusion) and raising top rate MTA-wide is revenue-neutral?
-
-```{r}
-#| label: calc-taxes
-
-
-# growth rates emp 1.9 wage rate 2.1 nyc council https://council.nyc.gov/wp-content/uploads/2024/03/Dashboard_FY25-Prelim_EMBARGOED.pdf
-
-empgrowth <- .019
-wagerategrowth <- .021
-
-pmtdb2 <- pmtdb |> 
-  mutate(across(c(emp, elb, eub, esize_avgemp, esize_emp),
-                \(x) x * (1 + empgrowth)),
-         across(c(esize_avgpay),
-                \(x) x * (1 + wagerategrowth))) 
-  # now recalc all things that need both emp and avg pay
-
-
-
-
-alt_rates <- read_csv(
-"payroll_ub, nyc, suburbs
-1.5e6, 0.0, 0.0
-1.75e6, 0.0023, 0.0023
-Inf, 0.00606, 0.0034034
-")
-alt_rates
-# wage tax per tax dept monthly collections, 2024 -- $2,960.405 million
-
-
-# , prefix="alt_"
-
-taxdata <- pmtdb2 |> 
-  filter(esize_estabsadj != 0) |> 
-  mutate(get_info(esize_payestab, nyc, rates=base_rates)) |>
-  mutate(get_info(esize_payestab, nyc, rates=alt_rates, prefix="alt_")) |> 
-  mutate(tax=esize_payestab * rate,
-         alt_tax = esize_payestab * alt_rate) |>
-  summarise(n=n(),
-            estabs=sum(esize_estabsadj, na.rm=TRUE),
-            emp=sum(esize_emp, na.rm=TRUE),
-            payroll=sum(esize_payroll, na.rm=TRUE),
-            tax = sum(tax * esize_estabsadj, na.rm=TRUE),
-            alt_tax = sum(alt_tax * esize_estabsadj, na.rm=TRUE),
-            .by=c(nyc, payroll_lb, payroll_ub)) |>
-  arrange(nyc, payroll_lb)
-
-# |>   janitor::adorn_totals()
-
-taxdata |> 
-  janitor::adorn_totals() |> 
-  mutate(change=alt_tax - tax)
-
-taxdata |> 
-  knitr::kable()
-
-taxdata |> gt()
-taxdata |> mutate(etr=tax / payroll) |> gt()
-
-rates
-index <- c(1, 4)
-colname <- c("suburbs", "nyc")
-colnum <- c(3, 2)
-rates[cbind(index, colnum)]
-rates[cbind(index, colname)]
-
-tbl <- tibble(nyc=c(.01, .02, .03, .04),
-              suburbs=c(.09, .08, .07, .06))
-index <- c(1, 4)
-colname <- c("nyc", "suburbs")
-tbl[index, colname]
-result <- tbl[cbind(index, colname)]
-  
-
-
 ```
