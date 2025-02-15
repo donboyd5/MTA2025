@@ -20,62 +20,88 @@ library(lobstr)
 
 ```
 
+## Get base 2023 data
+
 ```{r}
 #| label: get-data
 
-pmtdb <- readRDS(fs::path(PDINTERMEDIATE, "pmt_final.rds"))
+pmtdb1 <- readRDS(fs::path(PDINTERMEDIATE, "pmt_final.rds"))
+glimpse(pmtdb1)
+head(pmtdb1)
 
-
-```
-
-```{r}
-#| label: data-checks
-
-glimpse(pmtdb)
-ht(pmtdb)
-# 
-# pmtdb |> 
-#   select(year, area, owner, naics_level, naics, qtitle, qemp_tot, qpayroll_tot) |> 
-#   distinct() |> 
-#   summarise(qemp=sum(qemp_tot),
-#             qpayroll=sum(qpayroll_tot),
-#             .by=c(naics_level, owner))
-#   
-#   
-# detail <- pmtdb |> 
-#   select(year, area, owner, naics_level, naics, qtitle, qemp_tot, qpayroll_tot, fscode, firmsize, fslb, fsub, sfirms, semp, spayroll, data) |> 
-#   unnest(cols = data)
-# ht(detail)
-# summary(detail)
-# 
-# # aggregate all firms with < 1 employee into a single firm in the same group? 
-# detail2 <- detail |> 
-#   mutate(emp_dtl=nemp_pf * nfirms,
-#          small=nemp_pf < 1)
-# 
-# 
-# 
-# detail2 |> 
-#   group_by(year, owner, naics_level) |> 
-#   summarise(n=n(), nfirms=sum(nfirms), emp_dtl=sum(emp_dtl))
-# 
-#  
-#  
-#  
-# 
-# detail |> 
-#   mutate(avgpay = qpayroll_tot / qemp_tot) |>
-#   summarise(emp=sum(nfirms * nemp_pf),
-#             payroll=sum(nfirms * payroll_pf),
-#             .by=c(naics_level, owner))
+uqmta <- readRDS(fs::path(PDINTERMEDIATE, "uqmta.rds")) # non-totals qcew
+qcew_tots <- uqmta |> 
+  summarise(across(c(estabs, emp, payroll), sum),
+            .by=c(owner, status)) |> 
+  mutate(avgpay = payroll / emp,
+         avgpayroll = payroll / estabs)
+qcew_tots
 
 ```
 
+## Forecast 2023 data to 2024
+
 ```{r}
-#| label: calc-taxes
+#| label: forecast-underlying-data
 
+# first forecast to 2024 and calibrate
+# growth rates emp 1.9 wage rate 2.1 nyc council https://council.nyc.gov/wp-content/uploads/2024/03/Dashboard_FY25-Prelim_EMBARGOED.pdf
+# that was before start of the year chatbots suggest higher wage growth
 
-pmtdb2 <- pmtdb
+# 2023 to 2024 growth rates
+empgrowth <- .02
+wagerategrowth <- .04
+
+# first, update base data to 2024 and ensure internal consistency
+# grow all employment items including range endpoints
+# do NOT grow number of establishments
+# grow total payroll
+pmtdb2 <- pmtdb1 |> 
+  select(year, owner, area, nyc, naics, qtitle, status, estabs, emp, payroll, esize, elb, eub, esize_estabsadj, esize_avgemp) |> 
+  mutate(year=2024,
+         across(c(emp, elb, eub, esize_avgemp),
+                \(x) x * (1 + empgrowth)),
+         payroll = payroll * (1 + empgrowth) * (1 + wagerategrowth))
+
+# check totals variables; also compare 2023 to raw qcew data
+bind_rows(pmtdb1 |> mutate(src="y2023"),
+          pmtdb2 |> mutate(src="y2024")) |> 
+  summarise(payroll=first(payroll),
+            emp=first(emp),
+            .by=c(src, area, naics)) |> 
+  summarise(payroll=sum(payroll),
+            emp=sum(emp), 
+            .by=src) |> 
+  mutate(avgpay=payroll / emp) |> 
+  pivot_longer(-src) |> 
+  pivot_wider(names_from = src) |> 
+  mutate(pch=y2024 / y2023 - 1)
+
+qcew_tots
+
+# check details variables
+bind_rows(pmtdb1 |> mutate(src="y2023"),
+          pmtdb2 |> mutate(src="y2024")) |>
+  mutate(emp = esize_estabsadj * esize_avgemp) |> 
+  summarise(emp=sum(emp), .by=src) |> 
+  pivot_longer(cols = emp) |> 
+  pivot_wider(names_from = src) |> 
+  mutate(pch=y2024 / y2023 - 1)
+
+qcew_tots
+
+pmtdb3 <- pmtdb2 |> 
+  mutate(esize_emp = esize_estabsadj * esize_avgemp, # number of estabs * avgemp
+         esize_avgpay = payroll / emp, # same for everyone
+         esize_payroll = esize_avgpay * esize_emp,
+         esize_payestab = esize_payroll / esize_estabsadj)
+
+```
+
+## Calculate 2024 tax, examine and possibly calibrate, and save
+
+```{r}
+#| label: rate-schedules
 
 base_rates <- read_csv(
 "payroll_ub, nyc, suburbs
@@ -86,18 +112,14 @@ Inf, 0.0060, 0.0034
 ")
 base_rates
 
-alt_rates <- read_csv(
-"payroll_ub, nyc, suburbs
-1.4e6, 0, 0
-1.5e6, 0.0011, 0.0011
-1.75e6, 0.0023, 0.0023
-Inf, 0.0060, 0.0034
-")
-alt_rates
+```
 
-
+```{r}
+#| label: functions
 
 get_info <- function(payroll, nyc, rates, prefix=""){
+  # function to get tax rate and payroll bounds for a given
+  # record, given a rate schedule
    # get rate indexes
    index <- sapply(payroll, \(x) which(rates$payroll_ub > x)[1])
    colname <- ifelse(nyc, "nyc", "suburbs")
@@ -115,23 +137,130 @@ get_info <- function(payroll, nyc, rates, prefix=""){
    df
 }
 
+```
+
+```{r}
+#| label: calc-2024-tax-and-calibrate
+
+# wage tax per tax dept monthly collections, 2024 -- $2,960.405 million
+# target_tax_2024 <- 2960.405 * 1e6 # my Nov 2024 forecast
+target_tax_2024 <- 2924.692 * 1e6 # actual Oct 2023 - Sep 2024
+# target_tax_2024 <- 2924.692 * 1e6 * .95 # if 5% of total is late payments
+
+taxdata_raw <- pmtdb3 |> 
+  # drop any records we created where there are zero establishments as CBP would not have shown that
+  # however, we don't drop records where there are establishments but zero employment because CBP data might have shown that
+  filter(esize_estabsadj != 0) |> # PERHAPS DO THIS EARLIER, IN FILE CREATION, RATHER THAN HERE??? or maybe this is best
+  # esize_payestab is average pay-per-establishment in a given establishment size group (defined by # of employees per establishment)
+  # esize_payroll is total payroll in the group
+  mutate(get_info(esize_payestab, nyc, rates=base_rates),
+         tax= esize_payroll * rate)
+
+# calculate total tax and calibrate to target
+taxraw_tots <- taxdata_raw |> 
+  mutate(nestabs_taxable = esize_estabsadj * (tax > 0),
+         emp_taxable = esize_emp * (tax > 0),
+         payroll_taxable = esize_payroll  * (tax > 0)) |> 
+  summarise(across(c(nestabs_taxable, emp_taxable, payroll_taxable, esize_estabsadj, esize_emp, esize_payroll, tax), sum)) |> 
+  mutate(avgpay=payroll_taxable / emp_taxable,
+         etr = tax / payroll_taxable)
+  
+taxraw_tots # $2.567 billion calculated vs. ~$2.925 billion from collections -- about $358m
+# perhaps $200m could come from that?
+qcew_tots
+
+# determine adjustment -- about 8-15% upward adjustment depending on 2024 assumption -- we'll do entirely through payroll?
+# what would cause this? 
+#   all 12-month periods near 2024 have ~$2.9 to $2.95 billion; we are short maybe $350 million
+#   could collections reflect late payments?
+#   are some government entities taxable? yes -- maybe $100-200 of that could be govts, maybe rest could be distrib of firm size
+#   could firms be larger than establishments so that tax rates are higher than I use?
+#   could I need to distribute establishments better giving more larger establishments
+# (payroll_adjust <- target_tax_2024 / taxraw_tots$tax) # 13.9% with my favored adjustment
+
+# according to chatgpt: 
+  # State and Local Government Entities: The MCTMT does not explicitly exempt
+  # state or local government entities from its provisions. Therefore, unless
+  # another specific exemption applies, these entities are subject to the tax if
+  # they meet the general criteria.
+
+# SOLUTION: DO NOT adjust details, but adjust at the end, later maybe revisit distribution of establishments
+# 
+# save baseline tax for 2024 ----
+
+# mutate(get_info(esize_payestab, nyc, rates=alt_rates, prefix="alt_")) |> 
+
+```
+
+```{r}
+#| label: save-2024-baseline
+
+saveRDS(taxdata_raw, fs::path(PDINTERMEDIATE, "pmt2024_baseline.rds"))
+
+
+```
+
+## Examine alternative policies
+
+```{r}
+#| label: get-pmt-2024-baseline
+
+pmtbl <- readRDS(fs::path(PDINTERMEDIATE, "pmt2024_baseline.rds"))
+glimpse(pmtbl)
+
+```
+
+```{r}
+#| label: calc-taxes
+
+
+# growth rates emp 1.9 wage rate 2.1 nyc council https://council.nyc.gov/wp-content/uploads/2024/03/Dashboard_FY25-Prelim_EMBARGOED.pdf
+
+empgrowth <- .019
+wagerategrowth <- .021
+
+pmtdb2 <- pmtdb |> 
+  mutate(across(c(emp, elb, eub, esize_avgemp, esize_emp),
+                \(x) x * (1 + empgrowth)),
+         across(c(esize_avgpay),
+                \(x) x * (1 + wagerategrowth))) 
+  # now recalc all things that need both emp and avg pay
+
+
+
+
+alt_rates <- read_csv(
+"payroll_ub, nyc, suburbs
+1.5e6, 0.0, 0.0
+1.75e6, 0.0023, 0.0023
+Inf, 0.00606, 0.0034034
+")
+alt_rates
+# wage tax per tax dept monthly collections, 2024 -- $2,960.405 million
+
 
 # , prefix="alt_"
+
 taxdata <- pmtdb2 |> 
   filter(esize_estabsadj != 0) |> 
   mutate(get_info(esize_payestab, nyc, rates=base_rates)) |>
   mutate(get_info(esize_payestab, nyc, rates=alt_rates, prefix="alt_")) |> 
-  mutate(tax=esize_payestab * taxrate) |>
+  mutate(tax=esize_payestab * rate,
+         alt_tax = esize_payestab * alt_rate) |>
   summarise(n=n(),
             estabs=sum(esize_estabsadj, na.rm=TRUE),
             emp=sum(esize_emp, na.rm=TRUE),
             payroll=sum(esize_payroll, na.rm=TRUE),
             tax = sum(tax * esize_estabsadj, na.rm=TRUE),
-            .by=c(nyc, lb, ub, taxrate)) |>
-  arrange(nyc, lb) |> 
-  janitor::adorn_totals()
+            alt_tax = sum(alt_tax * esize_estabsadj, na.rm=TRUE),
+            .by=c(nyc, payroll_lb, payroll_ub)) |>
+  arrange(nyc, payroll_lb)
 
-taxdata
+# |>   janitor::adorn_totals()
+
+taxdata |> 
+  janitor::adorn_totals() |> 
+  mutate(change=alt_tax - tax)
 
 taxdata |> 
   knitr::kable()
