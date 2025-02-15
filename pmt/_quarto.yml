@@ -23,11 +23,13 @@ book:
       - pmt_rules.qmd
     - part: "Prepare data"
       chapters:
-      - method_steps.qmd
-      # - get_cbp_data.qmd
-      - get_susb_data.qmd    
-      - create_pmt_file.qmd
-      - pmt_model.qmd
+      # - get_cbp_data.qmd # I THINK WE USE THIS BUT VERIFY
+      # - get_qcew_data.qmd # I THINK WE USE THIS BUT VERIFY
+      # - simple_estabs_basis # THIS IS THE ONE TO USE AFTER GETTING CBP AND QCEW DATA
+      # - method_steps.qmd # SHOULD BE JUST INFO
+      # - get_susb_data.qmd # NO LONGER USED
+      # - create_pmt_file.qmd # NO LONGER USED
+      - pmt_model.qmd  # after we've saved data use this
 
      # which of these qcew files did I use?      
       # - get_qcew_data.qmd

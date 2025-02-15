@@ -8,7 +8,6 @@ editor_options:
 
 ```{r}
 #| label: setup
-#| include: false
 
 source(here::here("R", "libraries.r"))
 source(here::here("R", "libraries_ts.r"))
@@ -17,6 +16,8 @@ source(here::here("R", "functions.r"))
 
 library(zip)
 library(lobstr)
+
+# GLOBAL OPTIONS: eval: true, output: false
 
 ```
 
@@ -41,8 +42,11 @@ qcew_tots
 
 ## Forecast 2023 data to 2024
 
+Only eval when assumptions or data have changed.
+
 ```{r}
 #| label: forecast-underlying-data
+#| eval: false
 
 # first forecast to 2024 and calibrate
 # growth rates emp 1.9 wage rate 2.1 nyc council https://council.nyc.gov/wp-content/uploads/2024/03/Dashboard_FY25-Prelim_EMBARGOED.pdf
@@ -100,8 +104,12 @@ pmtdb3 <- pmtdb2 |>
 
 ## Calculate 2024 tax, examine and possibly calibrate, and save
 
+Only run data creation when assumptions or data have changed.
+
+However, do run the base-rate schedules and the get_info function.
+
 ```{r}
-#| label: rate-schedules
+#| label: base-rate-schedules
 
 base_rates <- read_csv(
 "payroll_ub, nyc, suburbs
@@ -117,7 +125,7 @@ base_rates
 ```{r}
 #| label: functions
 
-get_info <- function(payroll, nyc, rates, prefix=""){
+get_info <- function(payroll, nyc, rates, prefix="base_"){
   # function to get tax rate and payroll bounds for a given
   # record, given a rate schedule
    # get rate indexes
@@ -140,7 +148,8 @@ get_info <- function(payroll, nyc, rates, prefix=""){
 ```
 
 ```{r}
-#| label: calc-2024-tax-and-calibrate
+#| label: calc-2024-tax-and-calibrate-and-save
+#| eval: false
 
 # wage tax per tax dept monthly collections, 2024 -- $2,960.405 million
 # target_tax_2024 <- 2960.405 * 1e6 # my Nov 2024 forecast
@@ -154,16 +163,16 @@ taxdata_raw <- pmtdb3 |>
   # esize_payestab is average pay-per-establishment in a given establishment size group (defined by # of employees per establishment)
   # esize_payroll is total payroll in the group
   mutate(get_info(esize_payestab, nyc, rates=base_rates),
-         tax= esize_payroll * rate)
+         base_tax= esize_payroll * base_rate)
 
 # calculate total tax and calibrate to target
 taxraw_tots <- taxdata_raw |> 
-  mutate(nestabs_taxable = esize_estabsadj * (tax > 0),
-         emp_taxable = esize_emp * (tax > 0),
-         payroll_taxable = esize_payroll  * (tax > 0)) |> 
-  summarise(across(c(nestabs_taxable, emp_taxable, payroll_taxable, esize_estabsadj, esize_emp, esize_payroll, tax), sum)) |> 
+  mutate(nestabs_taxable = esize_estabsadj * (base_tax > 0),
+         emp_taxable = esize_emp * (base_tax > 0),
+         payroll_taxable = esize_payroll  * (base_tax > 0)) |> 
+  summarise(across(c(nestabs_taxable, emp_taxable, payroll_taxable, esize_estabsadj, esize_emp, esize_payroll, base_tax), sum)) |> 
   mutate(avgpay=payroll_taxable / emp_taxable,
-         etr = tax / payroll_taxable)
+         base_etr = base_tax / payroll_taxable)
   
 taxraw_tots # $2.567 billion calculated vs. ~$2.925 billion from collections -- about $358m
 # perhaps $200m could come from that?
@@ -184,20 +193,180 @@ qcew_tots
   # another specific exemption applies, these entities are subject to the tax if
   # they meet the general criteria.
 
-# SOLUTION: DO NOT adjust details, but adjust at the end, later maybe revisit distribution of establishments
+# SOLUTION: DO NOT adjust details, but adjust at the end if needed, later maybe revisit distribution of establishments
 # 
 # save baseline tax for 2024 ----
 
 # mutate(get_info(esize_payestab, nyc, rates=alt_rates, prefix="alt_")) |> 
 
+saveRDS(taxdata_raw, fs::path(PDINTERMEDIATE, "pmt2024_baseline.rds"))
+
+```
+
+## Get baseline facts
+
+```{r}
+#| label: paygroup-helpers
+
+# payroll cutpoints and labels
+
+cutlabs <- function(payroll_cuts){
+  # return a tibble with labels for ranges
+  cutlen <- length(payroll_cuts)
+  paybounds <- tibble(paygroup=1:(cutlen - 1),
+                      lb = payroll_cuts[-cutlen],
+                      ub = payroll_cuts[-1]) |> 
+    mutate(lb_label = scales::label_comma()(lb),
+           ub_label = scales::label_comma()(ub)) |> 
+    mutate(range_left = paste0(">= ", lb_label, " - < ", ub_label),
+           range_right = paste0("> ", lb_label, " - <= ", ub_label))
+  paybounds
+}
+
+getlabel <- function(paygroup, labels, rightleft="left"){
+  i <- match(paygroup, labels$paygroup)
+  colname <- paste0("range_", rightleft)
+  labels[i, colname] |> pull()
+}
+
+# getlabel(7:10, paygroup_labels)
+
+(payroll_cuts <- c(seq(0, 2e6, 200e3), seq(2e6, 5e6, 1e6), Inf) |> unique())
+
+paygroup_labels <- cutlabs(payroll_cuts)
+
+(test_pay <- c(-1e3, seq(0, 5.2e6, 200e3), Inf))
+test_cuts <- cut(test_pay, payroll_cuts, right=FALSE, labels=FALSE)
+tibble(pay=test_pay, paygroup=test_cuts) |> 
+  left_join(paygroup_labels, by = join_by(paygroup)) |> 
+  select(pay, range_left, paygroup)
+
 ```
 
 ```{r}
-#| label: save-2024-baseline
-
-saveRDS(taxdata_raw, fs::path(PDINTERMEDIATE, "pmt2024_baseline.rds"))
+#| label: reporting-helpers
 
 
+
+```
+
+```{r}
+#| label: baseline-facts
+#| output: false
+
+pmtbl <- readRDS(fs::path(PDINTERMEDIATE, "pmt2024_baseline.rds"))
+glimpse(pmtbl)
+
+# define payroll cuts and labels
+(payroll_cuts <- c(seq(0, 2e6, 200e3), seq(2e6, 5e6, 1e6), Inf) |> unique())
+paygroup_labels <- cutlabs(payroll_cuts)
+
+pmtbl2 <- pmtbl |> 
+  mutate(paygroup=cut(esize_payestab, payroll_cuts, right=FALSE, labels=FALSE),
+         paylabel=getlabel(paygroup, paygroup_labels)) |> 
+  arrange(paygroup)
+
+tabdata <- pmtbl2 |> 
+  summarise(n=n(),
+            across(c(esize_estabsadj, 
+                     esize_emp,
+                     esize_payroll,
+                     base_tax),
+                   \(x) sum(x)),
+                   .by=c(paygroup, paylabel)) |> 
+  mutate(taxpct=base_tax / sum(base_tax)) |> 
+  select(-paygroup, -n) |> 
+  janitor::adorn_totals()
+
+```
+
+### Current Total MTA region tax by firm size
+
+```{r}
+#| label: total-tax
+#| output: true
+
+tabdata |> 
+  gt() |> 
+  tab_header("Estimated distribution of PMT wage tax by establishment payroll size, 2024",
+             subtitle = "Private sector only. Amounts in $ millions") |> 
+  cols_label(paylabel="Average establishment payroll ($)",
+             esize_estabsadj="# of establishments",
+             esize_emp="# of employees",
+             esize_payroll="Total payroll ($m)",
+             base_tax="PMT wage tax ($m)",
+             taxpct="Tax as % of total") |> 
+  fmt_number(columns = c(esize_estabsadj, esize_emp), decimals=0) |>
+  fmt_number(columns = c(esize_payroll, base_tax), scale=1e-6, decimals=1) |>
+  fmt_currency(rows=c(1, nrow(tabdata)), columns = c(esize_payroll, base_tax), scale=1e-6, decimals=1) |> 
+  fmt_percent(columns = c(taxpct), decimals=1)  |> 
+  tab_source_note(source_note = "Source: Melding of Quarterly Census of Employment and Wages with County Business Patterns") |> 
+  tab_source_note(source_note = "Note: Estimated tax above is approximately 14% lower than total wage tax collections. Possible reasons: (1) Some state and local government entities are taxed but not included above. This could be a substantial part of the difference. (2) True tax rates are based on firm size in MTA region, for which there is little data, but calculations are based on establishment size. Establishments in multi-establishment firms are smaller than firms so calculated tax rates are biased downward. (3) Estimated distribution of establishments by size rely on County Business Patterns for 2021 plus various estimation techniques. This could result in downward bias of tax revenue, but that seems unlikely given the methods used.")
+
+```
+
+### Current MTA region tax by firm size and NYC-suburbs
+
+```{r}
+#| label: tax-mta-suburbs
+
+
+data1 <- pmtbl2 |> 
+  summarise(n=n(),
+            across(c(esize_estabsadj, 
+                     esize_emp,
+                     esize_payroll,
+                     base_tax),
+                   \(x) sum(x)),
+                   .by=c(nyc, paygroup, paylabel))
+
+data1
+
+tabdata <- data1 |> 
+  select(-n, -esize_emp) |> 
+  mutate(nyc=factor(nyc, levels=c(TRUE, FALSE), labels = c("NYC", "Suburbs"))) |> 
+  pivot_wider(names_from=nyc, values_from = c(esize_estabsadj, esize_payroll, base_tax)) |> 
+  mutate(base_total_tax=base_tax_NYC + base_tax_Suburbs) |> 
+  arrange(paygroup) |> 
+  select(paylabel, contains("NYC"), contains("Suburbs"), base_total_tax) |> 
+  janitor::adorn_totals() |> 
+  mutate(nyc_tax_share=base_tax_NYC / base_total_tax)
+  
+             # esize_estabsadj="# of establishments",
+             # esize_emp="# of employees",
+             # esize_payroll="Total payroll ($m)",
+             # base_tax="PMT wage tax ($m)",
+             # taxpct="Tax as % of total") |> 
+
+tabdata |> 
+  gt() |> 
+  tab_header("Estimated distribution of PMT wage tax by establishment payroll size, 2024",
+             subtitle = "Private sector only. Amounts in $ millions") |> 
+  cols_label(paylabel="Average establishment payroll ($)",
+             contains("estabsadj") ~ "# of establishments",
+             contains("payroll") ~ "Total payroll ($m)",
+             contains("base_tax") ~ "PMT wage tax ($m)",
+             base_total_tax = "Total PMT wage tax ($m)",
+             nyc_tax_share = "NYC share of tax") |> 
+  fmt_number(columns = contains("estabsadj"), decimals=0) |>
+  fmt_number(columns = c(contains("tax")), scale=1e-6, decimals=1) |>
+  # fmt_currency(rows=c(1, nrow(tabdata)), columns = c(esize_payroll, base_tax), scale=1e-6, decimals=1) |> 
+  fmt_percent(columns = c(taxpct), decimals=1)  |> 
+  tab_source_note(source_note = "Source: Melding of Quarterly Census of Employment and Wages with County Business Patterns") |> 
+  tab_source_note(source_note = "Note: Estimated tax above is approximately 14% lower than total wage tax collections. Possible reasons: (1) Some state and local government entities are taxed but not included above. This could be a substantial part of the difference. (2) True tax rates are based on firm size in MTA region, for which there is little data, but calculations are based on establishment size. Establishments in multi-establishment firms are smaller than firms so calculated tax rates are biased downward. (3) Estimated distribution of establishments by size rely on County Business Patterns for 2021 plus various estimation techniques. This could result in downward bias of tax revenue, but that seems unlikely given the methods used.")
+
+
+# |> 
+#   mutate(taxpct=base_tax / sum(base_tax)) |> 
+#   select(-paygroup, -n) |> 
+#   janitor::adorn_totals()
+
+
+
+```
+
+```{r stop_here, echo=FALSE}
+knitr::knit_exit()
 ```
 
 ## Examine alternative policies
@@ -209,6 +378,8 @@ pmtbl <- readRDS(fs::path(PDINTERMEDIATE, "pmt2024_baseline.rds"))
 glimpse(pmtbl)
 
 ```
+
+### What combination of raising bottom bracket (exclusion) and raising top rate MTA-wide is revenue-neutral?
 
 ```{r}
 #| label: calc-taxes
