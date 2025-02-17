@@ -212,14 +212,18 @@ saveRDS(taxdata_raw, fs::path(PDINTERMEDIATE, "pmt2024_baseline.rds"))
 
 cutlabs <- function(payroll_cuts){
   # return a tibble with labels for ranges
+  payroll_cuts <- payroll_cuts |> unique() |> sort()
   cutlen <- length(payroll_cuts)
-  paybounds <- tibble(paygroup=1:(cutlen - 1),
-                      lb = payroll_cuts[-cutlen],
+  paybounds <- tibble(lb = payroll_cuts[-cutlen],
                       ub = payroll_cuts[-1]) |> 
+    arrange(lb, ub) |> 
+    mutate(paygroup=1:n()) |> 
     mutate(lb_label = scales::label_comma()(lb),
            ub_label = scales::label_comma()(ub)) |> 
     mutate(range_left = paste0(">= ", lb_label, " - < ", ub_label),
-           range_right = paste0("> ", lb_label, " - <= ", ub_label))
+           range_right = paste0("> ", lb_label, " - <= ", ub_label)) |> 
+    select(paygroup, lb, ub, lb_label, ub_label, range_left, range_right)
+  
   paybounds
 }
 
@@ -231,15 +235,15 @@ getlabel <- function(paygroup, labels, rightleft="left"){
 
 # getlabel(7:10, paygroup_labels)
 
-(payroll_cuts <- c(seq(0, 2e6, 200e3), seq(2e6, 5e6, 1e6), Inf) |> unique())
-
-paygroup_labels <- cutlabs(payroll_cuts)
-
-(test_pay <- c(-1e3, seq(0, 5.2e6, 200e3), Inf))
-test_cuts <- cut(test_pay, payroll_cuts, right=FALSE, labels=FALSE)
-tibble(pay=test_pay, paygroup=test_cuts) |> 
-  left_join(paygroup_labels, by = join_by(paygroup)) |> 
-  select(pay, range_left, paygroup)
+# (payroll_cuts <- c(seq(0, 2e6, 200e3), seq(2e6, 5e6, 1e6), Inf, 1.25e6, 1.75e6) |> unique())
+# 
+# paygroup_labels <- cutlabs(payroll_cuts)
+# 
+# (test_pay <- c(-1e3, seq(0, 5.2e6, 200e3), Inf))
+# test_cuts <- cut(test_pay, payroll_cuts, right=FALSE, labels=FALSE)
+# tibble(pay=test_pay, paygroup=test_cuts) |> 
+#   left_join(paygroup_labels, by = join_by(paygroup)) |> 
+#   select(pay, range_left, paygroup)
 
 ```
 
@@ -260,7 +264,7 @@ pmtbl <- readRDS(fs::path(PDINTERMEDIATE, "pmt2024_baseline.rds"))
 glimpse(pmtbl)
 
 # define payroll cuts and labels
-(payroll_cuts <- c(seq(0, 2e6, 200e3), seq(2e6, 5e6, 1e6), Inf) |> unique())
+(payroll_cuts <- c(seq(0, 2e6, 200e3), seq(2e6, 5e6, 1e6), Inf, 1.25e6, 1.75e6) |> unique())
 paygroup_labels <- cutlabs(payroll_cuts)
 
 pmtbl2 <- pmtbl |> 
