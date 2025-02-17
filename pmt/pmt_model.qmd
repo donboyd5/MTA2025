@@ -32,7 +32,8 @@ head(pmtdb1)
 
 uqmta <- readRDS(fs::path(PDINTERMEDIATE, "uqmta.rds")) # non-totals qcew
 qcew_tots <- uqmta |> 
-  summarise(across(c(estabs, emp, payroll), sum),
+  summarise(n = n(),
+            across(c(estabs, emp, payroll), sum),
             .by=c(owner, status)) |> 
   mutate(avgpay = payroll / emp,
          avgpayroll = payroll / estabs)
@@ -235,7 +236,7 @@ getlabel <- function(paygroup, labels, rightleft="left"){
 
 # getlabel(7:10, paygroup_labels)
 
-# (payroll_cuts <- c(seq(0, 2e6, 200e3), seq(2e6, 5e6, 1e6), Inf, 1.25e6, 1.75e6) |> unique())
+# (payroll_cuts <- c(seq(0, 2e6, 200e3), seq(2e6, 5e6, 1e6), Inf, 1.25e6, 1.75e6))
 # 
 # paygroup_labels <- cutlabs(payroll_cuts)
 # 
@@ -250,9 +251,10 @@ getlabel <- function(paygroup, labels, rightleft="left"){
 ```{r}
 #| label: reporting-helpers
 
-long_note <- "Note: Current-law estimated tax above is approximately 14% lower than total wage tax collections. Possible reasons: (1) Some state and local government entities are taxed but not included above. This could be a substantial part of the difference. (2) True tax rates are based on firm size in MTA region, for which there is little data, but calculations are based on establishment size. Establishments in multi-establishment firms are smaller than firms so calculated tax rates are biased downward. (3) Estimated distribution of establishments by size rely on County Business Patterns for 2022 plus various estimation techniques. This could result in downward bias of tax revenue, but that seems unlikely given the methods used."
+source_note <- "Source: Melding of Quarterly Census of Employment and Wages (QCEW) 2023 with County Business Patterns (CBP) 2022"
 
-source_note <- "Source: Melding of Quarterly Census of Employment and Wages with County Business Patterns"
+long_note <- "Note: Estimated current-law 2024 wage tax is approximately 12% lower than $2.9 billion wage tax collections. Possible reasons: (1) Some state and local government entities are taxed but not included above. This could be a substantial part of the difference. (2) True tax rates are based on firm size in MTA region, for which there is little data, but calculations are based on establishment size. Establishments in multi-establishment firms are smaller than firms so calculated tax rates are biased downward. (3) Estimated distributions of establishments by size rely on CBP 2022 which can't be linked perfectly with QCEW 2023. This might result in downward bias of tax revenue, but that seems unlikely given the methods used."
+
 
 ```
 
@@ -262,9 +264,10 @@ source_note <- "Source: Melding of Quarterly Census of Employment and Wages with
 
 pmtbl <- readRDS(fs::path(PDINTERMEDIATE, "pmt2024_baseline.rds"))
 glimpse(pmtbl)
+count(pmtbl, status)
 
 # define payroll cuts and labels
-(payroll_cuts <- c(seq(0, 2e6, 200e3), seq(2e6, 5e6, 1e6), Inf, 1.25e6, 1.75e6) |> unique())
+(payroll_cuts <- c(0, 500e3, seq(1e6, 2e6, 200e3), seq(2e6, 5e6, 1e6), Inf, 1.25e6, 1.75e6) |> unique() |> sort())
 paygroup_labels <- cutlabs(payroll_cuts)
 
 pmtbl2 <- pmtbl |> 
@@ -576,8 +579,8 @@ tabdata <- data1 |>
   select(paylabel, contains("NYC"), contains("Suburbs"), base_total_tax, alt_total_tax) |> 
   janitor::adorn_totals() |> 
   mutate(change=alt_total_tax - base_total_tax,
-         nyc_change_share = (alt_tax_NYC - base_tax_NYC) / change,
-        nyc_change_share = ifelse(paylabel=="Total", NA_real_, nyc_change_share))
+         nyc_change_share = (alt_tax_NYC - base_tax_NYC) / change)
+  #      nyc_change_share = ifelse(paylabel=="Total", NA_real_, nyc_change_share))
 # tabdata
 
 ```
