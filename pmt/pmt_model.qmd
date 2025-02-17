@@ -246,7 +246,9 @@ tibble(pay=test_pay, paygroup=test_cuts) |>
 ```{r}
 #| label: reporting-helpers
 
+long_note <- "Note: Current-law estimated tax above is approximately 14% lower than total wage tax collections. Possible reasons: (1) Some state and local government entities are taxed but not included above. This could be a substantial part of the difference. (2) True tax rates are based on firm size in MTA region, for which there is little data, but calculations are based on establishment size. Establishments in multi-establishment firms are smaller than firms so calculated tax rates are biased downward. (3) Estimated distribution of establishments by size rely on County Business Patterns for 2022 plus various estimation techniques. This could result in downward bias of tax revenue, but that seems unlikely given the methods used."
 
+source_note <- "Source: Melding of Quarterly Census of Employment and Wages with County Business Patterns"
 
 ```
 
@@ -300,8 +302,8 @@ tabdata |>
   fmt_number(columns = c(esize_payroll, base_tax), scale=1e-6, decimals=1) |>
   fmt_currency(rows=c(1, nrow(tabdata)), columns = c(esize_payroll, base_tax), scale=1e-6, decimals=1) |> 
   fmt_percent(columns = c(taxpct), decimals=1)  |> 
-  tab_source_note(source_note = "Source: Melding of Quarterly Census of Employment and Wages with County Business Patterns") |> 
-  tab_source_note(source_note = "Note: Current-law estimated tax above is approximately 14% lower than total wage tax collections. Possible reasons: (1) Some state and local government entities are taxed but not included above. This could be a substantial part of the difference. (2) True tax rates are based on firm size in MTA region, for which there is little data, but calculations are based on establishment size. Establishments in multi-establishment firms are smaller than firms so calculated tax rates are biased downward. (3) Estimated distribution of establishments by size rely on County Business Patterns for 2021 plus various estimation techniques. This could result in downward bias of tax revenue, but that seems unlikely given the methods used.")
+  tab_source_note(source_note = source_note) |> 
+  tab_source_note(source_note = long_note)
 
 ```
 
@@ -355,8 +357,8 @@ tabdata |>
   fmt_currency(rows=c(1, nrow(tabdata)), columns = c(contains("tax"), contains("payroll")), scale=1e-6, decimals=1) |> 
   fmt_percent(columns = c(nyc_tax_share), decimals=1)  |> 
   sub_missing(missing_text = "--") |> 
-  tab_source_note(source_note = "Source: Melding of Quarterly Census of Employment and Wages with County Business Patterns") |> 
-  tab_source_note(source_note = "Note: Current-law estimated tax above is approximately 14% lower than total wage tax collections. Possible reasons: (1) Some state and local government entities are taxed but not included above. This could be a substantial part of the difference. (2) True tax rates are based on firm size in MTA region, for which there is little data, but calculations are based on establishment size. Establishments in multi-establishment firms are smaller than firms so calculated tax rates are biased downward. (3) Estimated distribution of establishments by size rely on County Business Patterns for 2021 plus various estimation techniques. This could result in downward bias of tax revenue, but that seems unlikely given the methods used.")
+  tab_source_note(source_note = source_note) |> 
+  tab_source_note(source_note = long_note)
 
 
 ```
@@ -491,8 +493,8 @@ tabdata |>
   fmt_currency(rows=c(1, nrow(tabdata)), columns = c(contains("tax"), change), scale=1e-6, decimals=1) |> 
   fmt_percent(columns = c(nyc_change_share), decimals=1)  |> 
   sub_missing(missing_text = "--") |> 
-  tab_source_note(source_note = "Source: Melding of Quarterly Census of Employment and Wages with County Business Patterns") |> 
-  tab_source_note(source_note = "Note: Current-law estimated tax above is approximately 14% lower than total wage tax collections. Possible reasons: (1) Some state and local government entities are taxed but not included above. This could be a substantial part of the difference. (2) True tax rates are based on firm size in MTA region, for which there is little data, but calculations are based on establishment size. Establishments in multi-establishment firms are smaller than firms so calculated tax rates are biased downward. (3) Estimated distribution of establishments by size rely on County Business Patterns for 2021 plus various estimation techniques. This could result in downward bias of tax revenue, but that seems unlikely given the methods used.")
+  tab_source_note(source_note = source_note) |> 
+  tab_source_note(source_note = long_note)
 
 ```
 
@@ -599,8 +601,8 @@ tabdata |>
   fmt_currency(rows=c(1, nrow(tabdata)), columns = c(contains("tax"), change), scale=1e-6, decimals=1) |> 
   fmt_percent(columns = c(nyc_change_share), decimals=1)  |> 
   sub_missing(missing_text = "--") |> 
-  tab_source_note(source_note = "Source: Melding of Quarterly Census of Employment and Wages with County Business Patterns") |> 
-  tab_source_note(source_note = "Note: Current-law estimated tax above is approximately 14% lower than total wage tax collections. Possible reasons: (1) Some state and local government entities are taxed but not included above. This could be a substantial part of the difference. (2) True tax rates are based on firm size in MTA region, for which there is little data, but calculations are based on establishment size. Establishments in multi-establishment firms are smaller than firms so calculated tax rates are biased downward. (3) Estimated distribution of establishments by size rely on County Business Patterns for 2021 plus various estimation techniques. This could result in downward bias of tax revenue, but that seems unlikely given the methods used.")
+  tab_source_note(source_note = source_note) |> 
+  tab_source_note(source_note = long_note)
 
 ```
 
