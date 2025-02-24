@@ -704,3 +704,165 @@ tab |>
 
 
 ```
+
+# Get rest of NY
+
+```{r}
+
+
+# pit2a has all the data we need
+tmp <- pit2a |> 
+  # select(placesort, restype, por, county, state, country) |> 
+  count(placesort, restype, por, county, state, country)
+
+count(pit2a, restype, county)
+tmp <- pit2a |> filter(restype == "Full-Year Nonresident", taxyear==2022, rangenum==16)
+All Counties Outside of New York City
+newpit3 <- pit2a |> 
+  mutate(group = case_when(restype == "All Filers" &
+                             county == "All Places" ~ "Grand total",
+                           
+                           restype == "Full-Year Resident" & 
+                             county == "All Counties Outside of New York City" ~ "NYSCountiesxNYC",
+                           
+                           restype == "Full-Year Resident" &
+                             county == "All Places" ~ "NYS Resident total",
+                           
+                           restype == "Full-Year Resident" & 
+                             county %in% nyccos ~ "NYC counties",
+                           
+                           restype == "Full-Year Resident" &
+                             county == "All New York City" ~ "New York City",
+                           
+                           restype == "Full-Year Resident" & 
+                             county %in% mtasubs ~ "MTA suburbs",
+                           
+                           restype == "Full-Year Resident" &
+                             state == "New York" ~ "NYROS",
+                           
+                           restype == "Full-Year Nonresident" &
+                             county == "All Places" ~ "Full-Year nonres total",
+                           
+                           restype == "Full-Year Nonresident" &
+                             county != "All Places" ~ "Full-Year nonres detail",                           
+                           
+                           restype == "Part-Year Resident" &
+                             county == "All Places" ~ "PY nonres",
+                           
+                           .default = "Other")
+         )
+count(newpit3, group)
+tmp <- newpit3 |> filter(taxyear==2022, rangenum==16, group=="Other") 
+tmp <- newpit3 |> filter(taxyear==2022, rangenum==16, group=="MTA suburbs") 
+
+newpit3 |> 
+  filter(taxyear==2022, rangenum==16) |> 
+  summarise(credits=sum(credits),
+                        .by=group)
+
+# get the "atoms" and verify they add to totals
+# 
+atoms <- newpit3 |> 
+  filter(group %in% c("New York City",
+                      "MTA suburbs",
+                      "NYROS", 
+                      "Full-Year nonres total",
+                      "PY nonres",
+                      "Grand total"))
+count(atoms, group, county)
+
+
+atoms |> 
+  filter(taxyear==2022, rangenum==16) |> 
+  mutate(summary=group=="Grand total") |> 
+  summarise(credits=sum(credits),
+                        .by=c(group))
+
+atoms |> 
+  filter(taxyear==2022, rangenum==16) |> 
+  mutate(summary=group=="Grand total") |> 
+  summarise(credits=sum(credits),
+                        .by=c(summary))
+count(atoms, group, county)
+
+# Combine full year and  part year nonresidents, get mta total, and report
+atoms2 <- atoms |> 
+  mutate(group=ifelse(group %in% c("Full-Year nonres total", "PY nonres"),
+                      "FYPYnonres",
+                      group)) |> 
+  summarise(credits=sum(credits),
+            .by=c(taxyear, rangenum, nyagirange, group, county))
+count(atoms2, group, county)
+
+
+mtasuburbs <- atoms2 |> 
+  filter(group %in% c("MTA suburbs")) |> 
+  summarise(credits=sum(credits), 
+            .by=c(taxyear, rangenum, nyagirange)) |> 
+  mutate(group="MTAsubtots")
+
+rostotal <- atoms2 |> 
+  filter(group %in% c("NYROS")) |> 
+  summarise(credits=sum(credits), 
+            .by=c(taxyear, rangenum, nyagirange)) |> 
+  mutate(group="NYROStotal")
+
+
+tabdata <- bind_rows(atoms2 |> 
+                       filter(group != "NYROS"),
+                     mtasuburbs,
+                     rostotal) |> 
+  filter(rangenum %in% 14:15) |> 
+  filter(taxyear %in% c(2020, 2022)) |> 
+  summarise(credits=sum(credits), .by=c(group, county, taxyear)) |> 
+  pivot_wider(names_from = taxyear, values_from = credits, names_prefix = "y") |> 
+  mutate(county = case_when(group=="New York City" ~ "New York City",
+                            group=="MTAsubtots" ~ "MTA suburbs",
+                            group=="NYROStotal" ~ "Rest of state",
+                            group=="FYPYnonres" ~ "Nonresidents & part-year residents",
+                            .default = county),
+         gsort = case_when(group=="New York City" ~ 1,
+                            group == "MTA suburbs" ~ 2,
+                            group=="MTAsubtots" ~ 3,
+                            group == "NYROStotal" ~ 4,
+                            group == "FYPYnonres" ~ 5,
+                            group=="Grand total" ~ 6,
+                            .default = -9)) |> 
+  mutate(base=y2020 * 1.08 * 1.08, # 2 years of credit growth
+         ptet=y2022 - base) |> 
+  relocate(gsort) |> 
+  arrange(gsort, county)
+  
+tabdata
+
+tab <- tabdata |> 
+  arrange(gsort, county) |> 
+  select(county, ptet) |> 
+  mutate(pct=ptet / ptet[county=="All Places"]) |> 
+  gt() |> 
+  tab_header("Estimated New York PTET credit in tax year 2022",
+             subtitle="AGI ranges >= $500k") |> 
+  cols_label(county="Area",
+             ptet="PTET Credit ($ millions)",
+             pct="% share of total") |> 
+  fmt_number(columns = ptet,
+             scale=1e-6,
+             decimals = 0) |> 
+  fmt_currency(columns = ptet,
+               rows=c(1, nrow(tabdata)),
+               scale=1e-6,
+               decimals = 0) |> 
+  fmt_percent(columns = pct,
+              decimals = 1) |> 
+  tab_source_note("Calculation: (1) Total tax credits in 2022 for AGI >= $500k minus (2) 2020 credits with 2 years 8% growth added") |> 
+  tab_style(
+    style = cell_fill(color = "grey96"),
+    locations = cells_body(rows = c(1, 9, 10, 11))) |> 
+  tab_style(
+    style = cell_fill(color = "#F0F8FF"),
+    locations = cells_body(rows = c(12)))
+
+tab
+
+
+```
