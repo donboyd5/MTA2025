@@ -25,7 +25,21 @@ ddir <- here::here("data")
 ```
 
 ```{r}
+#| label: notes
+
+# pit1 no agi ranges ----
+# pit2 15 ranges, top $1m+; counties ----
+# pit3 27 ranges, top $10m+; statewide ----
+# pit4 8 income ranges, top $200k+; counties ----
+
+
+```
+
+Get and save PIT data.
+
+```{r}
 #| output: false
+#| eval: false
 
 # Personal Income Tax Filers, Files Beginning Tax Year 2015, Summary Datasets
 # Dataset 1 - Major Items by Liability Status and Place of Residence
@@ -39,15 +53,32 @@ url2 <- "https://data.ny.gov/api/views/f3t7-zvbx/rows.csv?accessType=DOWNLOAD&so
 url3 <- "https://data.ny.gov/api/views/rt8x-r6c8/rows.csv?accessType=DOWNLOAD&sorting=true"
 url4 <- "https://data.ny.gov/api/views/qjqv-zrwt/rows.csv?accessType=DOWNLOAD&sorting=true"
 
-ds1 <- vroom(url1) # counties; major items only
-ds2 <- vroom(url2) # counties; has Gain and loss from Rent,Royalties,Prtnrshp,Estates,Trusts Income BUT NOT #s
-ds3 <- vroom(url3) # statewide; Gain and loss from Rent,Royalties,Prtnrshp,Estates,Trusts Income AND #s
-ds4 <- vroom(url4) # counties; Gain and loss from Rent,Royalties,Prtnrshp,Estates,Trusts Income AND #s, WIDE income ranges
+pit1 <- vroom(url1) # counties; NO AGI RANGES; agi & liability, no partnership income, no credits
+pit2 <- vroom(url2) # counties; has Gain and loss from Rent,Royalties,Prtnrshp,Estates,Trusts Income BUT NOT #s
+pit3 <- vroom(url3) # statewide; Gain and loss from Rent,Royalties,Prtnrshp,Estates,Trusts Income AND #s
+pit4 <- vroom(url4) # counties; Gain and loss from Rent,Royalties,Prtnrshp,Estates,Trusts Income AND #s, WIDE income ranges
 
-glimpse(ds1)
-glimpse(ds2)
-glimpse(ds3)
-glimpse(ds4)
+glimpse(pit1) # no agi ranges
+glimpse(pit2) # 15 ranges, top $1m+; counties
+glimpse(pit3) # 27 ranges, top $10m+; statewide
+glimpse(pit4) # 8 income ranges, top $200k+; counties
+
+count(pit2, rnum=`Sort on Income Range`, range=`NY Adjusted Gross Income Range (Fed.Col)`)
+count(pit3, rnum=`Sort on Income Range`, range=`NY Adjusted Gross Income Range (Fed.Col)`)
+count(pit4, rnum=`Sort on Income Range`, range=`NY Adjusted Gross Income Range (Fed.Col)`)
+
+
+# pit1 has no y, restype, por, ...
+saveRDS(pit1, fs::path(ddir, "pit1.rds"))
+
+# pit2 has mid y, restype, por, rrpet gain & loss, tax credits, other NYadds, taxes paid
+saveRDS(pit2, fs::path(ddir, "pit2.rds")) 
+
+# pit3 has fine y, restype, tax creds, rrpet gain loss
+saveRDS(pit3, fs::path(ddir, "pit3.rds")) 
+
+# pit4 has broad y, restype, por, 
+saveRDS(pit4, fs::path(ddir, "pit4.rds"))
 
 ```
 
@@ -55,13 +86,14 @@ glimpse(ds4)
 #| label: clean
 #| output: false
 
-# we want ds3 for the statewide data, ds4 for the county data
+pit3 <- readRDS(fs::path(ddir, "pit3.rds")) 
+# we want pit3 for the statewide data, pit4 for the county data
 
-# ds3 statewide
-vnames3 <- tibble(varnum=1:ncol(ds3), vname=colnames(ds3))
+# pit3 statewide
+vnames3 <- tibble(varnum=1:ncol(pit3), vname=colnames(pit3))
 
-glimpse(ds3)
-state <- ds3 |> 
+glimpse(pit3)
+state <- pit3 |> 
   select(taxyear=1, liabstat=2, resstat=3, nyagirange=4, notes=5, 
          nret=6, nsingle=7, nmfj=8, nhead=9, nmfs=10,
          nyfedagi=11, nyti=21, npartnergain=35, partnergain=36, npartnerloss=37, partnerloss=38)
@@ -72,7 +104,7 @@ count(state, resstat) # All Filers, Full-Year Nonresident, Full-Year Resident, P
 count(state, nyagirange)
 
 incranges <- state |> 
-  filter(taxyear == 2022, liabstat == "All Returns", resstat == "Full-Year Resident") |> 
+  filter(taxyear == 2022, liabstat == "All Returns", resstat == "All Filers") |> 
   select(nyagirange) |> 
   mutate(rangenum=row_number()) |> 
   relocate(rangenum)
@@ -110,7 +142,7 @@ incranges2 <- incranges |>
 count(incranges2, crangenum, crange)
 
 pinc <- state |> 
-  filter(taxyear == 2022, liabstat == "All Returns", resstat == "Full-Year Resident") |> 
+  filter(taxyear == 2022, liabstat == "All Returns", resstat == "All Filers") |> 
   select(nyagirange, nret, npartnergain, partnergain) |> 
   left_join(incranges2, by = join_by(nyagirange)) |>
   filter(crange != "Total") |>
@@ -156,10 +188,12 @@ pinc |>
 #| label: mtadata
 #| output: false
 
-glimpse(ds4)
-vnames4 <- tibble(varnum=1:ncol(ds4), vname=colnames(ds4))
+pit4 <- readRDS(fs::path(ddir, "pit4.rds")) 
 
-partner1 <- ds4 |> 
+glimpse(pit4)
+vnames4 <- tibble(varnum=1:ncol(pit4), vname=colnames(pit4))
+
+partner1 <- pit4 |> 
   select(taxyear=1, resstat=2, por=3, county=4, state=5, country=6,
          nyagirange=7, nret=9, npartnergain=38, partnergain=39)
 
@@ -248,6 +282,425 @@ combo2 |>
   tab_spanner(label = "Percentage of Resident Total", columns = contains("pct")) |> 
   tab_footnote("Source: New York State Department of Taxation and Finance") |> 
   sub_missing(missing_text = "-")
+
+
+```
+
+## Partnership income
+
+```{r}
+
+
+```
+
+## Statewide credits and partner income
+
+```{r}
+#| label: credits
+
+pit3 <- readRDS(fs::path(ddir, "pit3.rds")) 
+glimpse(pit3)
+cbind(1:ncol(pit3), names(pit3))
+
+pit31 <- pit3 |> 
+  select(taxyear=1, taxstatus=2, restype=3, nyagirange=4, notes=5, nret=6, 
+         nysource=12, ti=21, taxbc=22, credits=23, taxac=24, 
+         nrrpetgain=35, rrpetgain=36,
+         nrrpetloss=37, rrpetloss=38, othernyadds=57)
+
+count(pit31, taxyear) # 2015-2022
+count(pit31, taxstatus) # All Returns, Non-Taxable, Taxable
+count(pit31, restype) # All Filers, Full-Year Nonresident, Full-Year Resident, Part-Year Resident
+count(pit31, nyagirange)
+
+agiranges <-pit31 |> 
+  filter(taxyear==2022, taxstatus=="All Returns", restype=="All Filers") |> 
+  mutate(rangenum=row_number()) |> 
+  select(rangenum, nyagirange)
+
+pit32 <- pit31 |>
+  filter(taxstatus=="All Returns") |> 
+  left_join(agiranges, by = join_by(nyagirange)) |> 
+  select(restype, rangenum, nyagirange, taxyear, credits) |> 
+  pivot_wider(names_from = taxyear, values_from = credits, names_prefix = "y") |> 
+  select(restype, rangenum, nyagirange, y2015:y2022)
+
+pit32 |> 
+  filter(restype=="Full-Year Resident") |> 
+  select(rangenum, nyagirange, y2019:y2022) |> 
+  mutate(c1920=y2020 - y2019,
+         c2021=y2021 - y2020,
+         c2022=y2022 - y2021)
+
+# huh?? are nonresidents getting the credit?? -- yes!
+pit32 |> 
+  filter(restype=="Full-Year Nonresident") |> 
+  select(rangenum, nyagirange, y2019:y2022) |> 
+  mutate(c1920=y2020 - y2019,
+         c2021=y2021 - y2020,
+         c2022=y2022 - y2021)
+
+pit32 |> 
+  filter(restype=="All Filers") |> 
+  select(rangenum, nyagirange, y2017:y2022) |> 
+  mutate(c1920=y2020 - y2019,
+         c2021=y2021 - y2020,
+         c2022=y2022 - y2021)
+
+# now collapse for more readable results ----
+pit32c <- pit31 |>
+  filter(taxstatus=="All Returns") |> 
+  left_join(agiranges, by = join_by(nyagirange)) |> 
+  mutate(rangenum = ifelse(rangenum < 18, 0, rangenum),
+         nyagirange = ifelse(rangenum==0, "< $100,000", nyagirange)) |> 
+  summarise(credits=sum(credits),
+            .by=c(restype, rangenum, nyagirange, taxyear)) |> 
+  pivot_wider(names_from = taxyear, values_from = credits, names_prefix = "y") |> 
+  select(restype, rangenum, nyagirange, y2015:y2022) |> 
+  arrange(restype, rangenum)
+
+pit32c |> 
+  filter(restype=="All Filers") |> 
+  select(rangenum, nyagirange, y2017:y2022) |> 
+  mutate(c1819=y2019 - y2018,
+         c1920=y2020 - y2019,
+         c2021=y2021 - y2020,
+         c2122=y2022 - y2021) |> 
+  select(-rangenum) |> 
+  gt() |> 
+  tab_header(title = "NY Personal income tax credits by tax year ($ millions)",
+             subtitle = "Includes taxable and non-taxable returns, residents and non-residents") |> 
+  cols_label_with(columns = starts_with("y"), fn=\(x) str_remove(x, "y")) |> 
+  cols_label(c1819 = md("2019<br>minus<br>2018"),
+             c1920 = md("2020<br>minus<br>2019"),
+             c2021 = md("2021<br>minus<br>2020"),
+             c2122 = md("2022<br>minus<br>2021")) |> 
+  fmt_number(-c(nyagirange),
+             scale=1e-6,
+             decimals = 0)
+
+
+ pit31 |>
+  filter(taxstatus=="All Returns") |>
+  summarise(across(c(rrpetgain, nrrpetgain, rrpetloss, nrrpetloss)),
+            .by = c(taxyear, restype, nyagirange)) |> 
+  left_join(agiranges, by = join_by(nyagirange)) |> 
+  pivot_wider(names_from = taxyear, values_from = credits, names_prefix = "y") |> 
+  select(restype, rangenum, nyagirange, y2015:y2022) |> 
+  filter(restype=="Full-Year Resident") |> 
+  select(rangenum, nyagirange, rrpetgain, nrrpetgain, rrpetloss, nrrpetloss, y2019:y2022) |> 
+  mutate(c1920=y2020 - y2019,
+         c2021=y2021 - y2020,
+         c2022=y2022 - y2021)
+
+```
+
+```{r}
+#| label: partner-inc
+
+pit3 <- readRDS(fs::path(ddir, "pit3.rds")) 
+glimpse(pit3)
+cbind(1:ncol(pit3), names(pit3))
+
+pit31 <- pit3 |> 
+  select(taxyear=1, taxstatus=2, restype=3, nyagirange=4, notes=5, nret=6, 
+         nysource=12, ti=21, taxbc=22, credits=23, taxac=24, 
+         nrrpetgain=35, rrpetgain=36,
+         nrrpetloss=37, rrpetloss=38, othernyadds=57)
+
+count(pit31, taxyear) # 2015-2022
+count(pit31, taxstatus) # All Returns, Non-Taxable, Taxable
+count(pit31, restype) # All Filers, Full-Year Nonresident, Full-Year Resident, Part-Year Resident
+count(pit31, nyagirange)
+
+agiranges <-pit31 |> 
+  filter(taxyear==2022, taxstatus=="All Returns", restype=="All Filers") |> 
+  mutate(rangenum=row_number()) |> 
+  select(rangenum, nyagirange)
+
+pit32 <- pit31 |>
+  filter(taxstatus=="All Returns") |> 
+  mutate(pinc=rrpetgain - rrpetloss) |> 
+  left_join(agiranges, by = join_by(nyagirange)) |> 
+  select(restype, rangenum, nyagirange, taxyear, rrpetgain) |> 
+  pivot_wider(names_from = taxyear, values_from = rrpetgain, names_prefix = "y") |> 
+  select(restype, rangenum, nyagirange, y2015:y2022)
+
+pit32 |> 
+  filter(restype=="Full-Year Resident") |> 
+  select(rangenum, nyagirange, y2019:y2022) |> 
+  mutate(c1920=y2020 - y2019,
+         c2021=y2021 - y2020,
+         c2022=y2022 - y2021)
+
+# huh?? are nonresidents getting the credit?? -- yes!
+pit32 |> 
+  filter(restype=="Full-Year Nonresident") |> 
+  select(rangenum, nyagirange, y2019:y2022) |> 
+  mutate(c1920=y2020 - y2019,
+         c2021=y2021 - y2020,
+         c2022=y2022 - y2021)
+
+pit32 |> 
+  filter(restype=="All Filers", rangenum==28) |> 
+  select(rangenum, nyagirange, y2017:y2022) 
+
+pit32 |> 
+  filter(restype=="All Filers") |> 
+  select(rangenum, nyagirange, y2017:y2022) |> 
+  mutate(c1920=y2020 - y2019,
+         c2021=y2021 - y2020,
+         c2022=y2022 - y2021)
+
+# now collapse for more readable results ----
+pit32c <- pit31 |>
+  filter(taxstatus=="All Returns") |> 
+  left_join(agiranges, by = join_by(nyagirange)) |> 
+  mutate(rangenum = ifelse(rangenum < 18, 0, rangenum),
+         nyagirange = ifelse(rangenum==0, "< $100,000", nyagirange)) |> 
+  summarise(credits=sum(credits),
+            .by=c(restype, rangenum, nyagirange, taxyear)) |> 
+  pivot_wider(names_from = taxyear, values_from = credits, names_prefix = "y") |> 
+  select(restype, rangenum, nyagirange, y2015:y2022) |> 
+  arrange(restype, rangenum)
+
+pit32c |> 
+  filter(restype=="All Filers") |> 
+  select(rangenum, nyagirange, y2017:y2022) |> 
+  mutate(c1819=y2019 - y2018,
+         c1920=y2020 - y2019,
+         c2021=y2021 - y2020,
+         c2122=y2022 - y2021) |> 
+  select(-rangenum) |> 
+  gt() |> 
+  tab_header(title = "NY Personal income tax credits by tax year ($ millions)",
+             subtitle = "Includes taxable and non-taxable returns, residents and non-residents") |> 
+  cols_label_with(columns = starts_with("y"), fn=\(x) str_remove(x, "y")) |> 
+  cols_label(c1819 = md("2019<br>minus<br>2018"),
+             c1920 = md("2020<br>minus<br>2019"),
+             c2021 = md("2021<br>minus<br>2020"),
+             c2122 = md("2022<br>minus<br>2021")) |> 
+  fmt_number(-c(nyagirange),
+             scale=1e-6,
+             decimals = 0)
+
+
+ pit31 |>
+  filter(taxstatus=="All Returns") |>
+  summarise(across(c(rrpetgain, nrrpetgain, rrpetloss, nrrpetloss)),
+            .by = c(taxyear, restype, nyagirange)) |> 
+  left_join(agiranges, by = join_by(nyagirange)) |> 
+  pivot_wider(names_from = taxyear, values_from = credits, names_prefix = "y") |> 
+  select(restype, rangenum, nyagirange, y2015:y2022) |> 
+  filter(restype=="Full-Year Resident") |> 
+  select(rangenum, nyagirange, rrpetgain, nrrpetgain, rrpetloss, nrrpetloss, y2019:y2022) |> 
+  mutate(c1920=y2020 - y2019,
+         c2021=y2021 - y2020,
+         c2022=y2022 - y2021)
+
+
+```
+
+## County credits and partner income
+
+```{r}
+#| label: all-other-as-lump
+
+
+nyccos <- c("Bronx", "Kings", "Manhattan", "Queens", "Richmond")
+mtasubs <- c("Nassau", "Suffolk", "Dutchess", "Orange", "Putnam", "Rockland", "Westchester")
+# mtaplaces <- c("All New York City", "Nassau", "Suffolk", "Dutchess", "Orange", "Putnam", "Rockland", "Westchester")
+# places <- c("All Places", mtaplaces)
+
+pit2 <- readRDS(fs::path(ddir, "pit2.rds")) 
+glimpse(pit2)
+cbind(1:ncol(pit2), names(pit2))
+
+pit2a <- pit2 |> 
+  select(taxyear=1, restype=2, por=3, county=4, state=5, country=6,
+         nyagirange=7, notes=8, nret=9, 
+         nysource=11, ti=17, taxbc=18, credits=19, taxac=20, 
+         rrpetgain=26, rrpetloss=27, fedadjs=32, othernyadds=37, nyadds=52, placesort=54, rangenum=55) |> 
+  relocate(rangenum, .before=nyagirange)
+
+tmp <- count(pit2a, placesort, restype, por, county, state, country)
+
+pit2b <- pit2a |> 
+  mutate(nyccounty = county %in% nyccos,
+         nyctotal = county == "All New York City",
+         mtasubs = county %in% mtasubs,
+         mta = nyccounty | nyctotal | mtasubs,
+         otherny = placesort %in% c(70, 80) & state=="New York" & restype=="Full-Year Resident")
+summary(pit2b)
+
+# total credits over time
+pit2b |> 
+  filter(restype=="All Filers", rangenum==16) |> 
+  select(taxyear, por, county, state, country, nyagirange, nret, credits) |> 
+  arrange(taxyear) |> 
+  mutate(pch=credits / lag(credits) - 1)
+
+pit2b |> 
+  filter(restype=="All Filers", rangenum==15) |> 
+  select(taxyear, por, county, state, country, nyagirange, nret, credits) |> 
+  arrange(taxyear) |> 
+  mutate(pch=credits / lag(credits) - 1)
+  
+pit2b |> 
+  filter(nyctotal | mtasubs, rangenum==16) |> 
+  select(taxyear, por, county, state, country, nyagirange, nret, credits) |> 
+  arrange(taxyear)
+
+pit2b |> 
+  filter(nyctotal | mtasubs | restype=="All Filers", rangenum==16) |> 
+  select(taxyear, por, county, state, country, nyagirange, nret, credits) |> 
+  arrange(taxyear)
+
+
+pit2b |> 
+  filter(nyctotal, rangenum==16) |> 
+  select(taxyear, por, county, state, country, nyagirange, nret, credits) |> 
+  arrange(taxyear)
+
+
+# fix missing agi ranges
+tmp <- pit2b |> 
+  filter(is.na(rangenum))
+
+agiranges <- pit2b |> 
+  filter(!is.na(rangenum)) |> 
+  select(rangenum, nyagirange) |> 
+  distinct()
+
+pit2c <- pit2b |> 
+  left_join(agiranges |> 
+              rename(rangenum2=rangenum),
+            by = join_by(nyagirange)) |> 
+  mutate(rangenum=ifelse(is.na(rangenum), rangenum2, rangenum)) |> 
+  select(-rangenum2)
+
+count(pit2c, rangenum, nyagirange)
+
+```
+
+```{r}
+
+ptet1 <- pit2c |> 
+  filter((nyctotal | mtasubs | restype=="All Filers") |
+           otherny, 
+         rangenum %in% 14:15) |> 
+  select(restype, taxyear, por, county, state, country, rangenum, nyagirange, otherny, nret, credits) |> 
+  mutate(county = case_when(county == "All New York City" ~ "New York City", 
+                            otherny ~ "Elsewhere in NY",
+                            .default = county)) |> 
+  arrange(taxyear)
+
+count(ptet1, restype, por, county, state, country)
+
+check <- ptet1 |> 
+  filter(taxyear %in% c(2019, 2022)) |> 
+  select(-nret) |> 
+  pivot_wider(names_from = taxyear, values_from = credits, names_prefix = "y") |> 
+  mutate(change=y2022 - y2019)
+
+check <- ptet1 |> 
+  filter(taxyear %in% c(2018:2022)) |> 
+  select(-nret) |> 
+  pivot_wider(names_from = taxyear, values_from = credits, names_prefix = "y") |> 
+  mutate(change=y2022 - y2019)
+
+
+# ptet2 <- ptet1 |> 
+#   filter(taxyear %in% c(2018, 2019, 2022)) |> 
+#   select(-nret) |> 
+#   pivot_wider(names_from = taxyear, values_from = credits, names_prefix = "y") |> 
+#   mutate(base=pmean(y2018, y2019),
+#          ptet=y2022 - base)
+# 
+# ptet2a <- ptet1 |> 
+#   filter(taxyear %in% c(2019, 2020, 2022)) |> 
+#   select(-nret) |> 
+#   pivot_wider(names_from = taxyear, values_from = credits, names_prefix = "y") |> 
+#   mutate(base=pmean(y2019, y2020),
+#          ptet=y2022 - base)
+
+ptet2b <- ptet1 |> 
+  filter(taxyear %in% c(2019, 2020, 2022)) |> 
+  select(-nret) |> 
+  pivot_wider(names_from = taxyear, values_from = credits, names_prefix = "y") |> 
+  mutate(base=y2020 * 1.08 * 1.08, # 2 years of credit growth
+         ptet=y2022 - base)
+
+  
+ptet3 <- ptet2b |> 
+  summarise(n=n(),
+            ptet=sum(ptet), 
+            .by=county)|> 
+  mutate(sort=row_number(),
+         nyctotal = county == "New York City",
+         mtasubs = county %in% mtasubs)
+
+subtot <- ptet3 |> 
+  filter(mtasubs) |> 
+  summarise(n=n(),
+            ptet=sum(ptet)) |> 
+  mutate(county="MTA suburbs",
+         mta = TRUE,
+         sort=8.2)
+
+nonmta <- ptet3 |> 
+  mutate(ptet=ifelse(county=="All Places", ptet, -ptet)) |> 
+  summarise(n=n(),
+            ptet=sum(ptet)) |> 
+  mutate(county="Non-MTA",
+         mta=FALSE,
+         sort=8.4)
+
+tabdata <- bind_rows(ptet3,
+                     subtot,
+                     nonmta) |> 
+  arrange(sort)
+
+# verify addition
+mcos <- c("Nassau", "Suffolk", "Dutchess", "Orange", "Putnam", "Rockland", "Westchester")
+tabdata |> 
+  mutate(group1 = (county == "New York City" |
+                   county %in% c(mcos, "Non-MTA")) * ptet,
+         group2 = (county %in% c("New York City", "MTA suburbs", "Non-MTA")) * ptet,
+         group3 = (county == "All Places") * ptet) |> 
+  summarise(across(c(group1, group2, group3), sum))
+           
+
+tab <- tabdata |> 
+  arrange(sort) |> 
+  select(county, ptet) |> 
+  mutate(pct=ptet / ptet[county=="All Places"]) |> 
+  gt() |> 
+  tab_header("Estimated New York PTET credit in tax year 2022",
+             subtitle="AGI ranges >= $500k") |> 
+  cols_label(county="Area",
+             ptet="PTET Credit ($ millions)",
+             pct="% share of total") |> 
+  fmt_number(columns = ptet,
+             scale=1e-6,
+             decimals = 0) |> 
+  fmt_currency(columns = ptet,
+               rows=c(1, nrow(tabdata)),
+               scale=1e-6,
+               decimals = 0) |> 
+  fmt_percent(columns = pct,
+              decimals = 1) |> 
+  tab_source_note("Calculation: (1) Total tax credits in 2022 for AGI >= $500k minus (2) 2020 credits with 2 years 8% growth added")
+
+tab
+
+tab |> 
+  tab_style(
+    style = cell_fill(color = "grey96"),
+    locations = cells_body(rows = c(1, 9, 10))) |> 
+  tab_style(
+    style = cell_fill(color = "#F0F8FF"),
+    locations = cells_body(rows = c(11)))
 
 
 ```
