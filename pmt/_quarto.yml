@@ -30,10 +30,11 @@ book:
       # - get_susb_data.qmd # NO LONGER USED
       # - create_pmt_file.qmd # NO LONGER USED
       - pmt_model.qmd  # after we've saved data use this
+      - pmt_model_data_notes.qmd
     - part: "PMT analysis"
       chapters:
       - pmt_baseline_analysis.qmd
-      # - pmt_alternatives.qmd
+      - pmt_alternatives.qmd
 
      # which of these qcew files did I use?      
       # - get_qcew_data.qmd

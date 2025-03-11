@@ -1,0 +1,18 @@
+## PMT model data notes
+
+The PMT database used below has estimates of \# of establishments, \# of employees, and total payroll by county, industry, and establishment size (# of employees). It was constructed by (1) starting with QCEW data on establishments, employees, and wages by county and industry, and (2) using establishment-size information from County Business Patterns to estimate the breakdown of the QCEW by establishment size.
+
+An establishment is a workplace.
+
+The database has several weaknesses:
+
+-   The data are based on establishment size but PMT tax rates are based on business size (the size of the firm in the MTA region). Thus, tax rates will tend to be understated somewhat because firms are bigger than establishments in the case of multi-establishment firms.
+-   The data do not include government employers. In general, New York state government employers and New York local non-school-district government employers are taxable. This could understate tax revenue by 5% (+/-).
+-   The data do not include self-employed individuals who are subject to the net self-employment earnings tax that is a counterpart to the payroll tax. External adjustments should be made to accounty for this.
+
+I can improve the database to adjust for the distinction between firm size and establishment size, and to add in data for government employers, but I have not done so yet.
+
+Benchmarks from tax collections for the 12 months ending Sept 2024, based on Tax Department OpenData:
+
+-   Payroll tax collections were \$2,924 million
+-   Net earnings self-employment tax collections were \$140 million

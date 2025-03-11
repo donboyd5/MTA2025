@@ -24,17 +24,7 @@ source(here::here("pmt", "pmt_constants_and_functions.r"))
 ```
 
 ```{r}
-#| label: reporting-helpers
-
-source_note <- "Source: Melding of Quarterly Census of Employment and Wages (QCEW) 2023 with County Business Patterns (CBP) 2022"
-
-long_note <- "Note: Estimated current-law 2024 wage tax is approximately 12% lower than $2.9 billion wage tax collections. Possible reasons: (1) Some state and local government entities are taxed but not included above. This could be a substantial part of the difference. (2) True tax rates are based on firm size in MTA region, for which there is little data, but calculations are based on establishment size. Establishments in multi-establishment firms are smaller than firms so calculated tax rates are biased downward. (3) Estimated distributions of establishments by size rely on CBP 2022 which can't be linked perfectly with QCEW 2023. This might result in downward bias of tax revenue, but that seems unlikely given the methods used."
-
-
-```
-
-```{r}
-#| label: baseline-facts
+#| label: prepare-pmt-data
 #| output: false
 
 pmtbl <- readRDS(fs::path(PDINTERMEDIATE, "pmt2024_baseline.rds"))
@@ -49,6 +39,13 @@ pmtbl2 <- pmtbl |>
   mutate(paygroup=cut(esize_payestab, payroll_cuts, right=FALSE, labels=FALSE),
          paylabel=getlabel(paygroup, paygroup_labels)) |> 
   arrange(paygroup)
+
+
+```
+
+```{r}
+#| label: baseline-facts
+#| output: false
 
 tabdata <- pmtbl2 |> 
   summarise(n=n(),
@@ -147,31 +144,27 @@ tabdata |>
 
 ## Current MTA region tax by firm size and county
 
+This section writes county-by-county results to an Excel file.
+
 ```{r}
 #| label: tax-mta-county
+#| eval: false
 #| output: true
 #| column: page
 
 data1 <- pmtbl2 |> 
-  summarise(n=n(),
-            across(c(esize_estabsadj, 
+  mutate(area = ifelse(nyc, "New York City", area)) |> 
+  summarise(across(c(esize_estabsadj, 
                      esize_emp,
                      esize_payroll,
                      base_tax),
                    \(x) sum(x)),
-                   .by=c(nyc, paygroup, paylabel))
+                   .by=c(area, paygroup, paylabel))
 
-# data1
-
-tabdata <- data1 |> 
-  select(-n, -esize_emp) |> 
-  mutate(nyc=factor(nyc, levels=c(TRUE, FALSE), labels = c("NYC", "Suburbs"))) |> 
-  pivot_wider(names_from=nyc, values_from = c(esize_estabsadj, esize_payroll, base_tax)) |> 
-  mutate(base_total_tax=base_tax_NYC + base_tax_Suburbs) |> 
-  arrange(paygroup) |> 
-  select(paylabel, contains("NYC"), contains("Suburbs"), base_total_tax) |> 
-  janitor::adorn_totals() |> 
-  mutate(nyc_tax_share=base_tax_NYC / base_total_tax)
-
+write.xlsx(data1, file=fs::path(PDMTA, "baseline_2024tax_by_county_and_establishment_payroll.xlsx"))
 
 ```
+
+<a href="data/for_mta/baseline_2024tax_by_county_and_establishment_payroll.xlsx" download>Download the Excel file</a>
+
+[Download Excel File](data/for_mta/baseline_2024tax_by_county_and_establishment_payroll.xlsx)

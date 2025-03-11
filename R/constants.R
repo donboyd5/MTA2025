@@ -9,6 +9,7 @@ PDATA <- here::here("pmt", "data")
 PDRAW <- fs::path(PDATA, "data_raw")
 PDINTERMEDIATE <- fs::path(PDATA, "intermediate")
 PDSCRATCH <- fs::path(PDATA, "scratch")
+PDMTA <- fs::path(PDATA, "for_mta")
 
 # plot items ---------------------------------------------------------------
 legend_none <- theme(legend.position = "None")

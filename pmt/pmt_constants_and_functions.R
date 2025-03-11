@@ -1,5 +1,12 @@
 
 
+# pmt notes ---------------------------------------------------------------
+
+source_note <- "Source: Melding of Quarterly Census of Employment and Wages (QCEW) 2023 with County Business Patterns (CBP) 2022"
+
+long_note <- "Note: Estimated current-law 2024 wage tax is approximately 12% lower than $2.9 billion wage tax collections. Possible reasons: (1) Some state and local government entities are taxed but not included above. This could be a substantial part of the difference. (2) True tax rates are based on firm size in MTA region, for which there is little data, but calculations are based on establishment size. Establishments in multi-establishment firms are smaller than firms so calculated tax rates are biased downward. (3) Estimated distributions of establishments by size rely on CBP 2022 which can't be linked perfectly with QCEW 2023. This might result in downward bias of tax revenue, but that seems unlikely given the methods used."
+
+
 # pmt rate schedules ------------------------------------------------------
 
 base_rates <- read_csv(
@@ -12,9 +19,7 @@ Inf, 0.0060, 0.0034
 # base_rates
  
 
-
 # pmt model functions -----------------------------------------------------
-
 
 get_info <- function(payroll, nyc, rates, prefix="base_"){
   # function to get tax rate and payroll bounds for a given

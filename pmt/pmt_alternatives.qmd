@@ -1,6 +1,43 @@
 # PMT alternative policies
 
-## Raise exclusion from \$1.2m to \$1.6m and raise top rate proportionately in NYC & suburbs to maintain revenue-neutrality, 2024
+```{r}
+#| label: setup
+
+suppressPackageStartupMessages(source(here::here("R", "libraries.r")))
+suppressPackageStartupMessages(source(here::here("R", "libraries_ts.r")))
+
+source(here::here("R", "constants.r"))
+source(here::here("R", "functions.r"))
+source(here::here("pmt", "pmt_constants_and_functions.r"))
+
+# GLOBAL OPTIONS:
+#  eval: true
+#  output: false
+#  echo: false
+
+```
+
+```{r}
+#| label: prepare-pmt-data
+#| output: false
+
+pmtbl <- readRDS(fs::path(PDINTERMEDIATE, "pmt2024_baseline.rds"))
+glimpse(pmtbl)
+count(pmtbl, status)
+
+# define payroll cuts and labels
+(payroll_cuts <- c(0, 500e3, seq(1e6, 2e6, 200e3), seq(2e6, 5e6, 1e6), Inf, 1.25e6, 1.75e6) |> unique() |> sort())
+paygroup_labels <- cutlabs(payroll_cuts)
+
+pmtbl2 <- pmtbl |> 
+  mutate(paygroup=cut(esize_payestab, payroll_cuts, right=FALSE, labels=FALSE),
+         paylabel=getlabel(paygroup, paygroup_labels)) |> 
+  arrange(paygroup)
+
+
+```
+
+## Raise taxability threshold from \$1.2m to \$1.6m and raise top rate proportionately in NYC & suburbs to maintain revenue-neutrality, 2024
 
 ```{r}
 #| label: calc-revenue-neutral-rate
@@ -135,7 +172,7 @@ tabdata |>
 
 ```
 
-## Increase revenue by \$500 million while raising threshold
+## Increase revenue by \$500 million while raising taxability threshold to \$1.6 million
 
 ```{r}
 #| label: determine-500m-rates
