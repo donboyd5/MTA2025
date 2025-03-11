@@ -7,7 +7,9 @@ options(tibble.print_max = tprint, tibble.print_min = tprint) # show up to tprin
 library(furrr)
 
 library(fs)
+library(lobstr)
 library(microbenchmark)
+library(zip)
 
 # tools
 library(vroom)

@@ -1,6 +1,6 @@
 project:
   type: book
-  output-dir: _web
+  output-dir: _master
   
 execute:
   eval: true
@@ -11,29 +11,27 @@ execute:
 # rm _book/bill_outline.html; quarto render bill_outline.qmd  
 
 book:
-  title: "MTA PMT Analysis"
+  title: "MTA Estimates and Backup"
   subtitle: ""
   author: "Don Boyd"
   date: today
   date-format: long
   chapters:
     - index.qmd
-    - part: "PMT rules"
+    - part: "PMT"
       chapters:    
       - pmt_rules.qmd
-    - part: "Prepare pmt model data"
-      chapters:
+      - pmt_model.qmd
+      # - pmt_analysis.qmd
+    # - part: "Prepare data"
+    #   chapters:
       # - get_cbp_data.qmd # I THINK WE USE THIS BUT VERIFY
       # - get_qcew_data.qmd # I THINK WE USE THIS BUT VERIFY
       # - simple_estabs_basis # THIS IS THE ONE TO USE AFTER GETTING CBP AND QCEW DATA
       # - method_steps.qmd # SHOULD BE JUST INFO
       # - get_susb_data.qmd # NO LONGER USED
       # - create_pmt_file.qmd # NO LONGER USED
-      - pmt_model.qmd  # after we've saved data use this
-    - part: "PMT analysis"
-      chapters:
-      - pmt_baseline_analysis.qmd
-      # - pmt_alternatives.qmd
+      # - pmt_model.qmd  # after we've saved data use this
 
      # which of these qcew files did I use?      
       # - get_qcew_data.qmd
@@ -69,4 +67,3 @@ editor_options:
 # quarto publish netlify --no-render
 # quarto publish netlify --no-browser --no-prompt
 # quarto publish netlify --no-render --no-browser --no-prompt 
-# 

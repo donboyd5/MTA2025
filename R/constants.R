@@ -66,7 +66,7 @@ Putnam County
 Rockland County
 Suffolk County
 Westchester County
-")
+", show_col_types = FALSE)
 
 constants$nyc <- constants$mtaregion |> 
   slice_head(n=5)

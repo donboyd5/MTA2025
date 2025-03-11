@@ -1,0 +1,245 @@
+# PMT alternative policies
+
+## Raise exclusion from \$1.2m to \$1.6m and raise top rate proportionately in NYC & suburbs to maintain revenue-neutrality, 2024
+
+```{r}
+#| label: calc-revenue-neutral-rate
+#| output: false
+
+base_rates
+
+raise_exclusion <- base_rates |> 
+  mutate(payroll_ub = ifelse(payroll_ub==1.25e6, 1.6e6, payroll_ub)) |> # raise the bottom
+  filter(payroll_ub != 1.5e6)
+
+xup <- pmtbl2 |> 
+  mutate(get_info(esize_payestab, nyc, rates=raise_exclusion, prefix="xup_"),
+         xup_tax= esize_payroll * xup_rate)
+
+xup |> 
+  mutate(paygroup = ifelse(esize_payestab >= 1.75e6, 99, paygroup),
+         paylabel=ifelse(paygroup==99, "top", paylabel)) |> 
+  summarise(n=n(),
+          across(c(base_tax, xup_tax),
+                 \(x) sum(x)),
+                 .by=c(paygroup, paylabel)) |> 
+  janitor::adorn_totals() |> 
+  mutate(change=xup_tax - base_tax) |> 
+  knitr::kable(decimals=1, format.args = list(big.mark = ","))
+# 1.7 % rate increase needed
+
+
+adjust <- 1.016996
+raise_exclusion_and_top_rate <- base_rates |> 
+  mutate(payroll_ub = ifelse(payroll_ub==1.25e6, 1.6e6, payroll_ub)) |> # raise the bottom
+  mutate(nyc = ifelse(is.infinite(payroll_ub), nyc * adjust, nyc),
+         suburbs = ifelse(is.infinite(payroll_ub), suburbs * adjust, suburbs)) |> 
+  mutate(across(c(nyc, suburbs), \(x) round(x, 5))) |> 
+  filter(payroll_ub != 1.5e6)
+
+raise_exclusion_and_top_rate |> knitr::kable()
+
+xuptopup <- pmtbl2 |> 
+  mutate(get_info(esize_payestab, nyc, rates=raise_exclusion_and_top_rate, prefix="xuptopup_"),
+         xuptopup_tax= esize_payroll * xuptopup_rate)
+
+xuptopup |>
+  summarise(n=n(),
+          across(c(base_tax, xuptopup_tax),
+                 \(x) sum(x)),
+                 .by=c(paygroup, paylabel)) |> 
+  janitor::adorn_totals() |> 
+  mutate(change=xuptopup_tax - base_tax) |> 
+  knitr::kable(decimals=1, format.args = list(big.mark = ","))
+
+```
+
+```{r}
+#| label: get-rev-neutral-rates
+
+data1 <- xuptopup |> 
+  summarise(n=n(),
+            across(c(esize_estabsadj, 
+                     esize_emp,
+                     # esize_payroll,
+                     base_tax,
+                     xuptopup_tax),
+                   \(x) sum(x)),
+                   .by=c(nyc, paygroup, paylabel))
+
+# data1
+
+tabdata <- data1 |> 
+  select(-n, -esize_emp) |> 
+  mutate(nyc=factor(nyc, levels=c(TRUE, FALSE), labels = c("NYC", "Suburbs"))) |> 
+  pivot_wider(names_from=nyc, values_from = c(esize_estabsadj, base_tax, xuptopup_tax)) |> 
+  mutate(base_total_tax = base_tax_NYC + base_tax_Suburbs,
+         alt_total_tax = xuptopup_tax_NYC + xuptopup_tax_Suburbs) |> 
+  arrange(paygroup) |> 
+  select(paylabel, contains("NYC"), contains("Suburbs"), base_total_tax, alt_total_tax) |> 
+  janitor::adorn_totals() |> 
+  mutate(change=alt_total_tax - base_total_tax,
+         nyc_change_share = (xuptopup_tax_NYC - base_tax_NYC) / change,
+        nyc_change_share = ifelse(paylabel=="Total", NA_real_, nyc_change_share))
+# tabdata
+
+```
+
+```{r}
+#| label: show-tax-rates
+#| output: true
+
+base_rates |> 
+  gt() |> 
+  tab_header("Current PMT rates") |> 
+  cols_label(payroll_ub = "Payroll upper bound") |> 
+  fmt_number(columns = payroll_ub, decimal=0) |> 
+  fmt_percent(columns = c(nyc, suburbs), decimals=3)
+
+ 
+raise_exclusion_and_top_rate |> 
+  gt() |> 
+  tab_header("Revenue neutral rates, increasing exclusion and top rate") |> 
+  cols_label(payroll_ub = "Payroll upper bound") |> 
+  fmt_number(columns = payroll_ub, decimal=0) |> 
+  fmt_percent(columns = c(nyc, suburbs), decimals=3)
+
+```
+
+```{r}
+#| label: examine-revenue-neutral
+#| output: true
+#| column: page
+
+tabdata |> 
+  gt() |> 
+  tab_header("Revenue-neutral increase in tax-exclusion threshold (to $1.6m annual from $1.25m) with proportionate increase in top rate (+1.7%)",
+             subtitle = "Private sector only. Amounts in $ millions") |> 
+  cols_label(paylabel="Average establishment payroll ($)",
+             contains("estabsadj") ~ "# of establishments",
+             contains("base_tax") ~ "Baseline PMT wage tax ($m)",
+             contains("xuptopup_tax") ~ "Alternative PMT wage tax ($m)",
+             base_total_tax = "Baseline total PMT wage tax ($m)",
+             alt_total_tax = "Alternative total tax ($m)",
+             change = "Change in tax ($m)",
+             nyc_change_share = "NYC share of tax change") |> 
+  tab_spanner(label="New York City", columns=contains("NYC", ignore.case = FALSE)) |> 
+  tab_spanner(label="Suburbs", columns=contains("suburbs", ignore.case = TRUE)) |> 
+  fmt_number(columns = contains("estabsadj"), decimals=0) |>
+  fmt_number(columns = c(contains("tax"), change), scale = 1e-6, decimals = 1) |>
+  fmt_currency(rows=c(1, nrow(tabdata)), columns = c(contains("tax"), change), scale=1e-6, decimals=1) |> 
+  fmt_percent(columns = c(nyc_change_share), decimals=1)  |> 
+  sub_missing(missing_text = "--") |> 
+  tab_source_note(source_note = source_note) |> 
+  tab_source_note(source_note = long_note)
+
+```
+
+## Increase revenue by \$500 million while raising threshold
+
+```{r}
+#| label: determine-500m-rates
+
+adjust <- 1.216
+
+raise_halfbillion_and_increase_exclusion <- base_rates |> 
+  mutate(payroll_ub = ifelse(payroll_ub==1.25e6, 1.6e6, payroll_ub)) |> # raise the bottom threshold
+  mutate(nyc = ifelse(is.infinite(payroll_ub), nyc * adjust, nyc),
+         suburbs = ifelse(is.infinite(payroll_ub), suburbs * adjust, suburbs)) |> 
+  mutate(across(c(nyc, suburbs), \(x) round(x, 5))) |> 
+  filter(payroll_ub != 1.5e6)
+
+raise_halfbillion_and_increase_exclusion |> knitr::kable()
+
+alt <- pmtbl2 |> 
+  mutate(get_info(esize_payestab, nyc, rates=raise_halfbillion_and_increase_exclusion, prefix="alt_"),
+         alt_tax= esize_payroll * alt_rate)
+
+alt |>
+  summarise(n=n(),
+          across(c(base_tax, alt_tax),
+                 \(x) sum(x)),
+                 .by=c(paygroup, paylabel)) |> 
+  janitor::adorn_totals() |> 
+  mutate(change=alt_tax - base_tax) |> 
+  knitr::kable(decimals=1, format.args = list(big.mark = ","))
+
+```
+
+```{r}
+#| label: show-increase-tax-rates
+#| output: true
+
+base_rates |> 
+  gt() |> 
+  tab_header("Current PMT rates") |> 
+  cols_label(payroll_ub = "Payroll upper bound") |> 
+  fmt_number(columns = payroll_ub, decimal=0) |> 
+  fmt_percent(columns = c(nyc, suburbs), decimals=3)
+
+ 
+raise_halfbillion_and_increase_exclusion |> 
+  gt() |> 
+  tab_header("Rates to raise $500 million: Combination of higher top rate and increase in exclusion from tax") |> 
+  cols_label(payroll_ub = "Payroll upper bound") |> 
+  fmt_number(columns = payroll_ub, decimal=0) |> 
+  fmt_percent(columns = c(nyc, suburbs), decimals=3)
+
+```
+
+```{r}
+#| label: calc-increase
+
+data1 <- alt |> 
+  summarise(n=n(),
+            across(c(esize_estabsadj, 
+                     esize_emp,
+                     base_tax,
+                     alt_tax),
+                   \(x) sum(x)),
+                   .by=c(nyc, paygroup, paylabel))
+
+tabdata <- data1 |> 
+  select(-n, -esize_emp) |> 
+  mutate(nyc=factor(nyc, levels=c(TRUE, FALSE), labels = c("NYC", "Suburbs"))) |> 
+  pivot_wider(names_from=nyc, values_from = c(esize_estabsadj, base_tax, alt_tax)) |> 
+  mutate(base_total_tax = base_tax_NYC + base_tax_Suburbs,
+         alt_total_tax = alt_tax_NYC + alt_tax_Suburbs) |> 
+  arrange(paygroup) |> 
+  select(paylabel, contains("NYC"), contains("Suburbs"), base_total_tax, alt_total_tax) |> 
+  janitor::adorn_totals() |> 
+  mutate(change=alt_total_tax - base_total_tax,
+         nyc_change_share = (alt_tax_NYC - base_tax_NYC) / change)
+  #      nyc_change_share = ifelse(paylabel=="Total", NA_real_, nyc_change_share))
+# tabdata
+
+```
+
+```{r}
+#| label: show-500-million-increase
+#| output: true
+#| column: page
+
+tabdata |> 
+  gt() |> 
+  tab_header("$500 million increase from 21.6% increase in top rate and raising tax-exclusion threshold to $1.6m annual from $1.25m",
+             subtitle = "Private sector only. Amounts in $ millions") |> 
+  cols_label(paylabel="Average establishment payroll ($)",
+             contains("estabsadj") ~ "# of establishments",
+             contains("base_tax") ~ "Baseline PMT wage tax ($m)",
+             contains("alt_tax") ~ "Alternative PMT wage tax ($m)",
+             base_total_tax = "Baseline total PMT wage tax ($m)",
+             alt_total_tax = "Alternative total tax ($m)",
+             change = "Change in tax ($m)",
+             nyc_change_share = "NYC share of tax change") |> 
+  tab_spanner(label="New York City", columns=contains("NYC", ignore.case = FALSE)) |> 
+  tab_spanner(label="Suburbs", columns=contains("suburbs", ignore.case = TRUE)) |> 
+  fmt_number(columns = contains("estabsadj"), decimals=0) |>
+  fmt_number(columns = c(contains("tax"), change), scale = 1e-6, decimals = 1) |>
+  fmt_currency(rows=c(1, nrow(tabdata)), columns = c(contains("tax"), change), scale=1e-6, decimals=1) |> 
+  fmt_percent(columns = c(nyc_change_share), decimals=1)  |> 
+  sub_missing(missing_text = "--") |> 
+  tab_source_note(source_note = source_note) |> 
+  tab_source_note(source_note = long_note)
+
+```

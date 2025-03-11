@@ -1,0 +1,177 @@
+---
+output: html_document
+editor_options: 
+  chunk_output_type: console
+---
+
+# PMT baseline analysis
+
+```{r}
+#| label: setup
+
+suppressPackageStartupMessages(source(here::here("R", "libraries.r")))
+suppressPackageStartupMessages(source(here::here("R", "libraries_ts.r")))
+
+source(here::here("R", "constants.r"))
+source(here::here("R", "functions.r"))
+source(here::here("pmt", "pmt_constants_and_functions.r"))
+
+# GLOBAL OPTIONS:
+#  eval: true
+#  output: false
+#  echo: false
+
+```
+
+```{r}
+#| label: reporting-helpers
+
+source_note <- "Source: Melding of Quarterly Census of Employment and Wages (QCEW) 2023 with County Business Patterns (CBP) 2022"
+
+long_note <- "Note: Estimated current-law 2024 wage tax is approximately 12% lower than $2.9 billion wage tax collections. Possible reasons: (1) Some state and local government entities are taxed but not included above. This could be a substantial part of the difference. (2) True tax rates are based on firm size in MTA region, for which there is little data, but calculations are based on establishment size. Establishments in multi-establishment firms are smaller than firms so calculated tax rates are biased downward. (3) Estimated distributions of establishments by size rely on CBP 2022 which can't be linked perfectly with QCEW 2023. This might result in downward bias of tax revenue, but that seems unlikely given the methods used."
+
+
+```
+
+```{r}
+#| label: baseline-facts
+#| output: false
+
+pmtbl <- readRDS(fs::path(PDINTERMEDIATE, "pmt2024_baseline.rds"))
+glimpse(pmtbl)
+count(pmtbl, status)
+
+# define payroll cuts and labels
+(payroll_cuts <- c(0, 500e3, seq(1e6, 2e6, 200e3), seq(2e6, 5e6, 1e6), Inf, 1.25e6, 1.75e6) |> unique() |> sort())
+paygroup_labels <- cutlabs(payroll_cuts)
+
+pmtbl2 <- pmtbl |> 
+  mutate(paygroup=cut(esize_payestab, payroll_cuts, right=FALSE, labels=FALSE),
+         paylabel=getlabel(paygroup, paygroup_labels)) |> 
+  arrange(paygroup)
+
+tabdata <- pmtbl2 |> 
+  summarise(n=n(),
+            across(c(esize_estabsadj, 
+                     esize_emp,
+                     esize_payroll,
+                     base_tax),
+                   \(x) sum(x)),
+                   .by=c(paygroup, paylabel)) |> 
+  mutate(taxpct=base_tax / sum(base_tax)) |> 
+  select(-paygroup, -n) |> 
+  janitor::adorn_totals()
+
+```
+
+## Current Total MTA region tax by firm size
+
+```{r}
+#| label: total-tax
+#| output: true
+
+tabdata |> 
+  gt() |> 
+  tab_header("Estimated distribution of PMT wage tax by establishment payroll size, 2024",
+             subtitle = "Private sector only. Amounts in $ millions") |> 
+  cols_label(paylabel="Average establishment payroll ($)",
+             esize_estabsadj="# of establishments",
+             esize_emp="# of employees",
+             esize_payroll="Total payroll ($m)",
+             base_tax="PMT wage tax ($m)",
+             taxpct="Tax as % of total") |> 
+  fmt_number(columns = c(esize_estabsadj, esize_emp), decimals=0) |>
+  fmt_number(columns = c(esize_payroll, base_tax), scale=1e-6, decimals=1) |>
+  fmt_currency(rows=c(1, nrow(tabdata)), columns = c(esize_payroll, base_tax), scale=1e-6, decimals=1) |> 
+  fmt_percent(columns = c(taxpct), decimals=1)  |> 
+  tab_source_note(source_note = source_note) |> 
+  tab_source_note(source_note = long_note)
+
+```
+
+## Current MTA region tax by firm size and NYC-suburbs
+
+```{r}
+#| label: tax-mta-suburbs
+#| output: true
+#| column: page
+
+data1 <- pmtbl2 |> 
+  summarise(n=n(),
+            across(c(esize_estabsadj, 
+                     esize_emp,
+                     esize_payroll,
+                     base_tax),
+                   \(x) sum(x)),
+                   .by=c(nyc, paygroup, paylabel))
+
+# data1
+
+tabdata <- data1 |> 
+  select(-n, -esize_emp) |> 
+  mutate(nyc=factor(nyc, levels=c(TRUE, FALSE), labels = c("NYC", "Suburbs"))) |> 
+  pivot_wider(names_from=nyc, values_from = c(esize_estabsadj, esize_payroll, base_tax)) |> 
+  mutate(base_total_tax=base_tax_NYC + base_tax_Suburbs) |> 
+  arrange(paygroup) |> 
+  select(paylabel, contains("NYC"), contains("Suburbs"), base_total_tax) |> 
+  janitor::adorn_totals() |> 
+  mutate(nyc_tax_share=base_tax_NYC / base_total_tax)
+  
+             # esize_estabsadj="# of establishments",
+             # esize_emp="# of employees",
+             # esize_payroll="Total payroll ($m)",
+             # base_tax="PMT wage tax ($m)",
+             # taxpct="Tax as % of total") |> 
+
+tabdata |> 
+  gt() |> 
+  tab_header("Estimated distribution of PMT wage tax by establishment payroll size, 2024",
+             subtitle = "Private sector only. Amounts in $ millions") |> 
+  cols_label(paylabel="Average establishment payroll ($)",
+             contains("estabsadj") ~ "# of establishments",
+             contains("payroll") ~ "Total payroll ($m)",
+             contains("base_tax") ~ "PMT wage tax ($m)",
+             base_total_tax = "Total PMT wage tax ($m)",
+             nyc_tax_share = "NYC share of tax") |> 
+  tab_spanner(label="New York City", columns=contains("NYC", ignore.case = FALSE)) |> 
+  tab_spanner(label="Suburbs", columns=contains("suburbs", ignore.case = TRUE)) |> 
+  fmt_number(columns = contains("estabsadj"), decimals=0) |>
+  fmt_number(columns = c(contains("tax"), contains("payroll")), scale = 1e-6, decimals = 1) |>
+  fmt_currency(rows=c(1, nrow(tabdata)), columns = c(contains("tax"), contains("payroll")), scale=1e-6, decimals=1) |> 
+  fmt_percent(columns = c(nyc_tax_share), decimals=1)  |> 
+  sub_missing(missing_text = "--") |> 
+  tab_source_note(source_note = source_note) |> 
+  tab_source_note(source_note = long_note)
+
+```
+
+## Current MTA region tax by firm size and county
+
+```{r}
+#| label: tax-mta-county
+#| output: true
+#| column: page
+
+data1 <- pmtbl2 |> 
+  summarise(n=n(),
+            across(c(esize_estabsadj, 
+                     esize_emp,
+                     esize_payroll,
+                     base_tax),
+                   \(x) sum(x)),
+                   .by=c(nyc, paygroup, paylabel))
+
+# data1
+
+tabdata <- data1 |> 
+  select(-n, -esize_emp) |> 
+  mutate(nyc=factor(nyc, levels=c(TRUE, FALSE), labels = c("NYC", "Suburbs"))) |> 
+  pivot_wider(names_from=nyc, values_from = c(esize_estabsadj, esize_payroll, base_tax)) |> 
+  mutate(base_total_tax=base_tax_NYC + base_tax_Suburbs) |> 
+  arrange(paygroup) |> 
+  select(paylabel, contains("NYC"), contains("Suburbs"), base_total_tax) |> 
+  janitor::adorn_totals() |> 
+  mutate(nyc_tax_share=base_tax_NYC / base_total_tax)
+
+
+```
