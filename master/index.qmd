@@ -1,0 +1,15 @@
+---
+title: "MTA analyses"
+author: "Don Boyd"
+date: today
+date-format: long
+format:
+  html:
+    toc: true
+    html-math-method: katex
+    css: styles.css
+---
+
+-   [Payroll mobility tax (PMT)](https://boyd-mta2025-pmt.netlify.app/)
+-   [Pass-Through Entity Tax (PTET)](https://boyd-mta2025-ptet.netlify.app/)
+-   [Internet Marketplace Act]()

@@ -280,3 +280,40 @@ tabdata |>
   tab_source_note(source_note = long_note)
 
 ```
+
+## Alternative MTA region tax (\$500 million increase and taxability threshold raised to \_\$1.6 million) by firm size and county -- Excel file
+
+This section writes county-by-county results to an Excel file.
+
+The columns are:
+
+-   `area`
+-   `paygroup`
+-   `paylabel`
+-   `esize_estabsadj` -- number of establishments in the county-payroll group
+-   `esize_emp` -- number of employees in the group
+-   `base_tax` -- base (current law) tax in the group at 2024 levels
+-   `alt_tax` -- alternative-policy tax in the group at 2024 levels
+
+Note that the file does not have totals by county or by payroll size.
+
+```{r}
+#| label: tax-mta-county
+#| eval: true
+#| output: true
+#| column: page
+
+data1 <- alt |> 
+  mutate(area = ifelse(nyc, "New York City", area)) |> 
+  summarise(across(c(esize_estabsadj, 
+                     esize_emp,
+                     base_tax,
+                     alt_tax),
+                   \(x) sum(x)),
+                   .by=c(area, paygroup, paylabel))
+
+openxlsx::write.xlsx(data1, file=fs::path(PDMTA, "increase500m_by_county_and_establishment_payroll.xlsx"))
+
+```
+
+[Download Excel File -- \$500m increase in tax at 2024 levels, by county and payroll size](data/for_mta/increase500m_by_county_and_establishment_payroll.xlsx)

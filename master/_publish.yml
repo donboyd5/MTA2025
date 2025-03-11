@@ -1,0 +1,4 @@
+- source: project
+  netlify:
+    - id: ce869ab0-1482-4eb6-9d85-52c83c0be0ac
+      url: https://tubular-brigadeiros-474619.netlify.app

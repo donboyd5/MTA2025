@@ -142,13 +142,24 @@ tabdata |>
 
 ```
 
-## Current MTA region tax by firm size and county
+## Current MTA region tax by firm size and county -- Excel file
 
 This section writes county-by-county results to an Excel file.
 
+The columns are:
+
+-   `area`
+-   `paygroup`
+-   `paylabel`
+-   `esize_estabsadj` -- number of establishments in the county-payroll group
+-   `esize_emp` -- number of employees in the group
+-   `base_tax` -- base (current law) tax in the group at 2024 levels
+
+Note that the file does not have totals by county or by payroll size.
+
 ```{r}
 #| label: tax-mta-county
-#| eval: false
+#| eval: true
 #| output: true
 #| column: page
 
@@ -161,10 +172,8 @@ data1 <- pmtbl2 |>
                    \(x) sum(x)),
                    .by=c(area, paygroup, paylabel))
 
-write.xlsx(data1, file=fs::path(PDMTA, "baseline_2024tax_by_county_and_establishment_payroll.xlsx"))
+openxlsx::write.xlsx(data1, file=fs::path(PDMTA, "baseline_2024tax_by_county_and_establishment_payroll.xlsx"))
 
 ```
 
-<a href="data/for_mta/baseline_2024tax_by_county_and_establishment_payroll.xlsx" download>Download the Excel file</a>
-
-[Download Excel File](data/for_mta/baseline_2024tax_by_county_and_establishment_payroll.xlsx)
+[Download Excel File -- Baseline 2024 tax by county and payroll size](data/for_mta/baseline_2024tax_by_county_and_establishment_payroll.xlsx)
