@@ -60,6 +60,10 @@ pit4 <- readRDS(fs::path(ddir, "pit4.rds"))
 ```
 
 ```{r}
+#| eval: true
+
+# pit2 has mid y, restype, por, rrpet gain & loss, tax credits, other NYadds, taxes paid
+pit2 <- readRDS(fs::path(ddir, "pit2.rds")) 
 
 # places
 mtaxnyc <- c("Nassau", "Suffolk", "Dutchess", "Orange", "Putnam", "Rockland", "Westchester")
@@ -69,11 +73,125 @@ nycos <- c("Bronx", "Kings", "Manhattan", "Queens", "Richmond")
 glimpse(pit2)
 vnames2 <- tibble(varnum=1:ncol(pit2), vname=colnames(pit2))
 
-vnames3 <- tibble(varnum=1:ncol(pit3), vname=colnames(pit3))
+# vnames3 <- tibble(varnum=1:ncol(pit3), vname=colnames(pit3))
+
+```
+
+# Examine shares of NYS PIT using 2019 tax data
+
+2020 was disturbed by COVID and 2021 and 2022 are disrupted by the PTET.
+
+```{r}
+#| eval: true
+
+pit2a <- pit2 |> 
+  select(taxyear=1, resstat=2,
+         por=3, county=4, state=5, country=6,
+         nyagirange=7, nret=9, ti=17, taxbc=18, taxac=20, porsort=54, ysort=55)
+
+count(pit2a, ysort, nyagirange)
+
+asort <- c("nyc", "nycos", "mtaxnyc", "mtatotal", "resxmta", "restotal", "nrpy", "grandtotal")
+
+pit2b <- pit2a |> 
+  filter(taxyear==2019, ysort==16) |> 
+  mutate(
+    atype = case_when(
+      resstat == "Full-Year Resident" & por %in% mtaxnyc ~ "mtaxnyc",
+      resstat == "Full-Year Resident" & por == nyc ~ "nyc",
+      resstat == "Full-Year Resident" & county %in% nycos ~ "nycos",
+      resstat == "Full-Year Resident" & por == "All Places" ~ "restotal",
+      resstat == "Full-Year Resident" & porsort == 70 ~ "res_subtotal",
+      resstat == "Full-Year Resident" ~ "resxmta",
+      resstat == "Full-Year Nonresident" & por == "All Places" ~ "nrpy",
+      resstat == "Full-Year Nonresident" ~ "nonres_detail",
+      resstat == "Part-Year Resident" & por == "All Places" ~ "nrpy",
+      resstat == "All Filers" & por == "All Places" ~ "grandtotal",
+      .default = NA_character_)
+    ) |> 
+  filter(!atype %in% c("res_subtotal", "nonres_detail")) |> 
+  mutate(area = ifelse(atype == "mtaxnyc", county, atype)) |> 
+  filter(!is.na(area)) |> 
+  summarise(taxbc = sum(taxbc), taxac = sum(taxac), .by=c(atype, area)) |> 
+  mutate(asort = factor(atype, asort) |> as.integer()) |> 
+  relocate(asort) |> 
+  arrange(asort, area)
+
+# create mta total and mta + nonresidents and get sort and level
+pit2b # check totals -- good
+
+mtatotal <- pit2b |> 
+  filter(atype %in% c("nyc", "mtaxnyc")) |> 
+  summarise(taxbc = sum(taxbc), taxac = sum(taxac)) |> 
+  mutate(atype = "mtatotal", area = "mtatotal")
+
+mtanonres <- pit2b |> 
+  filter(atype %in% c("nyc", "mtaxnyc", "nrpy")) |> 
+  summarise(taxbc = sum(taxbc), taxac = sum(taxac)) |> 
+  mutate(atype = "mtanonres", area = "mtanonres")
+
+pit2c <- pit2b |> 
+  filter(!atype %in% c("nycos")) |> 
+  select(-asort) |> 
+  bind_rows(mtatotal, mtanonres)
+pit2c
 
 ```
 
 ```{r}
+#| label: show-shares
+#| eval: true
+#| output: true
+
+asort3 <- c("nyc", "mtaxnyc", "mtatotal", "resxmta", "restotal", "nrpy", "grandtotal", "mtanonres")
+
+tabdata <- pit2c |> 
+  select(atype, area, taxac) |> 
+  mutate(asort=factor(atype, levels=asort3)) |> 
+  relocate(asort) |> 
+  arrange(asort, area) |> 
+  mutate(pctgrand=taxac / taxac[area=="grandtotal"],
+         pctres=taxac / taxac[area=="restotal"],
+         pctres=ifelse(atype %in% c("nrpy", "grandtotal", "mtanonres"),
+                       NA_real_,
+                       pctres),
+         area=case_when(
+           area == "nyc" ~ "New York City",
+           asort == "mtaxnyc" ~ area,
+           area == "mtatotal" ~ "MTA Total",
+           atype == "resxmta" ~ "NYS outside MTA region",
+           atype == "restotal" ~ "NYS resident total",
+           atype == "nrpy" ~ "Non-resident & part-year resident",
+           atype == "grandtotal" ~ "Grand total",
+           atype == "mtanonres" ~ "MEMO: MTA plus nonresidents",
+           .default = "ERROR"))
+
+
+tab <- tabdata |> 
+  select(-c(asort, atype)) |> 
+  gt() |> 
+  tab_header("MTA and other areas' share of NYS Personal Income Tax, 2019") |> 
+  cols_label(area = "Area",
+             taxac = "Tax liability after credits ($ millions)",
+             pctgrand = "% of grand total",
+             pctres = "% of resident total") |> 
+  fmt_number(columns=taxac,
+             scale_by = 1e-6,
+             decimals = 0) |> 
+  fmt_percent(columns = c(pctgrand, pctres),
+              decimals = 1) |> 
+  sub_missing(missing_text = "--")
+tab
+
+```
+
+```{r stop_here, echo=FALSE}
+knitr::knit_exit()
+```
+
+```{r}
+
+# 2022 data
 
 glimpse(pit2)
 vnames2
@@ -135,6 +253,8 @@ pit2c <- pit2b |>
   arrange(asort, area)
 pit2c
 
+
+
 ```
 
 ```{r}
@@ -163,63 +283,5 @@ pit3b |>
   select(-c(nyagirange, ysort)) |> 
   arrange(taxstatus, resstat, taxyear) |> 
   write_csv(fs::path(ddir, "pit3_summary.csv"))
-
-
-```
-
-MTA using 2019
-
-```{r}
-
-
-pit2b <- pit2a |> 
-  filter(taxyear==2019, ysort==16) |> 
-  mutate(
-    atype = case_when(
-      resstat == "Full-Year Resident" & por %in% mtaxnyc ~ "mtaxnyc",
-      resstat == "Full-Year Resident" & por == nyc ~ "nyc",
-      resstat == "Full-Year Resident" & county %in% nycos ~ "nycos",
-      resstat == "Full-Year Resident" & por == "All Places" ~ "restotal",
-      resstat == "Full-Year Resident" & porsort == 70 ~ "res_subtotal",
-      resstat == "Full-Year Resident" ~ "resxmta",
-      resstat == "Full-Year Nonresident" & por == "All Places" ~ "nrpy",
-      resstat == "Full-Year Nonresident" ~ "nonres_detail",
-      resstat == "Part-Year Resident" & por == "All Places" ~ "nrpy",
-      resstat == "All Filers" & por == "All Places" ~ "grandtotal",
-      .default = NA_character_)
-    ) |> 
-  filter(!atype %in% c("res_subtotal", "nonres_detail")) |> 
-  mutate(area = ifelse(atype == "mtaxnyc", county, atype)) |> 
-  filter(!is.na(area)) |> 
-  summarise(taxbc = sum(taxbc), taxac = sum(taxac), .by=c(atype, area)) |> 
-  mutate(asort = factor(atype, asort) |> as.integer()) |> 
-  relocate(asort) |> 
-  arrange(asort, area)
-
-# create mta total and mta + nonresidents and get sort and level
-pit2b # check totals -- good
-
-mtatotal <- pit2b |> 
-  filter(atype %in% c("nyc", "mtaxnyc")) |> 
-  summarise(taxbc = sum(taxbc), taxac = sum(taxac)) |> 
-  mutate(atype = "mtatotal", area = "mtatotal")
-
-mtanonres <- pit2b |> 
-  filter(atype %in% c("nyc", "mtaxnyc", "nrpy")) |> 
-  summarise(taxbc = sum(taxbc), taxac = sum(taxac)) |> 
-  mutate(atype = "mtanonres", area = "mtanonres")
-
-asort2 <- c("nyc", "mtaxnyc", "mtatotal", "nrpy", "mtanonres", "resxmta", "grandtotal")
-
-pit2c <- pit2b |> 
-  filter(!atype %in% c("nycos", "restotal")) |> 
-  select(-asort) |> 
-  bind_rows(mtatotal, mtanonres) |> 
-  mutate(asort = factor(atype, asort2) |> as.integer()) |> 
-  relocate(asort) |> 
-  arrange(asort, area)
-pit2c
-
-
 
 ```

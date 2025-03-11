@@ -10,6 +10,11 @@ format:
     css: styles.css
 ---
 
--   [Payroll mobility tax (PMT)](https://boyd-mta2025-pmt.netlify.app/)
+Right click a link below to open in a new tab (the sites don't have links back to here):
+
+-   [Internet Marketplace Act](https://mta-internet-marketplace.netlify.app/)
+-   [MTA share of state personal income tax](https://boyd-mta2025-pitshare.netlify.app/)
 -   [Pass-Through Entity Tax (PTET)](https://boyd-mta2025-ptet.netlify.app/)
--   [Internet Marketplace Act]()
+-   [Payroll mobility tax (PMT)](https://boyd-mta2025-pmt.netlify.app/)
+
+<!-- -   [This site (links)](https://boyd-mta2025-links.netlify.app/) -->
