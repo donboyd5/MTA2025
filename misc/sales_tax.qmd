@@ -1,0 +1,40 @@
+---
+output: html_document
+editor_options: 
+  chunk_output_type: console
+---
+
+# Sales tax estimates
+
+## Revenue from an MTA sales tax increase plus a NYC sales tax increase
+
+For the sales tax, I relied on estimates from Senate Finance Committee staff. I did some simple reality checks on the numbers and concluded they were reasonable.
+
+The table below shows my calculations based on emails from Rob Plattner conveying SFC estimates. Those emails did not give a specific year, but it appears from the numbers and the timing that the estimates were for a year near 2024 or 2025. SFC estimated that:
+
+-   Increasing the MTA region state sales tax rate by 0.125% from 0.375% to 0.50% would raise \$453 million,
+-   Increasing the City sales tax rate by 0.25% from 4.5% to 4.75 % would raise \$575 million (for the City, although it could be dedicated to the MTA).
+
+Those estimates imply the following revenue per percentage point:
+
+![](images/clipboard-1540073446.png)
+
+Here is my table using these numbers and simplified assumptions for how much revenue the option would increase:
+
+![](images/clipboard-1025389650.png)
+
+This is simplified in that it doesn't take account differences in sales tax bases across jurisdictions. The state and MTA have the same tax base, but local tax bases differ some, mostly reflecting some differences in treatment of clothing, interior decorating and a few other items.
+
+I only did a little bit of reality checking on these numbers. The numbers imply about \$1.36 billion of MTA sales tax in their unstated year and \$10.2 billion of NYC sales tax. The table below from [DTF collections for 2023-24](https://www.tax.ny.gov/research/stats/statistics/sales_tax/reports/annual-statistical-reports/2023-2024/2023-2024-tables.xlsx) (Table 22) shows \$1.32 billion for the MTA and \$10.2 billion for the NYC sales tax, so the SFC estimates seem reasonable to me.
+
+![](images/clipboard-2408230088.png)
+
+## County by county breakdown of MTA sales tax
+
+There are two ways to try to estimate how much of the MTA sales tax comes from individual counties. One way is to use taxable sales by county from the state tax department. The other is to try to adjust collections of counties' own sales taxes for rate and base differences and estimate county shares that way. The approach below uses county taxable sales.
+
+\[To come shortly\]
+
+In the meantime, here is an earlier table showing that in the 2020-2021 period, NYC was roughly 75% of MTA-region GDP, 61% of MTA-region personal income, and 63% of MTA-region population.
+
+![](images/clipboard-3747688157.png)

@@ -1,0 +1,52 @@
+project:
+  type: book
+  output-dir: _web
+  
+execute:
+  eval: true
+  echo: false
+  output: false
+  freeze: auto  # auto: during global project renders, re-render only when source changes
+  
+# rm _book/bill_outline.html; quarto render bill_outline.qmd  
+
+book:
+  title: "MTA Miscellaneous estimates"
+  subtitle: ""
+  author: "Don Boyd"
+  date: today
+  date-format: long
+  chapters:
+    - index.qmd
+    - sales_tax.qmd
+      
+format:
+  html:
+    theme: cosmo
+    code-fold: true
+    number-depth: 5
+    toc-depth: 5
+    toc-expand: false
+
+# editor: console or visual
+
+editor_options:
+  chunk_output_type: console
+  
+# ```{r stop_here, echo=FALSE}
+# knitr::knit_exit()
+# ```
+
+
+# ---
+# output: html_document
+# editor_options: 
+#   chunk_output_type: console
+# ---
+
+
+# useful reminders of quarto commands:
+# quarto publish netlify --no-render
+# quarto publish netlify --no-browser --no-prompt
+# quarto publish netlify --no-render --no-browser --no-prompt 
+# 

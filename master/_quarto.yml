@@ -12,3 +12,7 @@ format:
   html:
     theme: cosmo
     toc: true
+
+# ```{r stop_here, echo=FALSE}
+# knitr::knit_exit()
+# ```

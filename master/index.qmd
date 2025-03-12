@@ -10,11 +10,12 @@ format:
     css: styles.css
 ---
 
-Right click a link below to open in a new tab (the sites don't have links back to here):
+Right click a link below to open in a new tab (the sites don't have links back to here so best not to navigate away from this page):
 
 -   [Internet Marketplace Act](https://mta-internet-marketplace.netlify.app/)
 -   [MTA share of state personal income tax](https://boyd-mta2025-pitshare.netlify.app/)
 -   [Pass-Through Entity Tax (PTET)](https://boyd-mta2025-ptet.netlify.app/)
 -   [Payroll mobility tax (PMT)](https://boyd-mta2025-pmt.netlify.app/)
+-   [Sales tax estimates](https://boyd-mta2025-misc.netlify.app/)
 
 <!-- -   [This site (links)](https://boyd-mta2025-links.netlify.app/) -->
