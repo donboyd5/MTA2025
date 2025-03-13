@@ -16,6 +16,7 @@ Right click a link below to open in a new tab (the sites don't have links back t
 -   [MTA share of state personal income tax](https://boyd-mta2025-pitshare.netlify.app/)
 -   [Pass-Through Entity Tax (PTET)](https://boyd-mta2025-ptet.netlify.app/)
 -   [Payroll mobility tax (PMT)](https://boyd-mta2025-pmt.netlify.app/)
--   [Sales tax estimates](https://boyd-mta2025-misc.netlify.app/)
+-   [Miscellaneous estimates](https://boyd-mta2025-misc.netlify.app/)
+    -   [Sales tax estimates](https://boyd-mta2025-misc.netlify.app/sales_tax.html)
 
 <!-- -   [This site (links)](https://boyd-mta2025-links.netlify.app/) -->

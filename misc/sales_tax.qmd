@@ -25,16 +25,115 @@ Here is my table using these numbers and simplified assumptions for how much rev
 
 This is simplified in that it doesn't take account differences in sales tax bases across jurisdictions. The state and MTA have the same tax base, but local tax bases differ some, mostly reflecting some differences in treatment of clothing, interior decorating and a few other items.
 
-I only did a little bit of reality checking on these numbers. The numbers imply about \$1.36 billion of MTA sales tax in their unstated year and \$10.2 billion of NYC sales tax. The table below from [DTF collections for 2023-24](https://www.tax.ny.gov/research/stats/statistics/sales_tax/reports/annual-statistical-reports/2023-2024/2023-2024-tables.xlsx) (Table 22) shows \$1.32 billion for the MTA and \$10.2 billion for the NYC sales tax, so the SFC estimates seem reasonable to me.
+The Senate Finance estimates suggest a NYC share of the MTA sales tax of 63.5%, which is reasonably consistent with the numbers in the next section.
+
+I only did a little bit of additional reality checking on these numbers. The numbers imply about \$1.36 billion of MTA sales tax in their unstated year and \$10.2 billion of NYC sales tax. The table below from [DTF collections for 2023-24](https://www.tax.ny.gov/research/stats/statistics/sales_tax/reports/annual-statistical-reports/2023-2024/2023-2024-tables.xlsx) (Table 22) shows \$1.32 billion for the MTA and \$10.2 billion for the NYC sales tax, so the SFC estimates seem reasonable to me.
 
 ![](images/clipboard-2408230088.png)
 
 ## County by county breakdown of MTA sales tax
 
-There are two ways to try to estimate how much of the MTA sales tax comes from individual counties. One way is to use taxable sales by county from the state tax department. The other is to try to adjust collections of counties' own sales taxes for rate and base differences and estimate county shares that way. The approach below uses county taxable sales.
+There are two ways to try to estimate how much of the MTA sales tax comes from individual counties. One way is to use taxable sales by county from the state tax department. The other is to try to adjust collections of counties' own sales taxes for rate and base differences and estimate county shares that way.
 
-\[To come shortly\]
+The data suggest the NYC percentage share is in the low 60's.
 
-In the meantime, here is an earlier table showing that in the 2020-2021 period, NYC was roughly 75% of MTA-region GDP, 61% of MTA-region personal income, and 63% of MTA-region population.
+### The taxable sales approach
 
-![](images/clipboard-3747688157.png)
+The table below shows the share of reported taxable sales in the 2023-24 sales tax year for each of the counties. The NYC share was 61.9%.
+
+```{r}
+#| label: setup
+
+suppressPackageStartupMessages(library(tidyverse))
+library(readxl)
+suppressPackageStartupMessages(library(vroom))
+library(fs)
+library(btools)
+library(bggtools)
+library(gt)
+# library(fable)
+# library(fabletools)
+# library(tsibble)
+# library(RcppRoll)
+
+tprint <- 75  # default tibble print
+options(tibble.print_max = tprint, tibble.print_min = tprint) # show up to tprint rows
+
+ddir <- here::here("data")
+
+fname <- "Taxable_Sales_And_Purchases_Quarterly_Data__Beginning_Sales_Tax_Year_2013-2014_dl20250128.csv"
+fpath <- fs::path(ddir, fname)
+
+# https://data.ny.gov/Government-Finance/Taxable-Sales-And-Purchases-Quarterly-Data-Beginni/ny73-2j3u/about_data
+
+
+```
+
+```{r}
+#| label: data
+#| output: false
+
+df1 <- readRDS(path(ddir, "tsp_detail.rds"))
+count(df1, govt)
+tmp <- count(df1, naics, fnaics)
+
+govts <- c("NY STATE", "MCTD", "NY CITY",
+           "DUTCHESS", "NASSAU", "ORANGE", "PUTNAM", "ROCKLAND", "SUFFOLK", "WESTCHESTER")
+
+df2 <- df1 |> 
+  filter(styear == "2023 - 2024", govt %in% govts)
+
+count(df2, govt)
+
+df3 <- df2 |> 
+  summarise(n=n(),
+            txblsales = sum(txblsales, na.rm = TRUE),
+            .by = c(styear, govtsort, uniname, govt, mtacounty))
+df3
+
+df3 |> 
+  filter(govtsort != 1) |> 
+  mutate(group = govt=="MCTD") |> 
+  summarise(txblsales = sum(txblsales), .by = group) |> 
+  mutate(pct = txblsales / txblsales[group==TRUE])
+
+```
+
+```{r}
+#| label: taxable-sales
+#| output: true
+
+url <- "https://data.ny.gov/Government-Finance/Taxable-Sales-And-Purchases-Quarterly-Data-Beginni/ny73-2j3u"
+tabnote <- paste0("Source: DTF Taxable sales and purchases. ", url)
+
+tabdata <- df3 |> 
+  filter(govtsort > 2) |> 
+  mutate(group = ifelse(uniname == "New York City", 1, 2)) |> 
+  arrange(group, uniname) |> 
+  select(uniname, txblsales) |> 
+  janitor::adorn_totals() |> 
+  mutate(pct = txblsales / txblsales[uniname == "Total"])
+
+
+tabdata |> 
+  gt() |> 
+  tab_header("Taxable sales in the 2023-24 sales tax year",
+             subtitle = "MTA counties") |> 
+  cols_label(uniname = "Area",
+             txblsales = "Taxable sales ($ billions)",
+             pct = "% of region total") |> 
+  fmt_number(columns = txblsales,
+             scale_by = 1e-9,
+             decimals = 1) |> 
+  fmt_percent(columns = pct,
+              decimals = 1) |> 
+  tab_source_note(tabnote)
+  
+
+```
+
+### Collections-based analysis, and economic data
+
+Here is an earlier table showing that in the 2020-2021 period, NYC was roughly 75% of MTA-region GDP, 61% of MTA-region personal income, and 63% of MTA-region population. It estimated sales tax shares based on collections for two years, 2019-20 and 2020-21; the NYC share was 64.2% and 59.6% respectively. 2020-21 was particularly anomalous because of COVID-19 and the associated recession.
+
+![](images/clipboard-3099679097.png)
