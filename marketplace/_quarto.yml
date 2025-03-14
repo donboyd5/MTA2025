@@ -11,12 +11,12 @@ book:
     - index.qmd
     - introduction.qmd
     - actual_and_counterfactual.qmd
+    - actual_and_counterfactual_mtacounties.qmd
     - naics2022_change.qmd
     - revenue_impact.qmd
     - background.qmd
-    # - part: "Data preparation"
-    #   chapters:
-    #     - simple_forecast.qmd
+  page-footer:
+    center: "[Return to main MTA 2025 page](https://boyd-mta2025-links.netlify.app/)"
 
 bibliography: references.bib  
 

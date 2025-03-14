@@ -1,9 +1,7 @@
-# Conclusion
+# Overview
 
 We want to estimate whether the combined state and city's approximately \$335 million annual Internet Marketplace Act payments to the MTA are less than the sales tax gains they have realized from the Internet Marketplace Act.
 
 To do this we need to know the "actual" (actual internet sales tax collections) and "counterfactual" (what internet sales tax collections would have been without the Internet Marketplace Act).
 
-There are challenges to estimating both the actual and counterfactual, discussed in the pages that follow. The table below shows the estimated actuals and counterfactuals by MTA fiscal year and compares them to the \$335 million in annual payments to the MTA. The graph shows the estimated actuals and counterfactuals.
-
-The conclusion is....
+This website documents methods and presents results.

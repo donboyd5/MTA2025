@@ -1,8 +1,10 @@
-# Actual and counterfactual -- State and NYC sales tax revenue gain at their rates
+# Actual and counterfactual -- State sales tax gain at 4% rate in entire state, MTA region, NYC and MTA Suburbs
 
-**This analysis computes the state or NYC sales tax using their respective tax rates (4% state, 4.5% NYC).**
+**This analysis computes the STATE SALES TAX ONLY -- all calculations are done at the state 4% rate.**
 
-It answers the question, How much did each government gain?
+It answers the question, How much did the state gain in different parts of the state?
+
+There is some duplication between this and the page, *Actual and counterfactual -- State or NYC tax revenue gain* as I have not had time to streamline it yet.
 
 Key dates:
 
@@ -16,11 +18,6 @@ Key dates:
 
 ```{r}
 #| label: setup
-
-# source(here::here("r", "libraries.r"))
-# source(here::here("r", "libraries_ts.r"))
-# source(here::here("r", "constants.r"))
-# source(here::here("r", "functions.r"))
 
 library(tidyverse)
 library(readxl)
@@ -42,6 +39,10 @@ ddir <- here::here("data")
 fname <- "Taxable_Sales_And_Purchases_Quarterly_Data__Beginning_Sales_Tax_Year_2013-2014_dl20250128.csv"
 fpath <- fs::path(ddir, fname)
 
+
+mtasubcos <- c("Dutchess", "Nassau", "Orange", "Putnam", "Rockland", "Suffolk", "Westchester")
+mtacos <- c("New York City", mtasubcos)
+
 ```
 
 ## Estimate actual values of internet taxable sales
@@ -60,38 +61,48 @@ One improvement I could make is the transition from 2021-12 to 2022-03 assumes t
 #| output: false
 
 df1 <- readRDS(path(ddir, "tsp_detail.rds"))
+count(df1, mtacounty, uniname)
 
-# uname <- "New York State"
-# 
-# uname <- "New York City"
+df2 <- df1 |> 
+  filter(uniname %in% c("New York State", "MCTD", mtacos)) |> 
+  mutate(groupname = case_when(
+    uniname %in% mtasubcos ~ "MTA Suburban",
+    uniname == "MCTD" ~ "MTA",
+    .default = uniname))
+glimpse(df2)
+count(df2, mtacounty, uniname)
+count(df2, groupname, uniname)
 
-# get state and city sums of taxable sales over all industries
-stsum <- df1 |> 
-  filter(uniname %in% c("New York State", "New York City")) |>
+df3 <- df2 |> 
+  summarise(txblsales = sum(txblsales, na.rm=TRUE),
+            .by = c(stdate, naics, fnaics, groupname))
+count(df3, groupname)
+
+# get area sums of taxable sales over all industries
+areasum <- df3 |> 
   summarise(n=n(),
             txblsales=sum(txblsales, na.rm = TRUE),
-            .by=c(stdate, uniname)) |> 
+            .by=c(stdate, groupname)) |> 
   mutate(ind="all") |> 
   arrange(stdate)
 
-# get state and city sums of taxable sales for industries of interest
-inds <- df1 |> 
-  filter(uniname %in% c("New York State", "New York City"),
-         naics %in% c(4541, 9999)) |> 
+# get area sums of taxable sales for industries of interest
+inds <- df3 |> 
+  filter(naics %in% c(4541, 9999)) |> 
   summarise(txblsales=sum(txblsales, na.rm = TRUE),
-            .by=c(stdate, uniname, naics)) |> 
+            .by=c(stdate, groupname, naics)) |> 
   mutate(ind=paste0("i", naics)) |> 
   select(-naics) |> 
   arrange(ind, stdate)
 
 # combine all-industries and specific-industries data
 # put in $ billions (divide by millions) and make wide
-combo1 <- bind_rows(stsum, inds) |> 
+combo1 <- bind_rows(areasum, inds) |> 
   select(-n) |> 
   arrange(stdate) |> 
   mutate(txblsales = txblsales / 1e6) |> 
   pivot_wider(names_from=ind, values_from=txblsales)
-combo1 |> tail(24)
+combo1 |> filter(stdate >= "2021-03-01", stdate <= "2022-12-01") |> arrange(groupname, stdate)
 # note that i4541 is missing beginning 2022-03-01 (start of 2022-23 sales tax year)
 # and that i9999 leaps dramatically beginning 2022-03-01
 
@@ -103,22 +114,22 @@ combo1 |> tail(24)
 #      we do this because we don't yet have meaningful i9999 growth values because of the data break
 #   2) after that, it grows at the same rate as i9999, based on earlier analysis
 combo2 <- combo1 |>
-  arrange(uniname, stdate) |> 
+  arrange(groupname, stdate) |> 
   # get ma4 of the internet share of total, to use for 2022-23
   mutate(ishare = i4541 / all,
          isharema4 = RcppRoll::roll_mean(
            ishare, n=4,  align="right", fill=NA),
-         .by=uniname) |> 
+         .by=groupname) |> 
   # add i4541 estimated values for 2022-23 sales tax year assuming same growth as all industries (constant share)
   mutate(i4541est = i4541,
          i4541est = ifelse(stdate > "2021-12-01" & stdate <= "2022-12-01", 
                         all * isharema4[stdate == "2021-12-01"],
                         i4541),
-         .by=uniname)  
+         .by=groupname)  
 
 fillmiss <- function(date, xmiss, xfull){
   # fill missing values in xmiss using growth rates of xfull
-  # MUST BE SORTED BY DATE BEFORE CALLED
+  # MUST BE SORTED BY DATE BEFORE CALLING
   xfullrate <- xfull / lag(xfull, 4)
   
   for(i in seq_along(date)){
@@ -131,48 +142,20 @@ fillmiss <- function(date, xmiss, xfull){
 
 # add i4541 values beyond 2022-23 sales tax year assuming same growth as i9999
 combo3 <- combo2 |> 
-  arrange(uniname, stdate) |> 
+  arrange(stdate) |>  # djb 2025-03-13
   mutate(i4541est = fillmiss(stdate, i4541est, i9999),
-         .by=uniname) |> 
-  select(stdate, uniname, all, i4541, i9999, i4541est) |>
-  pivot_longer(cols = -c(stdate, uniname),
+         .by=groupname) |> 
+  select(stdate, groupname, all, i4541, i9999, i4541est) |>
+  pivot_longer(cols = -c(stdate, groupname),
                names_to = "indtype") |> 
   mutate(indf = factor(indtype,
                        levels=c("all", "i4541", "i9999", "i4541est"),
                        labels = c("all industries", "actual", "reclass", "estimated actual")))
 count(combo3, indtype, indf)
 glimpse(combo3)
+combo3 |> filter(indtype=="i4541est") |> summarise(value=sum(value, na.rm = TRUE), .by=groupname)
 
-saveRDS(combo3, fs::path(ddir, "internet_estimated_tsp.rds"))
-
-# |> 
-#   mutate(across(c(all, i4541, i9999, i4541est), list(pch = \(x) x / lag(x, 4) - 1)),
-#          .by=uniname) |> 
-#   mutate(ishareest = i4541 / all,
-#          isharema4est = RcppRoll::roll_mean(
-#            ishareest, n=4,  align="right", fill=NA),
-#          salestype=ifelse(stdate > "2021-12-01", "estimated actual", "actual"),
-#          .by=uniname)
-
-# combo3 |> 
-#   filter(!is.na(isharema4)) |>
-#   select(stdate, uniname, ishare, isharema4) |> 
-#   pivot_longer(cols=c(ishare, isharema4), names_to="isharetype", values_to="ishare") |>
-#   ggplot(aes(x=stdate, y=ishare, color=isharetype)) +
-#   geom_line() +
-#   geom_point() +
-#   geom_vline(xintercept = as.Date("2019-06-01")) +
-#   geom_vline(xintercept = as.Date("2022-03-01"), colour="blue") +
-#   facet_wrap(~uniname, scales="free_y")
-
-# combo3 |> 
-#   select(stdate, uniname, i4541) |> 
-#   ggplot(aes(x=stdate, y=i4541)) +
-#   geom_line() +
-#   geom_point() +
-#   geom_vline(xintercept = as.Date("2019-06-01")) +
-#   geom_vline(xintercept = as.Date("2022-03-01"), colour="blue") +  
-#   facet_wrap(~uniname, scales="free_y")
+saveRDS(combo3, fs::path(ddir, "internet_estimated_tsp_groups.rds"))
 
 ```
 
@@ -182,15 +165,15 @@ The results are shown below.
 #| label: show-actuals
 #| output: true
 
-df <- readRDS(fs::path(ddir, "internet_estimated_tsp.rds"))
+df <- readRDS(fs::path(ddir, "internet_estimated_tsp_groups.rds"))
 
 pdata <- df |> 
   filter(indtype %in% c("i4541", "i4541est")) |>
   filter(!(indtype=="i4541est" & stdate <= "2021-12-01")) |>
   filter(!is.na(value)) |>
-  select(stdate, uniname, indtype, salestype=indf, value) |> 
-  mutate(uniname=factor(uniname, levels=c("New York State", "New York City"))) |> # for facet order
-  arrange(uniname, desc(salestype), stdate)
+  select(stdate, groupname, indtype, salestype=indf, value) |> 
+  # mutate(uniname=factor(uniname, levels=c("New York State", "New York City"))) |> # for facet order
+  arrange(groupname, desc(salestype), stdate)
 
 pdata |>
   ggplot(aes(x=stdate, y=value, colour=salestype)) +
@@ -200,7 +183,7 @@ pdata |>
   geom_vline(xintercept = as.Date("2019-06-01"), colour="red") +
   geom_vline(xintercept = as.Date("2020-03-15"), colour="black", linetype="dashed") +
   geom_vline(xintercept = as.Date("2022-03-01"), colour="blue") +  
-  facet_wrap(~uniname, scales="free_y", ncol=1) +
+  facet_wrap(~groupname, scales="free_y", ncol=1) +
   ggtitle("Actual and estimated actual quarterly internet taxable sales (NAICS 4541, 2017 basis)",
           subtitle="Internet Marketplace Act effective 2019-06-01; COVID-19 start ~2020-03-15; Sales reclassification 2022-03-01") +
   scale_x_date(name=NULL, breaks = scales::date_breaks("1 year"), date_labels = "%Y") +
@@ -212,34 +195,34 @@ pdata |>
 
 ## Estimate counterfactual values of internet taxable sales
 
-Extrapolate internet sales for 2 years from 2019-06-01 to 2021-06-01 based on prior 2 year growth rate then constant share of est actual from there forward.
+Extrapolate internet sales for 2 years from 2019-06-01 to 2021-06-01 based on prior 2 year growth rate then constant share of est actual from there forward
 
 ```{r}
 #| label: estimate-counterfactual-internet-sales_extrap
 #| output: false
 
-tsales1 <- readRDS(fs::path(ddir, "internet_estimated_tsp.rds"))
+tsales1 <- readRDS(fs::path(ddir, "internet_estimated_tsp_groups.rds"))
 head(tsales1)
 summary(tsales1)
 count(tsales1, indtype, indf)
 
 tsales2 <- tsales1 |> 
   filter(indtype %in% c("all", "i4541", "i4541est")) |>
-  select(stdate, uniname, indtype, value) |> 
-  mutate(uniname=factor(uniname, levels=c("New York State", "New York City"))) |> 
+  select(stdate, groupname, indtype, value) |> 
   pivot_wider(names_from=indtype, values_from=value) |>
+  arrange(groupname, stdate) |> # djb 2025-03-11
   mutate(i4541counter=ifelse(stdate < as.Date("2019-06-01"), i4541est, NA_real_)) |> 
-  arrange(uniname, stdate) |> 
-  mutate(ratio2ya = i4541est / lag(i4541est, 8), .by=uniname) |> 
+  mutate(ratio2ya = i4541est / lag(i4541est, 8), .by=groupname) |> 
   mutate(i4541counter = case_when(stdate >= as.Date("2019-06-01") & 
                                     stdate <= as.Date("2021-06-01") ~ lag(i4541est, 8) * ratio2ya[stdate=="2019-03-01"],
                                   stdate > as.Date("2021-06-01") ~ NA_real_,
                                   .default = i4541counter),
-         .by=uniname) |> 
+         .by=groupname) |> 
   mutate(share=i4541counter / i4541est,
          i4541counter=ifelse(stdate >= "2021-09-01",
                              i4541est * share[stdate=="2021-06-01"],
-                             i4541counter), .by=uniname) 
+                             i4541counter),
+         .by=groupname) # djb 3/14/2025
 
 # tsales2 |> 
 #   ggplot(aes(x=stdate, y=i4541counter, color=uniname)) +
@@ -247,8 +230,8 @@ tsales2 <- tsales1 |>
 #   geom_point()
 
 tsales3 <- tsales2 |> 
-  select(stdate, uniname, all, starts_with("i4541")) |> 
-  pivot_longer(cols=-c(stdate, uniname), names_to="indtype", values_to="value") |> 
+  select(stdate, groupname, all, starts_with("i4541")) |> 
+  pivot_longer(cols=-c(stdate, groupname), names_to="indtype", values_to="value") |> 
   mutate(indf = factor(indtype,
                        levels=c("all", "i4541", "i4541est", "i4541counter"),
                        labels = c("all industries", "actual", "estimated actual", "counterfactual")))
@@ -276,7 +259,7 @@ pdata |>
   geom_vline(xintercept = as.Date("2019-06-01"), colour="red") +
   geom_vline(xintercept = as.Date("2020-03-15"), colour="black", linetype="dashed") +
   geom_vline(xintercept = as.Date("2022-03-01"), colour="blue") +  
-  facet_wrap(~uniname, scales="free_y", ncol=1) +
+  facet_wrap(~groupname, scales="free_y", ncol=1) +
   ggtitle("Actual and estimated actual quarterly internet taxable sales (NAICS 4541, 2017 basis)",
           subtitle="Internet Marketplace Act effective 2019-06-01; COVID-19 start ~2020-03-15; Sales reclassification 2022-03-01") +
   scale_x_date(name=NULL, breaks = scales::date_breaks("1 year"), date_labels = "%Y") +
@@ -286,30 +269,30 @@ pdata |>
 
 ```
 
-Here are rough estimates of tax revenue gains by NYS and NYC
+Here are rough estimates of tax revenue gains by area
 
 ```{r}
 #| label: show-taxes
 #| output: true
+
+# count(tsales3, groupname)
 
 ima <- tsales3 |> 
   filter(indtype %in% c("i4541est", "i4541counter")) |>
   select(-indf) |> 
   pivot_wider(names_from=indtype, values_from=value) |> 
   mutate(gain=i4541est - i4541counter,
-         taxgain=ifelse(uniname=="New York State",
-                    .04 * gain,
-                    .045 * gain)) |> 
-  arrange(uniname, stdate) |> 
-  mutate(taxgain4=RcppRoll::roll_sumr(taxgain, n=4), .by=uniname)
+         taxgain=.04 * gain) |> 
+  arrange(groupname, stdate) |> # djb 2025-03-11
+  mutate(taxgain4=RcppRoll::roll_sumr(taxgain, n=4), .by=groupname)
 
 ima |> 
   filter(year(stdate) >= 2019) |> 
   gt() |> 
-  tab_header(title="Estimated tax revenue gains from Internet Marketplace Act, $ millions",
-             subtitle="Assuming 4% state and 4.5% city tax rates") |> 
+  tab_header(title="Estimated NY STATE tax revenue gains from Internet Marketplace Act, $ millions by region",
+             subtitle="4% state tax rate used for all calculations") |> 
   cols_label(stdate="Sales tax quarter beginning:",
-             uniname="Jurisdiction",
+             groupname="Region",
              i4541est="Estimated actual taxable sales",
              i4541counter="Counterfactual taxable sales",
              gain="Estimated taxable sales gain",
@@ -318,86 +301,25 @@ ima |>
   fmt_number(columns=c(i4541est, i4541counter, gain), decimals=0) |>
   fmt_number(columns=c(taxgain, taxgain4), decimals=0)
 
-
-
-
 ```
 
-```{r}
-#| echo: false
-knitr::knit_exit()  # Stops rendering here
-```
+And here are just the gains, all regions on one line
 
 ```{r}
-#| label: show-counter2
-#| output: false
-#| eval: false
+#| label: show-taxgains
+#| output: true
 
-pdata <- combo |> 
-  filter(str_detect(indtype, "i4541")) |> 
-  rename(salestype=indf)
+ima |> 
+  filter(year(stdate) >= 2019) |> 
+  select(stdate, groupname, taxgain4) |> 
+  pivot_wider(names_from = groupname, values_from = taxgain4) |> 
+  relocate(`New York State`, .before = MTA) |> 
+  gt() |> 
+  tab_header(title="Estimated 4-quarter sums of NY STATE tax revenue gains from Internet Marketplace Act, $ millions by region",
+             subtitle="4% state tax rate used for all calculations") |> 
+  cols_label(stdate="Sales tax quarter beginning:") |> 
+  fmt_number(columns=-stdate, decimals = 1)
 
-pdata |>
-  ggplot(aes(x=stdate, y=value, colour=salestype)) +
-  geom_line(linewidth=1) +
-  geom_point(size=1.25) +
-  scale_colour_manual(values=c("actual"="darkgreen", "estimated actual"="blue", "counterfactual"= "grey")) +
-  geom_vline(xintercept = as.Date("2019-06-01"), colour="red") +
-  geom_vline(xintercept = as.Date("2020-03-15"), colour="black", linetype="dashed") +
-  geom_vline(xintercept = as.Date("2022-03-01"), colour="blue") +  
-  facet_wrap(~uniname, scales="free_y", ncol=1) +
-  ggtitle("Actual and estimated actual quarterly internet taxable sales (NAICS 4541, 2017 basis)",
-          subtitle="Internet Marketplace Act effective 2019-06-01; COVID-19 start ~2020-03-15; Sales reclassification 2022-03-01") +
-  scale_x_date(name=NULL, breaks = scales::date_breaks("1 year"), date_labels = "%Y") +
-  scale_y_continuous(name="Taxable sales ($ billions)", labels=scales::dollar) +
-  theme_bw() +
-  legend_notitle
-
-```
-
-```{r}
-#| output: false
-#| eval: false
-
-
-tsales1 <- readRDS(fs::path(ddir, "internet_estimated_tsp.rds"))
-head(tsales1)
-summary(tsales1)
-count(tsales1, indtype, indf)
-
-tsales2 <- tsales1 |> 
-  filter(indtype %in% c("all", "i4541", "i4541est")) |>
-  select(stdate, uniname, indtype, value) |> 
-  mutate(uniname=factor(uniname, levels=c("New York State", "New York City"))) |> 
-  pivot_wider(names_from=indtype, values_from=value) |>
-  mutate(other=all - i4541est,
-         share_other = i4541est / other)
-
-tsales2 |> 
-  ggplot(aes(x=stdate, y=share_other, color=uniname)) +
-  geom_line() +
-  geom_point()
-
-
-tsales3 <- tsales2 |> 
-  mutate(i4541counter=ifelse(stdate < as.Date("2019-06-01"), i4541est, NA_real_)) |> 
-  arrange(uniname, stdate) |> 
-  mutate(dshare=share_other - lag(share_other, 4), .by=uniname,
-         qtr=quarter(stdate),
-         year=year(stdate)) |> 
-  mutate(fcshare=share_other[stdate==as.Date("2019-06-01")],
-         .by=uniname) |> 
-  mutate(i4541counter=ifelse(is.na(i4541counter), 
-                             other * fcshare,
-                             i4541counter))
-
-tsales3
-tsales4 <- tsales3 |> 
-  select(stdate, uniname, all, starts_with("i4541")) |> 
-  pivot_longer(cols=-c(stdate, uniname), names_to="indtype", values_to="value") |> 
-  mutate(indf = factor(indtype,
-                       levels=c("all", "i4541", "i4541est", "i4541counter"),
-                       labels = c("all industries", "actual", "estimated actual", "counterfactual")))
 
 ```
 
