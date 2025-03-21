@@ -10,13 +10,17 @@ format:
     css: styles.css
 ---
 
-Right click a link below to open in a new tab (the sites don't have links back to here so best not to navigate away from this page):
+Right click a link below to open in a new tab (the sites don't all yet have links back to here so best not to navigate away from this page):
 
 -   [Internet Marketplace Act](https://mta-internet-marketplace.netlify.app/)
+    -   [NYS and NYC sales tax revenue gains from the IMA](https://mta-internet-marketplace.netlify.app/actual_and_counterfactual.html) -- final table
+    -   [NYS sales tax gains by region: Statewide, MTA, NYC, MTA suburbs](https://mta-internet-marketplace.netlify.app/actual_and_counterfactual_mtacounties.html) -- final 2 tables
 -   [MTA share of state personal income tax](https://boyd-mta2025-pitshare.netlify.app/)
--   [Pass-Through Entity Tax (PTET)](https://boyd-mta2025-ptet.netlify.app/)
+-   [Pass-Through Entity Tax (PTET) credit](https://boyd-mta2025-ptet.netlify.app/)
+    -   [PTET credit](https://boyd-mta2025-ptet.netlify.app/data.html)
+    -   [NYS PIT partial credit for loss due to SALT cap](https://boyd-mta2025-ptet.netlify.app/state_credit_for_salt_impact.html)
 -   [Payroll mobility tax (PMT)](https://boyd-mta2025-pmt.netlify.app/)
 -   [Miscellaneous estimates](https://boyd-mta2025-misc.netlify.app/)
-    -   [Sales tax estimates](https://boyd-mta2025-misc.netlify.app/sales_tax.html)
+    -   [Sales tax revenue option estimates](https://boyd-mta2025-misc.netlify.app/sales_tax.html)
 
 <!-- -   [This site (links)](https://boyd-mta2025-links.netlify.app/) -->

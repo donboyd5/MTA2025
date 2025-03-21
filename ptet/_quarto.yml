@@ -3,13 +3,16 @@ project:
   output-dir: _docs
   
 book:
-  title: "Pass Through Entity Tax (PTET) Analysis"
+  title: "Pass Through Entity Tax (PTET) Credit Analysis"
   author: "Don Boyd"
   date: today
   date-format: long
   chapters:
     - index.qmd
     - data.qmd
+    - state_credit_for_salt_impact.qmd
+  page-footer:
+    center: "[Return to main MTA 2025 page](https://boyd-mta2025-links.netlify.app/)"
 
 execute:
   eval: true

@@ -1,0 +1,33 @@
+---
+editor_options:
+  chunk_output_type: console
+---
+
+# State personal income tax credit for SALT impact
+
+## Basic idea
+
+-   Eligibility:
+    -   NYS resident
+    -   NYS AGI \<= \$300k
+    -   Federal itemizer
+    -   Federal allowable itemized deductions exceed federal standard deduction
+    -   Potential SALT deductions greater than \$10,000
+-   Calculation:
+    -   Credit base = lesser of excess SALT deductions and excess itemized deductions
+        -   Excess SALT deductions = state and local taxes paid minus \$10,000 cap
+        -   Excess itemized deductions = itemized deductions minus standard (not less than zero)
+    -   Credit before cap = credit base x 30%
+    -   Credit = lesser of uncapped credit and \$1,500
+
+Here are selected data drawn from [IRS SOI Historical Table 2](https://www.irs.gov/statistics/soi-tax-stats-historic-table-2) for New York for [2022](https://www.irs.gov/pub/irs-soi/22in33ny.xlsx) (latest year) and [2017](https://www.irs.gov/pub/irs-soi/18in33ny.xlsx) (last pre-TCJA year):
+
+![](images/clipboard-434645116.png)
+
+![](images/clipboard-605220466.png)
+
+![](images/clipboard-3951598939.png)
+
+## Downloadable Excel file with pertinent data
+
+[Download Excel File -- PTET credit estimates by county and income range, 2022](for_mta/NY_IRS_data_2017and2022_salt.xlsx)
