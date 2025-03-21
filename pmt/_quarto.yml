@@ -35,6 +35,7 @@ book:
       chapters:
       - pmt_baseline_analysis.qmd
       - pmt_alternatives.qmd
+      - dob_pmt_option.qmd
 
      # which of these qcew files did I use?      
       # - get_qcew_data.qmd
