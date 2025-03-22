@@ -1,0 +1,59 @@
+project:
+  type: book
+  output-dir: _web
+  
+execute:
+  eval: true
+  echo: false
+  output: false
+  freeze: auto  # auto, true, or false
+
+book:
+  title: "Develop PMT database"
+  subtitle: ""
+  author: "Don Boyd"
+  date: today
+  date-format: long
+  chapters:
+    - index.qmd
+    - part: "Get and save needed datasets"
+      chapters:        
+      - get_qcew_data.qmd # save multi-year state-county qcew file; set eval true to run
+      - get_cbp_data.qmd # save latest year of CBP data for NY counties
+      - get_susb_data.qmd #
+    - part: "Prepare data"
+      chapters:           
+      - prepare_atomistic_qcew_data.qmd
+      # - simple_estabs_basis # THIS IS THE ONE TO USE AFTER GETTING CBP AND QCEW DATA
+      # - method_steps.qmd # SHOULD BE JUST INFO
+      # - get_susb_data.qmd # NO LONGER USED
+      # - create_pmt_file.qmd # NO LONGER USED
+      # - pmt_model.qmd  # after we've saved data use this
+      # - pmt_model_data_notes.qmd
+    
+      # - fillin_qcew.qmd
+      # - employer_size.qmd
+      # - make_pmt_base.qmd
+
+# bibliography: references.bib
+
+format:
+  html:
+    theme: cosmo
+    code-fold: true
+    number-depth: 5
+    toc-depth: 5
+    toc-expand: false
+
+editor_options:
+  chunk_output_type: console
+  
+# ```{r stop_here, echo=FALSE}
+# knitr::knit_exit()
+# ```
+
+# useful reminders of quarto commands:
+# quarto publish netlify --no-render
+# quarto publish netlify --no-browser --no-prompt
+# quarto publish netlify --no-render --no-browser --no-prompt 
+# 

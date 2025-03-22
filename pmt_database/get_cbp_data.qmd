@@ -1,0 +1,168 @@
+---
+output: html_document
+editor_options: 
+  chunk_output_type: console
+---
+
+{{< include _setup.qmd >}}
+
+# Get County Business Patterns (CBP)
+
+-   2022 is latest year as of 3/22/2025
+-   Get and save latest year of CBP data for NY
+-   Do minor cleanup
+-   Put NYC and MTA markers on the file
+-   Save as `cbpny.rds` in the intermediate data folder
+
+CBP links
+
+-   [landing page](https://www.census.gov/programs-surveys/cbp.html)
+-   [csv data files](https://www.census.gov/data/datasets/2022/econ/cbp/2022-cbp.html)
+-   [county file for 2022](https://www2.census.gov/programs-surveys/cbp/datasets/2022/cbp22co.zip)
+
+CBP has data on establishments, employment, and payroll by county and industry. The data are available by establishment size measured by number of employees in the establishment. The data are available at the 6-digit 2017 NAICS level.
+
+Establishment sizes:
+
+-   All establishments
+-   less than 5 employees
+-   5 to 9 employees
+-   10 to 19 employees
+-   20 to 49 employees
+-   50 to 99 employees
+-   100 to 249 employees
+-   250 to 499 employees
+-   500 to 999 employees
+-   1,000 employees or more
+-   and then:
+-   1,000 to 1,499 employees
+-   1,500 to 2,499 employees
+-   2,500 to 4,999 employees
+
+We don't currently need the breakdowns for the 1,000+ groups.
+
+## Get data
+
+-   Read CBP data, geographic code file (area names), and industry code file
+
+```{r}
+#| label: get-data
+#| output: false
+
+fpath <- fs::path(PDRAW, "cbp", "cbp22co.zip")
+cbp1 <- vroom(fpath, col_types = cols(.default = col_character()))
+glimpse(cbp1)
+
+fpath <- fs::path(PDRAW, "cbp", "georef22.txt")
+areas <- vroom(fpath, col_types = cols(.default = col_character()))
+glimpse(areas)
+
+areas2 <- areas |>
+  separate(col = county_name, 
+           into = c("county", "state"), 
+           sep = ",(?=[^,]*$)", 
+           extra = "merge") |> 
+  mutate(state=ifelse(fipstate=="35" & fipscty=="013",
+                      "New Mexico",
+                      str_trim(state)),
+         county=ifelse(fipstate=="35" & fipscty=="013",
+                       "Doña Ana County",
+                       county))
+
+fpath <- fs::path(PDRAW, "cbp", "naics2017.txt")
+inds <- vroom(fpath, col_types = cols(.default = col_character()), 
+              delim=",",
+              locale = locale(encoding = "Windows-1252")) |> 
+  rename_with(str_to_lower)
+glimpse(inds)
+
+inds2 <- inds |> 
+  mutate(description=str_remove_all(description, "’"))
+
+
+# character columns
+# FIPSTATE        C       FIPS State Code
+# FIPSCTY         C       FIPS County Code
+# NAICS           C       Industry Code - 6-digit NAICS code.
+# EMP_NF          C       Total Mid-March Employees Noise Flag (See all Noise Flag definitions at the end of this record layout)
+# QP1_NF          C       Total First Quarter Payroll Noise Flag
+# AP_NF           C       Total Annual Payroll Noise Flag
+
+# Noise Flag definitions (fields ending in _NF) are:
+#         G       0 to < 2% noise (low noise)
+#         H       2 to < 5% noise (medium noise)
+#         J	>= 5% noise (high noise)
+# Flag definition for Establishment by Employment Size Class fields (N<5, N5_9, etc.):
+#         N	Not available or not comparable
+
+# Noteworthy variables:
+#   NAICS           C       Industry Code - 6-digit NAICS code.
+#   EMP             N       Total Mid-March Employees with Noise
+#   QP1             N       Total First Quarter Payroll ($1,000) with Noise
+#   AP              N       Total Annual Payroll ($1,000) with Noise
+#   EST             N       Total Number of Establishments
+#   N1000           N       Number of Establishments: 1,000 or More Employee Size Class
+#   N1000_1         N       Number of Establishments: Employment Size Class: 1,000-1,499 Employees
+
+```
+
+## Minor cleaning
+
+-   Convert numeric variables, read as character (to allow inspection), to numeric
+-   Put area names and industry names on the file
+-   Filter to include only records in New York state
+-   Convert annual and quarterly payroll from (\$000) to dollars
+-   Put MTA and NYC logical indicators on the file
+-   Save file as cbpny.rds
+
+```{r}
+#| label: clean-cbp
+#| output: false
+
+char_cols <- c("fipstate", "fipscty", "naics", "emp_nf", "qp1_nf", "ap_nf")
+
+# put state and county names on the data
+
+cbp2 <- cbp1 |> 
+  mutate(across(-all_of(char_cols), as.numeric)) |> 
+  rename(nlt_5=`n<5`) |> 
+  left_join(areas2 |> 
+              select(fipstate, fipscty, state, county),
+            by = join_by(fipstate, fipscty)) |> 
+  left_join(inds, join_by(naics))
+glimpse(cbp2)
+count(cbp2, state) # 51: 50 + DC
+count(cbp2, county) # 1,882
+count(cbp2 |> filter(state=="New York"), county) # 63: 62 + Statewide
+
+cbp3 <- cbp2 |> 
+  filter(state=="New York") |> 
+  mutate(mta=paste0(fipstate, fipscty) %in% constants$mtafips,
+         nyc=paste0(fipstate, fipscty) %in% constants$nycfips,
+         ap=ap*1000, # put payroll in actual units
+         qp1 = qp1 * 1000 # put payroll in actual units
+         )
+count(cbp3, mta, nyc, county)
+
+saveRDS(cbp3, fs::path(PDINTERMEDIATE, "cbpny.rds"))
+
+```
+
+```{r}
+#| label: cleanup
+
+# rm(areas, areas2, cbp1, cbp2, cbp3, char_cols, check, fpath, inds, inds2)
+rm(list = ls())
+
+```
+
+```{r stop_here, echo=FALSE}
+knitr::knit_exit()
+```
+
+```{r}
+
+cbpny <- readRDS(fs::path(PDINTERMEDIATE, "cbpny.rds"))
+glimpse(cbpny)
+
+```

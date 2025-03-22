@@ -1,0 +1,199 @@
+---
+output: html_document
+editor_options: 
+  chunk_output_type: console
+---
+
+{{< include _setup.qmd >}}
+
+# Get QCEW data
+
+-   2023 is the latest full year as of 3/22/325
+-   Get annual QCEW data for NY counties
+-   Do minor cleaning
+-   Put NYC and MTA markers on the file
+-   Save as `qcewstco.rds` in the intermediate data folder
+
+## QCEW data from the New York State Department of Labor
+
+-   [NYSDOL QCEW landing page](https://dol.ny.gov/quarterly-census-employment-and-wages)
+-   [direct zip link](https://statistics.labor.ny.gov/qcew.zip)
+-   [technical notes](https://dol.ny.gov/qcew-technical-notes)
+
+The New York State Department of Labor (NYSDOL) provides a version of the BLS Quarterly Census of Employment and Wages (QCEW) that has quarterly county-level wage, establishment, and employment data in a format we need. The data are available from 2000 through a recent quarter. A new quarter and revisions to prior quarters generally are available about 6 months after end of a quarter.
+
+```{r}
+#| label: qcew-names
+#| output: false
+
+url <- "https://statistics.labor.ny.gov/qcew.zip"
+fname <- fs::path_file(url)
+zpath <- fs::path(PDRAW, fname)
+zpath <- paste0(PDRAW, "/", fname)
+
+```
+
+## Download qcew data
+
+Note: The latest qcew.zip file, which I downloaded once manually and once with the code below, appears to have been corrupted, at least as downloaded by my machine. I had to use an external utility (WinRar) to unzip it to a separate folder, then rezip it, after which the computer could read it.
+
+Change eval: to true in chunk below to re-download data.
+
+```{r}
+#| label: download-qcew
+#| eval: false
+
+# Sys.setenv(R_DEFAULT_INTERNET_TIMEOUT = 400)  
+options(timeout = max(400, getOption("timeout")))
+download.file(url, zpath, mode="wb")
+
+```
+
+## Read, make minor adjustments, and save QCEW data
+
+-   variable names --\> lower case
+-   keep only state and county records - drop other kinds of areas and balance of state
+-   add logical indicators for mta and nyc counties
+
+```{r}
+#| label: read-save-qcew
+#| eval: false
+#| output: false
+
+# get names of the csv annual files and then read them
+
+zfiles <- zip::zip_list(zpath)
+
+csvfiles <- zfiles |> 
+  filter(str_starts(filename, "qcew_annual_")) |> 
+  pull(filename)
+
+# read directly from the zip file
+system.time(df <- vroom(purrr::map(csvfiles, \(x)  unz(zpath, x)))) # 2.8 secs
+# obj_size(df)
+
+df2 <- df |> 
+  rename_with(str_to_lower)
+
+# count(df2, areatype)
+# count(df2, areatype, owner)
+
+df3 <- df2 |> 
+  filter(areatype %in% c("State", "County")) |> 
+  mutate(areatype=str_to_lower(areatype)) |> 
+  mutate(mta=area %in% constants$mtaregion$area,
+         nyc=area %in% constants$nyc$area)
+
+saveRDS(df3, fs::path(PDINTERMEDIATE, "qcewstco.rds"))
+
+```
+
+Save an MTA subset with just the latest year
+
+```{r}
+#| label: qcew-mta
+
+qcew <- readRDS(fs::path(PDINTERMEDIATE, "qcewstco.rds"))
+count(qcew, areatype)
+
+qcewmta <- qcew |> 
+  filter(year == max(year),
+         areatype == "county",
+         mta) |>
+  mutate(naics_level=ifelse(naics=="00", 1, naics_level)) |> 
+  select(-mta, -areatype)
+
+count(qcewmta, area)
+saveRDS(qcewmta, fs::path(PDINTERMEDIATE, "qcewmta.rds"))
+
+```
+
+```{r}
+#| label: cleanup
+rm(list = ls())
+```
+
+```{r stop_here, echo=FALSE}
+knitr::knit_exit()
+```
+
+## Explore qcew - NO CHANGES TO SAVED DATA
+
+THIS SECTION DOES NOT CHANGE ANY DATA AND DOES NOT RESAVE DATA.
+
+```{r}
+#| label: explore
+#| eval: false
+#| output: false
+
+qcew <- readRDS(fs::path(PDINTERMEDIATE, "qcewstco.rds"))
+
+count(qcew |> filter(areatype=="state"), area)
+count(qcew |> filter(areatype=="county"), area)
+# 65: 57 + 5 NYC +
+#     Locations Statewide (16) + Out of State Locations (2) + Unknown Locations (16)
+
+count(qcew, year)
+count(qcew, owner)
+check <- count(qcew, naics, naics_level, title)
+
+# check sums
+qcew |> 
+  filter(year==2023, naics=="00", owner=="Total Private and Government") |> 
+  summarise(totwage=sum(totwage),
+            avgemp=sum(avgemp), 
+            estab=sum(estab),
+            .by=c(areatype)) |> 
+  pivot_longer(-areatype) |> 
+  pivot_wider(names_from = areatype) |> 
+  mutate(pct=county / state)
+
+#   name           state       county   pct
+#   <chr>          <dbl>        <dbl> <dbl>
+# 1 totwage 866004485600 844079889657 0.975
+# 2 avgemp       9472105      9293900 0.981
+# 3 estab         697828       640188 0.917
+
+# count(df2, areatype)
+#   areatype                            n
+#   <chr>                           <int>
+# 1 Balance of State               101498
+# 2 County                        2066833
+# 3 Labor Market Area              741876
+# 4 Metropolitan Division          140696
+# 5 Metropolitan Statistical Area  716101
+# 6 Micropolitan Statistical Area  292755
+# 7 State                          112968
+# 8 Workforce Investment Region    103316
+  
+
+# count(df2, areatype, owner)
+# 37 State                         Federal Government              2166
+# 38 State                         Local Government                2743
+# 39 State                         Private                        48547
+# 40 State                         State Government                1664
+# 41 State                         Total Government                6658
+# 42 State                         Total Private and Government   51190
+
+```
+
+```{r}
+#| label: nyc-share-of-mta
+#| eval: false
+#| output: false
+
+qcew <- readRDS(fs::path(PDINTERMEDIATE, "qcewstco.rds"))
+glimpse(qcew)
+
+df <- qcew |> 
+  filter(mta, naics=="00", owner=="Private")
+
+df |> 
+  summarise(totwageb=sum(totwage) / 1e9, .by=c(year, nyc)) |> 
+  mutate(nyc=factor(nyc, levels = c(TRUE, FALSE), labels=c("nyc", "suburban"))) |> 
+  pivot_wider(names_from = nyc, values_from = totwageb) |> 
+  mutate(mta=nyc + suburban,
+         nycpct = nyc / mta)
+
+
+```

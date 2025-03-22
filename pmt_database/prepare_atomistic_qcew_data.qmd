@@ -1,0 +1,305 @@
+---
+output: html_document
+editor_options: 
+  chunk_output_type: console
+---
+
+{{< include _setup.qmd >}}
+
+# Prepare "atomistic" QCEW data for the MTA
+
+QCEW data are hierarchical with information for different levels of industries (1-digit, 2-digit, 3-digit, ...).
+
+The subtotals don't always add to the higher-level totals for a geographic area because some details are suppressed.
+
+We want a single file that adds to county totals for the top level but that retains other details.
+
+This chapter prepares such a file from the previously created `qmta.rds` file.
+
+We focus on naics level 3 as having sufficient details for our purpose.
+
+We want federal, state, local, and private ownerships.
+
+We go through multiple steps of creating control totals and creating "all other" values when details don't add to totals.
+
+## Get qcew data and weed out any subtotals
+
+```{r}
+#| label: preprocess
+
+qmta1 <- readRDS(fs::path(PDINTERMEDIATE, "qcewmta.rds"))
+
+qmta2 <- qmta1 |> 
+  select(-annavgsal) |> 
+  mutate(ownerf = factor(
+    owner, 
+    levels=c("Private", "Federal Government", "State Government", "Local Government", # details
+             "Total Private and Government", "Total Government"), # totals
+    labels=1:6),
+    ownerf = as.integer(as.character(ownerf)))
+count(qmta2, ownerf, owner)
+
+
+```
+
+```{r}
+#| label: owner-control-totals
+
+# verify owner totals -- government -- IDENTICAL
+qmta2 |> 
+  filter(naics_level == 1, ownerf %in% c(6, 2:4)) |> 
+  mutate(group=ifelse(ownerf==6, "total", "detail")) |> 
+  summarise(across(c(estab, avgemp, totwage), sum),
+            .by=c(group))
+
+# verify owner totals -- private + government -- ALMOST IDENTICAL
+qmta2 |> 
+  filter(naics_level == 1, ownerf %in% c(1, 5, 6)) |> 
+  mutate(group=ifelse(ownerf==5, "total", "detail")) |> 
+  summarise(across(c(estab, avgemp, totwage), sum),
+            .by=c(group))
+
+controls_owner_allinds <- qmta2 |> 
+  filter(naics_level == 1, ownerf %in% 1:4)
+count(controls_owner_allinds, ownerf, owner)
+
+```
+
+## Now that we have all-industry totals by owner we can get industry details
+
+```{r}
+#| label: function-add-all-other
+
+add_all_other <- function(ownerf, naics_level){
+  owner_base <- qmta2 |> 
+    filter(naics_level == !!naics_level, ownerf == !!ownerf) 
+  
+  stubs <- qmta2 |> 
+    distinct(year, area, nyc) |> 
+    mutate(naics_level = !!naics_level,
+           naics = strrep("x", !!naics_level), 
+           title = "All other")
+
+  stubs <- stubs |> 
+    mutate(ownerf = ownerf, 
+           owner = unique(owner_base$owner))
+  
+  negative_sums <- owner_base |> 
+    summarise(across(c(estab, avgemp, totwage),
+                     \(x) -sum(x)),
+              .by=c(area))
+  
+  # all-other is control totals plus negative sum of details
+  all_other1 <- bind_rows(
+    controls_owner_allinds |>
+      filter(ownerf == !!ownerf),
+    negative_sums) |>
+    
+    summarise(across(c(estab, avgemp, totwage),
+                     sum),
+              .by=c(area))
+    
+  all_other <- stubs |>
+    left_join(all_other1, by = join_by(area))
+  
+  all_recs <- bind_rows(owner_base, all_other)
+  
+  return(all_recs)
+}
+
+# add_all_other(1, 2, 3, 2)
+
+```
+
+```{r}
+
+details <- bind_rows(
+  add_all_other(ownerf = 1, naics_level = 3), # details for private
+  add_all_other(ownerf = 2, naics_level = 2),
+  add_all_other(ownerf = 3, naics_level = 2),
+  add_all_other(ownerf = 4, naics_level = 2))
+
+summary(details)
+tmp <- details |> filter(ownerf==4) |> select(naics_level, naics, title) |> distinct()
+
+```
+
+```{r}
+#| label: check-totals
+
+calc_totals <- details |> 
+  summarise(across(c(estab, avgemp, totwage),
+                     sum),
+              .by=c(area, ownerf, owner)) |> 
+  mutate(type="calc")
+
+comp <- bind_rows(
+  controls_owner_allinds |> 
+    select(area, estab, avgemp, totwage, ownerf, owner) |> 
+    mutate(type="control"),
+  calc_totals) |> 
+  pivot_longer(cols = c(estab, avgemp, totwage)) |> 
+  pivot_wider(names_from = type) |> 
+  mutate(diff = calc - control)
+
+```
+
+```{r}
+#| label: save
+
+saveRDS(details, fs::path(PDINTERMEDIATE, "qmta_atoms.rds"))
+
+```
+
+```{r}
+
+# check potential naicsd oddballs 491, 814, 999
+
+# 491 postal service private -- prob can't tax!!
+# 814 Private households - households that employ workers to run the household, such as cooks, maids, and gardeners -- don't tax
+# 999 Unclassified -- often new businesses
+
+noddballs <- c("491", "814", "999")
+
+details |> 
+  filter(naics %in% noddballs) |> 
+  summarise(across(c(estab, avgemp, totwage),
+                   sum),
+                   .by=c(naics, title))
+  
+#   naics title                         estab avgemp    totwage
+#   <chr> <chr>                         <dbl>  <dbl>      <dbl>
+# 1 999   Unclassified                  43279  31158 2126492617
+# 2 814   NAICS 814: Private Households 14680  18716 1061019007
+# 3 491   NAICS 491: Postal Service        12     78    2531959
+
+# probably treat 999  as taxable but not 814 or 491
+
+
+```
+
+```{r stop_here, echo=FALSE}
+knitr::knit_exit()
+```
+
+```{r}
+#| label: create-save-unique-qcew-mta-details
+
+qmta <- readRDS(fs::path(PDINTERMEDIATE, "qcewmta.rds"))
+
+count(qmta, naics_level)
+qmta |> filter(naics_level==1)
+
+qmta |> 
+  summarise(across(c(estab, avgemp, totwage), sum),
+            .by=c(owner, naics_level)) |> 
+  arrange(owner, naics_level)
+
+# fed is all the same
+# local is only level 1
+# private is very close to same
+# stategov levels 1 and 2 are good
+
+
+count(qcew, naics_level)
+
+qmta_base <- qcew |> 
+  filter(areatype=="county", year==2023, mta) |> 
+  filter(owner %in% c("Private", "Federal Government", "Local Government", "State Government")) |>
+  mutate(naics_level=ifelse(naics=="00", 1, naics_level)) |> 
+  select(year, area, naics, naicslev=naics_level, title, owner, estabs=estab, emp=avgemp, payroll=totwage, nyc) |> 
+  mutate(area=str_remove(area, " County"),
+         owner=str_remove(owner, " Government"))
+
+# quick checks
+qmta_base |> mutate(avgwage=payroll / emp) # units are right
+count(qmta_base, owner)
+count(qmta_base, area)
+count(qmta_base, naicslev)
+qmta_base |> 
+  summarise(across(c(estabs, emp, payroll), sum),
+            .by=c(owner, naicslev))
+
+# decide what naics levels to keep, in addition to 1
+# keep:
+# private 3
+# federal 3
+# state 2?
+# 
+check <- qmta_base |> filter(owner=="Private", naicslev==3) # good
+check <- qmta_base |> filter(owner=="State", naicslev==2) # should be good enough
+check <- qmta_base |> filter(owner=="Local", naicslev %in% 1:3) # 1 and 2 are all that's useful
+check <- qmta_base |> filter(owner=="Federal", naicslev %in% 1:3) # 1 should be good enough
+
+# create next
+
+qmta2 <- qmta_base |> 
+  filter(naicslev==1 |
+           owner=="Private" & naicslev==3 |
+           owner=="State" & naicslev==2 |
+           owner=="Local" & naicslev==2 |
+           owner=="Federal" & naicslev==2)
+
+qmta2 |> 
+  mutate(ngroup=naicslev==1) |> 
+  summarise(across(c(estabs, emp, payroll), sum),
+            .by=c(ngroup, owner)) |> 
+  arrange(owner, desc(ngroup))
+
+# create all-other records by owner, county
+allother <- qmta2 |> 
+  mutate(ngroup=naicslev==1,
+         across(c(estabs, emp, payroll),
+                \(x) ifelse(ngroup, x, -x))) |> 
+  summarise(across(c(estabs, emp, payroll), sum),
+            .by=c(year, area, owner, nyc)) |> 
+  # there are a few tiny negatives, zero them out
+  mutate(across(c(estabs, emp, payroll), 
+                \(x) ifelse(x < 0, 0, x))) |> 
+  mutate(naicslev=99, naics="9xx", title="All other")
+allother |> filter(is.na(naics))
+
+
+qmta3 <- bind_rows(
+  qmta2, allother)
+qmta3 |> filter(is.na(naics))
+
+check <- qmta3 |> 
+  mutate(ngroup=naicslev==1) |> 
+  summarise(across(c(estabs, emp, payroll), sum),
+            .by=c(ngroup, area, owner, nyc))
+  
+qmta3 |> 
+  mutate(ngroup=naicslev==1) |> 
+  summarise(across(c(estabs, emp, payroll), sum),
+            .by=c(owner, ngroup)) |> 
+  arrange(owner, ngroup)
+
+# great, the details add to totals within tiny tolerances
+qmta4 <- qmta3 |> 
+  filter(naicslev != 1) |> 
+  mutate(status=case_when(
+    naics %in% c("491", "814") ~ "untaxable?",
+    .default = "tbd"))
+
+# one last check -- how do grand totals do vs reported grand totals
+qcew |> 
+  filter(areatype=="county", year==2023, mta, naics=="00", owner=="Total Private and Government") |> 
+  summarise(across(c(estab, avgemp, totwage), sum))
+
+qmta4 |> summarise(across(c(estabs, emp, payroll), sum))
+# extremely close, we're done
+# 
+saveRDS(qmta4, fs::path(PDINTERMEDIATE, "uqmta.rds")) # unique, meaning these are the only recs we need
+
+# check potential oddballs 491, 814, 999
+qmta4 |> 
+  filter(naics %in% c("999"))
+
+# 491 postal service private -- prob can't tax!!
+# 814 Private households - households that employ workers to run the household, such as cooks, maids, and gardeners -- don't tax
+# 999 Unclassified -- often new businesses
+# 
+qmta4 |> filter(status!="tbd")
+
+```

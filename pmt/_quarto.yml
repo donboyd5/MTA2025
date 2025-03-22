@@ -23,6 +23,7 @@ book:
       - pmt_rules.qmd
     - part: "Prepare pmt model data"
       chapters:
+      - steps.qmd
       # - get_cbp_data.qmd # I THINK WE USE THIS BUT VERIFY
       # - get_qcew_data.qmd # I THINK WE USE THIS BUT VERIFY
       # - simple_estabs_basis # THIS IS THE ONE TO USE AFTER GETTING CBP AND QCEW DATA

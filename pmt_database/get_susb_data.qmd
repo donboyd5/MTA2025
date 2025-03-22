@@ -1,0 +1,834 @@
+---
+output: html_document
+editor_options: 
+  chunk_output_type: console
+---
+
+{{< include _setup.qmd >}}
+
+# Get Statistics of U.S. Businesses (SUSB)
+
+-   2021 latest year as of 3/22/2025
+
+SUSB links
+
+-   [Landing page](https://www.census.gov/programs-surveys/susb.html)
+-   [Documentation](https://www.census.gov/programs-surveys/susb/technical-documentation.html)
+-   [Methodology](https://www.census.gov/programs-surveys/susb/technical-documentation/methodology.html)
+-   [Glossary](http://www.census.gov/programs-surveys/susb/about/glossary.html)
+-   [Tables](https://www.census.gov/programs-surveys/susb/data/tables.html)
+-   [State and MSA datasets](https://www.census.gov/programs-surveys/susb/data/datasets.html) Not available in dataset (csv) form for counties
+-   [2021 county data in spreadsheet form](https://www2.census.gov/programs-surveys/susb/tables/2021/county_3digitnaics_2021.xlsx)
+
+For details about the SUSB, see sections below.
+
+The SUSB data are useful because they have breakdowns of data by firm size (# of employees per firm). Unfortunately, while detailed breakdowns are available for the U.S. and the states, only broad breakdowns are available for counties.
+
+Here are the size groups for the U.S. and the states:
+
+![](images/clipboard-1847336173.png)
+
+Here are the size groups for MSAs:
+
+![](images/clipboard-1407773703.png)
+
+Here are the size groups for counties:
+
+![](images/clipboard-2636600636.png)
+
+## SUSB US-state with detailed firm-size groupings -- read from Excel and save
+
+```{r}
+#| label: get-save-susb-us-states
+
+# https://www2.census.gov/programs-surveys/susb/tables/2021/us_state_naics_detailedsizes_2021.xlsx
+fname <- "us_state_naics_detailedsizes_2021.xlsx"
+susbdetail <- read_excel(fs::path(PDRAW, "susb", fname), skip=2)
+glimpse(susbdetail)
+
+susbdtl2 <- susbdetail |> 
+  select(statefips=1,
+         state=2,
+         naics=3,
+         description=4,
+         firmsize=5,
+         firms=6,
+         estabs=7,
+         emp=8,
+         empnoise=9,
+         payroll=10,
+         paynoise=11) |> 
+  mutate(payroll=payroll * 1000,
+         fscode = str_sub(firmsize, 1, 2))
+
+eststubs <- susbdtl2 |> 
+  select(fscode, firmsize) |> 
+  distinct() |> 
+  # get upper and lower bounds
+  mutate(
+    fslb = case_when(
+    fscode == "01" ~ "0",
+    str_detect(firmsize, coll("<")) ~ "0", 
+    str_detect(firmsize, coll("-")) ~ str_extract(firmsize, "[0-9,]+(?=\\-)"),
+    str_detect(firmsize, coll("+")) ~ str_extract(firmsize, "[0-9,]+(?=\\+)"),
+    .default = "00"),
+    
+    fsub = case_when(
+    fscode == "01" ~ Inf,
+    
+    # caution: upper bound when firmsize has "<" is one lower than the < amount
+    str_detect(firmsize, coll("<")) ~ 
+      str_extract(firmsize, "(?<=<)\\d{1,3}(?:,\\d{3})*") |> 
+      str_remove_all(",") |> 
+      as.numeric() - 1,
+    
+    str_detect(firmsize, coll("-")) ~ 
+      str_extract(firmsize, "(?<=-)\\d{1,3}(?:,\\d{3})*") |> 
+      str_remove_all(",") |> 
+      as.numeric(),
+    
+    str_detect(firmsize, coll("+")) ~ Inf,
+    .default = 0),
+    
+    fslb = as.numeric(str_remove_all(fslb, ",")))
+eststubs
+
+susbdtl3 <- susbdtl2 |> 
+  left_join(eststubs |> 
+              select(-firmsize), 
+            by=join_by(fscode))
+
+saveRDS(susbdtl3, fs::path(PDINTERMEDIATE, "susb2021_usstate_details.rds"))
+
+```
+
+## Get SUSB data for all counties in the US
+
+```{r}
+#| label: get-save-susb-counties
+
+fname <- "county_3digitnaics_2021.xlsx"
+susb1 <- read_excel(fs::path(PDRAW, "susb", fname), skip=2)
+glimpse(susb1)
+
+# mappings for lower and upper bounds of firm size
+sizelb <- c("1" = 0, "2" = 0, "3" = 20, "4" = 100, "5" = 500)
+sizeub <- c("1" = Inf, "2" = 19, "3" = 99, "4" = 499, "5" = Inf)
+cbind(sizelb, sizeub)
+
+susb2 <- susb1 |> 
+  select(statefips=1,
+         state=2,
+         cofips=3,
+         county=4,
+         naics=5,
+         description=6,
+         firmsize=7,
+         firms=8,
+         estabs=9,
+         emp=10,
+         empnoise=11,
+         payroll=12,
+         paynoise=13) |> 
+  mutate(payroll=payroll * 1000,
+         fscode = str_sub(firmsize, 1, 1),
+         fslb = sizelb[fscode],
+         fsub = sizeub[fscode])
+
+glimpse(susb2)
+count(susb2, fscode, firmsize, fslb, fsub) # note that we do not have the same number of recs per code!
+
+saveRDS(susb2, fs::path(PDINTERMEDIATE, "susb2021_counties.rds"))
+
+```
+
+## Get MTA subset of the SUSB counties
+
+```{r}
+#| label: susb-mta
+
+susb <- readRDS(fs::path(PDINTERMEDIATE, "susb2021_counties.rds"))
+
+susb |> 
+  filter(state=="New York") |> 
+  count(cofips, county)
+
+mta <- susb |> 
+  filter(state=="New York", paste0(statefips, cofips) %in% constants$mtafips) |> 
+  mutate(mta=TRUE, 
+         nyc=paste0(statefips, cofips) %in% constants$nycfips)
+
+count(mta, nyc, county)
+count(mta, naics, description)
+
+saveRDS(mta, fs::path(PDINTERMEDIATE, "susb2021_mta.rds"))
+
+```
+
+## About the SUSB
+
+From https://www.census.gov/programs-surveys/susb/technical-documentation/methodology.html and http://www.census.gov/programs-surveys/susb/about/glossary.html
+
+> Statistics of U.S. Businesses (SUSB) covers more than 6 million single-unit establishments and more than 2.0 million multi-unit establishments. The Business Register is the Census Bureau's source of information on employer establishments included in the SUSB program. The Business Register is a multi-relational database that contains a record for each known establishment that is located in the United States with paid employees. An establishment is a single physical location at which business is conducted or services or industrial operations are performed. An establishment is not necessarily equivalent to a company or enterprise, which may consist of one or more establishments. A single-unit enterprise owns or operates only one establishment. A multi-unit enterprise owns or operates two or more establishments. The treatment of establishments on the Business Register differs according to whether the establishment is part of a single-unit or multi-unit enterprise.
+
+**Enterprise**
+
+> An enterprise (or "company") is a business organization consisting of one or more *domestic* establishments that were specified under common ownership or control. The enterprise and the establishment are the same for single-establishment firms. Each multi-establishment company forms one enterprise - the enterprise employment and annual payroll are summed from the associated establishments. \[DJB note that this does not require operating in the same geographic area or industry.\]
+
+**DJB Note**
+
+The SUSB reports \# of firms operating in each county. However, many of the same firms will be operating in multiple counties - for example, IBM probably has offices in most counties in the MTA region and would be in the firm counts for the region. Thus, adding up the number of firms across counties will double count. As firm size increases, it is more likely we will double count (or even 12-count).
+
+**Firm**
+
+*DJB what's the difference between a firm and an enterprise? Note that SUSB data give \# of firms operating in an area by enterprise size.*
+
+> A firm is a business organization consisting of **one or more *domestic* establishments in the same geographic area and industry** that were specified under common ownership or control. The firm and the establishment are the same for single-establishment firms. *For each multi-establishment firm, establishments in the same industry within a geographic area will be counted as one firm; the firm employment and annual payroll are summed from the associated establishments.*
+
+**Enterprise Classification**
+
+> An enterprise may have establishments in many different industries. For the purpose of classifying an entire enterprise into a single industry, the classification methodology starts by excluding nonoperating establishments - establishments classified as manufacturers' sales branches and offices, establishments engaged in management of companies and enterprises (NAICS 55), and auxiliary establishments. The enterprise is then classified into the 2-digit NAICS sector in which it paid the largest share of its payroll. Then, within this 2-digit NAICS sector, the enterprise is classified into the 3-digit NAICS sub-sector in which the enterprise paid the largest share of payroll. Finally, within the assigned 3-digit NAICS sub-sector, the enterprise is classified into the 4-digit NAICS industry group with the largest share of payroll.
+
+SUSB currently has tabulations by enterprise industry for the 2012-2015 reference years.
+
+**Enterprise Size**
+
+> Enterprise size designations are determined by the summed employment of all associated establishments. Employer enterprises with zero employees are enterprises for which no associated establishments reported paid employees in the mid-March pay period but paid employees at some time during the year.
+
+**DJB NOTE:** I believe that the firm (enterprise) size is determined as the sum over all geographies, not the local geography for which we have data.
+
+**Establishment**
+
+> An establishment is a single physical location at which business is conducted or services or industrial operations are performed. It is not necessarily identical with a company or enterprise, which may consist of one or more establishments. When two or more activities are carried on at a single location under a single ownership, all activities generally are grouped together as a single establishment. The entire establishment is classified on the basis of its major activity and all data are included in that classification.
+
+> Establishment counts represent the number of locations with paid employees any time during the year. This series excludes government establishments except for government sponsored Beer, Wine, and Distilled Alcoholic Beverage Merchant Wholesalers (NAICS 4248); Beer, Wine, and Liquor Stores (NAICS 44531); Tobacco Stores (NAICS 453991); Book Publishers (511130); Monetary Authorities – Central Bank (NAICS 521110); Savings Institutions (NAICS 522120); Credit Unions (NAICS 522130); Hospitals (NAICS 622); Gambling Industries (NAICS 7132); and Casino Hotels (NAICS 721120).
+
+**Multi-Unit Enterprise**
+
+> For multi-unit enterprises a different structure connects the enterprise with its establishments via the EIN. Essentially a multi-unit enterprise is associated with a cluster of one or more EINs and EINs are associated with one or more establishments. A multi-unit enterprise consists of at least two establishments. Each enterprise is associated with at least one EIN and only one enterprise can use a given EIN. One multi-unit enterprise may have several EINs. Similarly, there is a one-to-many relationship between EINs and establishments. Each EIN can be associated with many establishments, but each establishment is associated with only one EIN. With the possibility of one-to-many relationships, there must be distinction between the enterprise, its EINs, and its establishments. A unique employer unit identification number identifies each establishment owned by a multi-unit enterprise on the Business Register.
+
+> There is less dependency on administrative record sources for multi-unit establishment information because EIN and establishment are not equivalent for multi-unit enterprises. The Census Bureau's Economic Census (conducted every five years in years ending in ‘2’ and ‘7’) initially identifies multi-unit company when a company expands to more than one establishment. Establishments for a multi-unit company are identified through the Economic Census and the annual Report of Organization survey (formerly Company Organization Survey). Geographic location, industry classification, payroll, and employment come primarily from the Economic Census and the Report of Organization. EIN-level administrative payroll and employment data are apportioned to the establishment level in cases of nonresponse or for smaller companies not selected for the Report of Organization.
+
+**Employment Services**
+
+> Historically, the permanent on-site workforce at a business location were paid employees of that establishment. This traditional practice of enterprises directly hiring employees is still the dominant employer/employee relationship in the United States. However, there are also *professional employer organizations (PEO's)* or employee-leasing companies that provide leased workers and specialized management services. These employer organizations are responsible for payroll, including withholding and remitting employment-related taxes, for some or all of the employees of their clients, and also serve as the employer of those employees for benefits and related purposes.
+
+> SUSB has shown a steady increase in PEOs and other Employment Services (NAICS 5613) establishments, as well as Payroll Services (NAICS 541214) establishments. *In these cases, employees are not always classified in the predominant industry of the client businesses.* Employment services establishments may pay these employees out of a single payroll office. *This may result in the leasing enterprise's employment and payroll data being reported in the county where the payroll office is located, thus distorting the data for that county.* In some cases, *many thousands* of employees may be paid from a single payroll office. Therefore, for geography purposes, employee-leasing establishments may be published in the “statewide” category in states where such payroll offices are located, as these establishments service multiple counties.
+
+**Selected Noise Codes**
+
+-   D: Withheld to avoid disclosing data for individual companies; data are included in higher level totals
+
+-   G: Low noise; cell value was changed by less than 2 percent by the application of noise
+
+-   H: Moderate noise; cell value was changed by 2 percent or more but less than 5 percent by the application of noise
+
+-   J: High noise; cell value was changed by 5 percent or more by the application of noise
+
+-   S: Withheld because estimate did not meet publication standards N Not available or not comparable
+
+### Boyd email conversation with Trey of SUSB, July 12, 2021 for polluters' penalty project ewd.susb\@census.gov
+
+I would like to be sure I understand more precisely what is counted. Could you please tell me if I understand correctly:
+
+Am I correct in believing that establishments are included regardless of whether they are owned by: foreign or domestic entities, for-profit or other entities (I think this is correct)
+
+*Trey: All active domestic establishments are included regardless of domestic or foreign ownership.*
+
+Am I correct in believing that these would be total receipts of these establishments, regardless of whether the sales stay in the U.S. or go overseas? If I read the glossary correctly, I think they include both.
+
+*Trey: Receipts include all revenue for the above-mentioned active establishments.*
+
+Am I correct in understanding that these receipts would include interfirm sales? If so do you have any advice for what I should look at to gain insight into the extent of these sales? Would I/O make and use tables help me understand the extent of these transactions?
+
+*Trey: Since the receipts data provided are at the establishment level, the potential exists for the double counting of receipts within multi-establishment enterprises. I believe this is what you are referring to when you reference interfirm sales. Unfortunately, there's no way using the SUSB data to measure the extent of this issue.*
+
+Any other data sources you'd recommend I look at to understand industry size, measured by receipts? I'm not aware of any other data sources. Any particular data sources you'd recommend for gaining insight into the relative size of major firms in the industry? (I am looking primarily at information for investors, such as data on revenue pulled from 10-Ks.)
+
+*Trey: No.*
+
+```{r}
+#| label: cleanup
+rm(list = ls())
+```
+
+```{r stop_here, echo=FALSE}
+knitr::knit_exit()
+```
+
+## SUSB Read and save MTA subset of the county SUSB data
+
+## Fill in fine-grained firm size information using detailed ranges for NY state
+
+```{r}
+#| label: pre-process-nys-data
+
+usstate <- readRDS(fs::path(PDINTERMEDIATE, "susb2021_usstate_details.rds"))
+glimpse(usstate)
+count(usstate, statefips, state)
+
+nys1 <- usstate |> 
+  filter(statefips == "36")
+count(nys1, firmsize)
+
+nys1 |> 
+  filter(naics=="99") # hmmm we only have a few sizes for 99
+
+# create stubs to fill in missing values ----
+# firm sizes
+fsstubs <- nys1 |> 
+  select(fscode, firmsize, fslb, fsub) |> 
+  distinct() |> 
+  # drop the total and subtotals
+  filter(!fscode %in% c("01", "06", "19"))
+fsstubs
+
+# state data has 2-digit naics (including "--" and range  naics such as "31-33" Manufacturing)
+naicsstubs <- nys1 |> 
+  select(naics, description) |> 
+  distinct()
+
+stubs <- crossing(fsstubs, naicsstubs) |> 
+  mutate(statefips = "36",
+         state = "New York")
+# we want to fill firmsize data for all cells in stubs
+
+# create all-industries all-firm-sizes data with missing values for empty cells
+nys2 <- stubs |> 
+  left_join(nys1 |> 
+              select(-c(firmsize, fslb, fsub, description, state)),
+            by = join_by(fscode, naics, statefips)) |> 
+  arrange(naics, fscode)
+
+nys2 |> filter(is.na(firms)) # a few industries don't have data in all cells 
+  
+count(nys2, fscode, firmsize) # 23 mutually exclusive firm sizes
+count(nys2, naics, description)  # 21 2-digit naics including --
+
+# get percents for the non-missing value for each naics based on sum of nonmissing (so they add to 100) details
+nys3 <- nys2 |> 
+  select(-empnoise, -paynoise) |> 
+  mutate(across(c(firms, estabs, emp, payroll), \(x) replace_na(x, 0))) |> 
+  mutate(across(c(firms, estabs, emp, payroll), 
+                list(pct = \(x) x / sum(x, na.rm=TRUE))),
+         .by=naics)
+nys3
+summary(nys3)
+
+# check that industry sums are 1
+check <- nys3 |> 
+  summarise(across(c(firms_pct, estabs_pct, emp_pct, payroll_pct), sum),
+            .by=c(naics, description))
+summary(check)
+
+# save the filled out NY state data
+saveRDS(nys3, fs::path(PDINTERMEDIATE, "susb2021_nys_shares.rds"))
+
+```
+
+Do some quick checks on the raw NYS data before any adjustments.
+
+```{r}
+#| label: check-nys-data
+
+nys <- readRDS(fs::path(PDINTERMEDIATE, "susb2021_nys_shares.rds"))
+
+tmp <- nys |> 
+  select(firmsize, fslb, fsub, naics, description, firms, estabs, emp, payroll) |> 
+  mutate(ef=emp / firms,
+         lbdiff = ifelse(ef < fslb, fslb - ef, 0),
+         ubdiff = ifelse(ef > fsub, ef - fsub, 0)) |>
+  filter(lbdiff > 0 | ubdiff > 0) |> # 256 records
+  relocate(ef, lbdiff, ubdiff, .after = fsub)
+
+```
+
+## Use NYS detailed firmsize shares to fill in detailed firmsize data for MTA
+
+```{r}
+#| label: fill-mta-missing
+
+mta <- readRDS(fs::path(PDINTERMEDIATE, "susb2021_mta.rds"))
+nys <- readRDS(fs::path(PDINTERMEDIATE, "susb2021_nys_shares.rds"))
+
+count(nys, fscode, firmsize)
+count(mta, fscode, firmsize)
+count(nys, naics, description)
+count(mta, naics, description)
+
+# create match between mta 3-digit naics and nys 2-digit naics
+naics_group <- mta |> 
+  select(naics) |> 
+  distinct() |> 
+  arrange(naics) |> 
+  mutate(naics2=str_sub(naics, 1, 2),
+         naics_group=case_when(
+           naics2 %in% c("31", "32", "33") ~ "31-33",
+           naics2 %in% c("44", "45") ~ "44-45",
+           naics2 %in% c("48", "49") ~ "48-49",
+           .default = naics2)) |> 
+  select(naics_group, naics)
+ht(naics_group)
+
+# prepare NYS data for matching
+nys2 <- nys |> 
+  filter(naics != "--") |> 
+  mutate(fs_group = case_when(
+    as.integer(fscode) %in% 2:5 ~ "<20 employees",
+    as.integer(fscode) %in% 7:13 ~ "20-99 employees",
+    as.integer(fscode) %in% 14:18 ~ "100-499 employees",
+    as.integer(fscode) %in% 20:26 ~ "500+ employees",
+  )) |> 
+  rename(naics_group = naics)
+count(nys2, fs_group, firmsize) |> arrange(firmsize)
+count(nys2, naics_group, description)
+
+# prepare MTA data for matching
+mta2 <- mta |> 
+  filter(naics != "--") |> 
+  mutate(fs_group = str_sub(firmsize, 4, -1)) |> 
+  select(cofips, county, naics, description, fs_group, firmsize, firms, estabs, emp, payroll, mta, nyc) |> 
+  left_join(naics_group, by = join_by(naics))
+count(mta2, fs_group, firmsize)
+count(mta2, naics_group, naics, description)
+glimpse(mta2)
+
+# do the match
+nysmta <- nys2 |> 
+  select(naics_group, fs_group, fscode, firmsize, fslb, fsub, ends_with("_pct")) |>
+  
+  # add a "_grp" suffix to mta columns that represent firmsize group totals rather than detailed cell values
+  full_join(mta2 |> 
+              select(cofips, county, naics_group, naics, description, fs_group, 
+                     firms_grp=firms, estabs_grp=estabs, emp_grp=emp, payroll_grp=payroll,
+                     mta, nyc), 
+            by=join_by(naics_group, fs_group),
+            relationship = "many-to-many") |> 
+  filter(fs_group != "Total") |>
+  
+  # calculate the detailed cell values by multiplying the group total by the share
+  mutate(
+    firms = firms_grp * firms_pct / sum(firms_pct),
+    estabs = estabs_grp * estabs_pct / sum(estabs_pct),
+    emp = emp_grp * emp_pct / sum(emp_pct),
+    payroll = payroll_grp * payroll_pct / sum(payroll_pct),
+    .by=c(cofips, naics, fs_group)) |> 
+  
+  select(cofips, county, naics_group, naics, description, fs_group, fscode, firmsize, fslb, fsub, 
+         firms, estabs, emp, payroll,
+         ends_with("_grp"),
+         ends_with("_pct"),
+         mta, nyc) |> 
+  arrange(cofips, naics_group, naics, fscode, fs_group)
+nysmta
+count(nysmta, fscode, firmsize, fs_group)
+count(nysmta, naics_group, naics, description)
+
+```
+
+```{r}
+
+# allocate excess to lowest first
+adjust_employment <- function(firms, fsub, emp){
+  maxemp <- fsub * firms
+  empadj <- pmin(maxemp, emp)
+  need <- sum(emp) - sum(empadj)
+  for(i in 1:length(firms)){
+    avail <- maxemp[i] - empadj[i]
+    if(avail > 0 & need > 0){
+      empadd <- min(avail, need)
+      empadj[i] <- empadj[i] + empadd
+      need <- need - empadd
+    }
+  }
+  return(empadj)
+}
+
+adjust_employment(firms = df$firms, fsub = df$fsub, emp = df$emp)
+
+nysmta_adj <- nysmta |> 
+  filter(!is.na(cofips)) |> 
+  mutate(empadj = adjust_employment(firms, fsub, emp),
+         payrolladj = payroll_grp / emp_grp * empadj,
+         .by=c(cofips, naics, fs_group))
+  
+nysmta_adj |> 
+  summarise(across(c(firms, estabs, emp, empadj, payroll, payrolladj), sum),
+            .by=c(cofips, county, naics_group, naics, description, fs_group))
+
+nysmta_adj |> 
+  mutate(empavg = empadj / firms,
+         diff = empavg - fsub) |> 
+  filter(empavg > fsub) |> 
+  relocate(empavg, diff, .after = fsub) |> 
+  arrange(desc(diff))
+
+ht(nysmta_adj)
+
+check <- nysmta_adj |> 
+  mutate(empavg = emp / firms, # use original employment here
+         empavg2 = empadj / firms) |> 
+  filter(empavg > fsub) |> 
+  relocate(empavg, empavg2, .after = fsub)
+
+saveRDS(nysmta_adj, fs::path(PDINTERMEDIATE, "susb2021_nys_shares_adj.rds"))
+
+```
+
+```{r}
+
+
+
+nysmta_adj |> 
+  mutate(level = case_when(
+    firmsize == "1: Total" &
+      naics == "--"                              ~ "1 top level naics by total firms",
+    
+    firmsize != "1: Total" &
+      naics == "--"                              ~ "2 top level naics by firm size",
+    
+    firmsize == "1: Total" &
+      naics != "--" &
+      (nchar(naics) ==2 | str_detect(naics, "-")) ~ "3 2-digit naics by total firms",
+        
+    firmsize != "1: Total" & naics != "--" &
+      (nchar(naics) ==2 | str_detect(naics, "-")) ~ "4 2-digit naics by firm sizes",
+    
+    firmsize == "1: Total" & naics != "--" &
+      nchar(naics) == 3                           ~ "5 3-digit naics by total firms",
+    
+    firmsize != "1: Total" & naics != "--" &
+      nchar(naics) == 3                           ~ "6 3-digit naics by firm size",
+    
+    .default = "ERROR")) |> 
+  summarise(n=n(), firms = sum(firms), estabs=sum(estabs), emp=sum(emp), payroll=sum(payroll), .by=level) |> 
+  arrange(level)
+
+# 2-digit and 3-digit still good!
+
+```
+
+Check the MTA data for internal consistency:
+
+-   Check that the sum of detailed cell values equals the group total
+
+-   Check that the sum of the shares equals 1
+
+-   Think about \# of employees per firm. The size classification is for the firm everywhere. This can be a large number based on employees everywhere but it can be small in a geographic area. For example, a firm could have 10,000 employees everywhere but only 10 in a given county. So we expect employees per firm in an area to be lower than the lower bound of the firm size range, often. However, I don't think we should expect employees per firm to be higher than the upper bound.
+
+-   We have 11k records of 16.9k records in MTA where emp / firm is less than the lower bound of the firm size range. This is ok.
+
+-   We have one record where emp / firm is greater than the upper bound of the firm size range. This is NOT ok but it's not a big deal.
+
+```{r}
+#| label: check-mta-data-consistency-and-save
+
+# do some checks on nysmta ----
+# 
+summary(nysmta)
+# 
+# check sums
+nysmta |> 
+  summarise(across(c(firms, estabs, emp, payroll), sum),
+            across(ends_with("_grp"), first),
+            across(ends_with("_pct"), sum),
+            .by=c(cofips, naics, fs_group))
+
+tmp <- nysmta |> 
+  select(cofips, county, naics, description, firmsize, fslb, fsub, emp, firms, payroll) |> 
+  mutate(ef=emp / firms) |> # emp / firm can be lower than fslb
+  mutate(pay = payroll / emp,
+         paypf = payroll / firms) |> 
+  relocate(ef, pay, paypf, .after = fsub)
+
+tmp |> filter(ef < fslb) # 11k records but that's ok
+tmp |> filter(ef > fsub) # one record, and just barely so; setting emp to 117 would solve the problem
+
+tmp |>
+  mutate(diff = ifelse(ef > fsub, ef - fsub, 0)) |> 
+  filter(ef > fsub) |> 
+  summary()
+
+tmp |>
+  mutate(diff = ifelse(ef > fsub, ef - fsub, 0)) |> 
+  filter(diff > 100)
+    
+
+# for NYS just one record
+#   firmsize             fslb  fsub    ef lbdiff ubdiff naics description                                firms estabs   emp payroll
+#   <chr>               <dbl> <dbl> <dbl>  <dbl>  <dbl> <chr> <chr>                                      <dbl>  <dbl> <dbl>   <dbl>
+# 1 10: 35-39 employees    35    39  40.7      0   1.67 11    Agriculture, Forestry, Fishing and Hunting     3      3   122 7031000
+  
+# nysmta |> 
+#   select(cofips, county, naics_group, naics, description, fs_group, firmsize, fslb, fsub, emp, firms, payroll, ends_with("grp"), ends_with("pct")) |> 
+#   mutate(ef=emp / firms) |> # emp / firm often is lower than fslb
+#   mutate(pay=payroll / emp,
+#          paypf=payroll / firms) |> 
+#   relocate(ef, pay, paypf, .after = fsub) |> 
+#   filter(cofips=="005", naics_group=="23") |> 
+#   write.xlsx(fs::path(PDINTERMEDIATE, "nysmta_checks.xlsx"))
+ 
+tmp <- nysmta |> filter(is.na(fscode))
+
+# fix: for large firm size, number of firms reported often is inconsistent with number of employees ----
+# treat employment and payroll as reasonable and recalculate # of firms using lower bound of firm size range
+# 
+# try a simple reallocation when emp / firms is greater than fsub
+
+inaics <- "44-45"
+ico <- "085"
+
+tmp <- nysmta |> 
+  # select(cofips, county, naics_group, naics, description, fs_group, firmsize, fslb, fsub, emp, firms, payroll, ends_with("grp"), ends_with("pct")) |> 
+  mutate(empfirm = emp / firms, 
+         maxemp = firms * fsub,
+         excess = emp - maxemp) |> 
+  filter(naics==inaics, cofips==ico)
+
+nysmta_adj <- nysmta |> 
+  # select(cofips, county, naics_group, naics, description, fs_group, firmsize, fslb, fsub, emp, firms, payroll, ends_with("grp"), ends_with("pct")) |> 
+  mutate(empfirm = emp / firms, 
+         maxemp = firms * fsub,
+         excess = emp - maxemp)
+  mutate(empfirm = emp / firms) |> # emp / firm can be lower than fslb
+  # recalculate # of firms using fslb lower bound of firm size range
+  mutate(firms_adj = case_when(empfirm < fslb ~ emp / fslb,
+                               empfirm > fsub ~ emp / fsub,
+                               .default = firms),
+         empfirm_adj = emp / firms_adj)|> 
+  # adjust number of establishments proportionately
+  mutate(estabs_adj = estabs * firms_adj / firms) |>
+  relocate(empfirm, empfirm_adj, .after = fsub) |> 
+  relocate(firms_adj, .after = firms) |> 
+  relocate(estabs_adj, .after = estabs)
+
+saveRDS(nysmta_adj, fs::path(PDINTERMEDIATE, "susb2021_nysmta_shares_adj.rds"))
+
+
+nysmta_adj |> 
+  filter(empfirm_adj < fslb | empfirm_adj > fsub)
+
+nysmta_adj |> 
+  summarise(across(c(firms, firms_adj, estabs, emp, payroll), sum),
+            across(ends_with("_grp"), first),
+            across(ends_with("_pct"), sum),
+            .by=c(cofips, naics, fs_group))
+
+tmp <- nysmta_adj |> 
+  select(naics_group, naics, description) |>
+  distinct()
+  
+
+```
+
+## Quick and dirty \# firms and establishments and amount of payroll by firm size
+
+```{r}
+#| label: quick-dirty
+
+
+nysmta_adj <- readRDS(fs::path(PDINTERMEDIATE, "susb2021_nysmta_shares_adj.rds"))
+
+count(nysmta_adj, naics_group, naics, description)
+
+tabdata <- nysmta_adj |> 
+  filter(nchar(naics) == 3) |>
+  mutate(payfirm=payroll / firms_adj,
+         paygroup=case_when(
+           payfirm < 1.5e6 ~ "tier1",  # .11
+           payfirm >= 1.5e6 & payfirm < 1.75e6 ~ "tier2", # .23
+           payfirm >= 1.75e6 ~ "tier3", # .34 or .60
+           is.na(payfirm) ~ "napayfirm",
+           .default = "ERROR")) |>
+  mutate(taxrate=case_when(
+    paygroup == "tier1" ~ 0.0011,
+    paygroup == "tier2" ~ 0.0023,
+    paygroup == "tier3" & !nyc ~ 0.0034,
+    paygroup == "tier3" & nyc ~ 0.0060,
+    .default = 0)) |>
+  mutate(tax=payroll * taxrate) |>
+  summarise(n=n(),
+            firms=sum(firms_adj, na.rm=TRUE),
+            estabs=sum(estabs_adj, na.rm=TRUE),
+            emp=sum(emp, na.rm=TRUE),
+            payroll=sum(payroll, na.rm=TRUE),
+            tax = sum(tax, na.rm=TRUE),
+            .by=c(paygroup, nyc)) |> 
+  filter(paygroup != "napayfirm") |>
+  arrange(nyc, paygroup) |> 
+  janitor::adorn_totals()
+
+tabdata |> 
+  gt() |> 
+  fmt_number(columns=c(n, firms, estabs, emp)) |> 
+  fmt_number(columns=c(payroll, tax),
+             scale=1e-6,
+             decimals=1)
+  
+# tabdata <- nysmta_adj |> 
+#   mutate(payfirm=payroll / firms_adj,
+#          paygroup=case_when(
+#            payfirm < 1.5e6 ~ "tier1",  # .11
+#            payfirm >= 1.5e6 & payfirm < 1.75e6 ~ "tier2", # .23
+#            payfirm >= 1.75e6 ~ "tier3", # .34 or .60
+#            is.na(payfirm) ~ "napayfirm",
+#            .default = "ERROR")) |>
+#   mutate(taxrate=case_when(
+#     paygroup == "tier1" ~ 0.0011,
+#     paygroup == "tier2" ~ 0.0023,
+#     paygroup == "tier3" & !nyc ~ 0.0034,
+#     paygroup == "tier3" & nyc ~ 0.0060,
+#     .default = 0)) |>
+#   mutate(tax=payroll * taxrate) |>
+#   summarise(n=n(),
+#             firms=sum(firms_adj, na.rm=TRUE),
+#             estabs=sum(estabs_adj, na.rm=TRUE),
+#             emp=sum(emp, na.rm=TRUE),
+#             payroll=sum(payroll, na.rm=TRUE),
+#             tax = sum(tax, na.rm=TRUE),
+#             .by=c(paygroup)) |> 
+#   filter(paygroup != "napayfirm") |>
+#   arrange(paygroup) |> 
+#   janitor::adorn_totals()
+
+tabdata |> 
+  gt() |> 
+  fmt_number(columns=c(n, firms, estabs, emp)) |> 
+  fmt_number(columns=c(payroll, tax),
+             scale=1e-6,
+             decimals=1)
+  
+```
+
+## Explore 2021 SUSB data for the MTA region
+
+What share of total MTA wages does NYC have by size of firm?
+
+(A quick-and-dirty analysis for the MTA.)
+
+```{r}
+#| label: explore-mta
+
+mta <- readRDS(fs::path(PDINTERMEDIATE, "susb2021_mta.rds"))
+
+mta |> 
+  filter(naics=="--") |> 
+  select(county, firmsize, firms, estabs, emp, payroll) |> 
+  mutate(fe=firms / estabs,
+         emppay = payroll / emp,
+         avgfirmpay = payroll / firms) |>
+  mutate(paypct = payroll / payroll[firmsize == "1: Total"],
+         .by=county) |> 
+  relocate(fe,.after = firmsize) |> 
+  arrange(firmsize, county) |> 
+  gt() |> 
+  fmt_number(columns = c(4:9),
+             decimals = 0) |> 
+  fmt_percent(columns = paypct,
+              decimals = 1)
+
+
+
+nycshare <- mta |> 
+  filter(naics=="--") |> 
+  summarise(across(c(firms, estabs, emp, payroll), sum),
+            .by=c(nyc, firmsize)) |> 
+  mutate(nyc=ifelse(nyc, "nyc", "suburban"),
+         qfirmpay=(payroll / firms) / 4,
+         avgpay=payroll / emp)
+
+nycshare |> 
+  select(nyc, firmsize, qfirmpay) |> 
+  pivot_wider(names_from = nyc, values_from = qfirmpay) |> 
+  gt() |> 
+  tab_header(html("Average MTA <strong>quarterly</strong> firm payroll by firm size in 2021, <strong>dollars</strong>"),
+             subtitle="source=Statistics of U.S. Businesses (SUSB)") |> 
+  fmt_number(columns = c(nyc, suburban),
+             decimals = 0)
+
+nycshare |> 
+  select(firmsize, payroll, nyc) |> 
+  pivot_wider(names_from = nyc, values_from = payroll) |> 
+  mutate(total=nyc + suburban,
+         nycpct=nyc / total) |> 
+  gt() |> 
+  tab_header(html("Total MTA payroll by firm size in 2021, $ billions, and NYC share of MTA"),
+             subtitle="source=Statistics of U.S. Businesses (SUSB)") |> 
+  fmt_number(columns = c(nyc, suburban, total),
+             scale = 1e-9,
+             decimals = 2) |> 
+  fmt_percent(columns = nycpct,
+              decimals = 1)
+
+# cumulative  
+nycshare |> 
+  select(firmsize, payroll, nyc) |> 
+  filter(!str_starts(firmsize, "1: Total")) |> 
+  arrange(nyc, desc(firmsize)) |> 
+  mutate(payroll=cumsum(payroll), .by=nyc) |> 
+  pivot_wider(names_from = nyc, values_from = payroll) |> 
+  arrange(firmsize) |> 
+  mutate(total=nyc + suburban,
+         nycpct=nyc / total) |> 
+  gt() |> 
+  tab_header(html("<strong>Reverse cumulative</strong> MTA payroll by firm size in 2021, $ billions, and NYC share of MTA"),
+             subtitle="source=Statistics of U.S. Businesses (SUSB)") |> 
+  fmt_number(columns = c(nyc, suburban, total),
+             scale = 1e-9,
+             decimals = 2) |> 
+  fmt_percent(columns = nycpct,
+              decimals = 1)
+
+```
+
+## Data checks on the MTA
+
+```{r}
+
+mta <- readRDS(fs::path(PDINTERMEDIATE, "susb2021_mta.rds"))
+count(mta, firmsize)
+
+
+mta |> 
+  mutate(level = case_when(
+    firmsize == "1: Total" &
+      naics == "--"                              ~ "1 top level naics by total firms",
+    
+    firmsize != "1: Total" &
+      naics == "--"                              ~ "2 top level naics by firm size",
+    
+    firmsize == "1: Total" &
+      naics != "--" &
+      (nchar(naics) ==2 | str_detect(naics, "-")) ~ "3 2-digit naics by total firms",
+        
+    firmsize != "1: Total" & naics != "--" &
+      (nchar(naics) ==2 | str_detect(naics, "-")) ~ "4 2-digit naics by firm sizes",
+    
+    firmsize == "1: Total" & naics != "--" &
+      nchar(naics) == 3                           ~ "5 3-digit naics by total firms",
+    
+    firmsize != "1: Total" & naics != "--" &
+      nchar(naics) == 3                           ~ "6 3-digit naics by firm size",
+    
+    .default = "ERROR")) |> 
+  summarise(n=n(), firms = sum(firms), estabs=sum(estabs), emp=sum(emp), payroll=sum(payroll), .by=level) |> 
+  arrange(level)
+
+check <- mta |> 
+  mutate(level = case_when(
+    firmsize == "1: Total" &
+      naics == "--"                              ~ "level1",
+    firmsize != "1: Total" &
+      naics == "--"                              ~ "level2",
+    firmsize == "1: Total" &
+      naics != "--" &
+      (nchar(naics) ==2 | str_detect(naics, "-")) ~ "level3",
+    firmsize != "1: Total" & naics != "--" &
+      (nchar(naics) ==2 | str_detect(naics, "-")) ~ "level4",
+    firmsize != "1: Total" & naics != "--" &
+      nchar(naics) == 3 ~ "level5",
+    .default = "other")) |> 
+  filter(level=="other")
+
+
+```
