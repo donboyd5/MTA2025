@@ -19,6 +19,7 @@ CBP links
 -   [landing page](https://www.census.gov/programs-surveys/cbp.html)
 -   [csv data files](https://www.census.gov/data/datasets/2022/econ/cbp/2022-cbp.html)
 -   [county file for 2022](https://www2.census.gov/programs-surveys/cbp/datasets/2022/cbp22co.zip)
+-   [methodology](https://www.census.gov/programs-surveys/cbp/technical-documentation/methodology.html)
 
 CBP has data on establishments, employment, and payroll by county and industry. The data are available by establishment size measured by number of employees in the establishment. The data are available at the 6-digit 2017 NAICS level.
 
@@ -38,6 +39,8 @@ Establishment sizes:
 -   1,000 to 1,499 employees
 -   1,500 to 2,499 employees
 -   2,500 to 4,999 employees
+
+> Beginning with reference year 2017, a cell is only published if it contains three or more establishments. In all other cases, the cell is not included in the release (i.e., it is dropped from publication).
 
 We don't currently need the breakdowns for the 1,000+ groups.
 
@@ -125,7 +128,7 @@ char_cols <- c("fipstate", "fipscty", "naics", "emp_nf", "qp1_nf", "ap_nf")
 
 cbp2 <- cbp1 |> 
   mutate(across(-all_of(char_cols), as.numeric)) |> 
-  rename(nlt_5=`n<5`) |> 
+  rename(n0_4=`n<5`, n1000_inf=n1000) |> 
   left_join(areas2 |> 
               select(fipstate, fipscty, state, county),
             by = join_by(fipstate, fipscty)) |> 

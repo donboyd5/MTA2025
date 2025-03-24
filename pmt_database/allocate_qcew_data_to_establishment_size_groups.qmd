@@ -1,0 +1,621 @@
+---
+output: html_document
+editor_options: 
+  chunk_output_type: console
+---
+
+{{< include _setup.qmd >}}
+
+# Allocate QCEW data to establishment size groups
+
+```{r}
+
+qcshares <- readRDS(fs::path(PDINTERMEDIATE, "qcew_cbpshares.rds"))
+
+# check sum
+sum(qcshares$totwage)
+readRDS(fs::path(PDINTERMEDIATE, "qmta_atoms.rds")) |> 
+  filter(ownerf==1) |> 
+  summarise(totwage=sum(totwage))
+
+```
+
+```{r}
+#| label: long-file
+
+qclong <- qcshares |> 
+  pivot_longer(cols=n0_4:n1000_inf) |> 
+  separate_wider_delim(name, delim = "_", names=c("elb", "eub"), cols_remove = FALSE) |> 
+  mutate(elb = str_remove(elb, "n") |> as.integer(),
+         eub = ifelse(eub=="inf", Inf, as.integer(eub)), # will generate a warning
+         estabs_initial = estab * value)
+
+# verify that all shares add to 1
+qclong |> 
+  summarise(value=sum(value), .by=c(area, naics)) |> 
+  mutate(diff=value - 1) |> 
+  arrange(desc(abs(diff))) # good
+
+qclong |> 
+  summarise(estabs = first(estab),
+            estabs_initial=sum(estabs_initial), .by=c(area, naics)) |> 
+  mutate(diff=estabs_initial - estabs) |> 
+  arrange(desc(abs(diff))) # good
+
+```
+
+```{r}
+#| label: optimization-function
+
+move_estabs <- function(emp, elb, ests){
+  empdiff <- emp - sum(elb * ests)
+  ests2 <- ests
+  need <- empdiff
+  
+  for(i in 1:(length(elb) - 1)){
+    print(need)
+    if(need > 0){
+      # move up to some fraction of ests out
+      maxestmove <- ests2[i] * .75 # allow moves up to this amount
+      maxestneed <- need / lbmoves[i, i+1] # can't be larger than the need
+      imove <- pmin(maxestneed, maxestmove)
+      print(imove)
+      # ests
+      ests2[i] <- ests2[i] - imove
+      ests2[i + 1] <- ests2[i + 1] + imove
+      need <- emp - sum(elb * ests2)
+    } else break
+  }
+  ests2
+}
+
+fempest <- function(emp, estabs, elb, eub, esize_estabs, area=NULL, naics=NULL){
+  # estimate esize_estabs and esize_emp jointly, minimizing movement from
+  # initial esize_estabs while keeping esize_emp close to bounds
+  
+  obj <- function(par, emptot, estabs_tot, initial_estabs, area){
+    n <- length(par) # must be even
+    iemp <- 1:(n / 2)
+    iestabs <- (n / 2 + 1):n
+    es_emp <- par[iemp]
+    es_estabs <- par[iestabs]
+    
+    part1 <- (emptot - sum(es_emp * es_estabs))^2
+    part2 <- sum((es_estabs - initial_estabs)^2)
+    part3 <- sum((estabs_tot - sum(es_estabs))^2)
+    part1 + part2 * 1e-3 + part3
+    #part1 + part2
+  }
+  
+  grad_obj <- function(par, emptot, estabs_tot, initial_estabs, area) {
+    n <- length(par)
+    iemp <- 1:(n / 2)
+    iestabs <- (n / 2 + 1):n
+    es_emp <- par[iemp]
+    es_estabs <- par[iestabs]
+    
+    part1_grad_emp <- -2 * (emptot - sum(es_emp * es_estabs)) * es_estabs
+    part1_grad_estabs <- -2 * (emptot - sum(es_emp * es_estabs)) * es_emp
+    
+    part2_grad_estabs <- 2 * (es_estabs - initial_estabs) * 1e-3
+    
+    part3_grad_estabs <- -2 * (estabs_tot - sum(es_estabs))
+    
+    grad_emp <- part1_grad_emp
+    grad_estabs <- part1_grad_estabs + part2_grad_estabs + part3_grad_estabs
+    
+    grad <- c(grad_emp, grad_estabs)
+    return(grad)
+  }
+  
+  # establish lower bound of at least 1 if we have estabs in that range??
+  lbx <- elb * .9
+  # lbx[1] <- ifelse(esize_estabs[1] > 0, 1, 0)
+  
+  # move initial establishments if we are below employment total
+  empdiff <- emp[1] - sum(esize_estabs * elb)
+  print(empdiff)
+  if(empdiff > 0){
+    # move some establishments into higher estab sizes
+    print("Adjusting establishments...") 
+    esize_estabs <- move_estabs(emp[1], elb, esize_estabs)
+  }
+  
+  par0 <- c(lbx, esize_estabs)
+  n <- length(par0) # must be even
+  iemp <- 1:(n / 2)
+  iestabs <- (n / 2 + 1):n
+  
+  # scaling_vector <- ifelse(par0==0, 0.1, par0)
+  # conlist <- list(fnscale=1e5, parscale=scaling_vector)
+  conlist <- list(fnscale=1e10)
+  
+  res <- optim(
+    par = par0,
+    fn = obj,
+    gr = grad_obj,
+    method = "L-BFGS-B",
+    control = conlist,
+    lower = c(lbx, rep(0, n/2)),
+    # upper = eub * 1.1,
+    emptot = emp[1],
+    estabs_tot = estabs[1],
+    initial_estabs = esize_estabs)
+  
+    if(res$convergence != 0){
+      print(res$convergence)
+      print(res$message)
+      print(area[1])
+      print(naics[1])
+    }
+  
+  esize_avgemp <- res$par[iemp]
+  esize_estabsadj <- res$par[iestabs]
+  return(tibble(esize_estabsadj, esize_avgemp, converge=res$convergence, res=list(res)))
+}
+
+
+  obj <- function(par, emptot, estabs_tot, initial_estabs, area, weights=c(1, 1, 1)){
+    n <- length(par) # must be even
+    iemp <- 1:(n / 2)
+    iestabs <- (n / 2 + 1):n
+    es_emp <- par[iemp]
+    es_estabs <- par[iestabs]
+    
+    part1 <- (emptot - sum(es_emp * es_estabs))^2
+    part2 <- sum((es_estabs - initial_estabs)^2)
+    part3 <- sum((estabs_tot - sum(es_estabs))^2)
+    part1 * weights[1] + part2 * weights[2] + part3 * weights[3]
+    #part1 + part2
+  }
+
+
+```
+
+```{r}
+#| label: optim-function-weighted
+
+# matrix with value for taking 1 away from the row element and adding it to the column element
+# e.g., if we take 1 establishment away from 0-5 and add it to 0-10, our value goes up by 5
+# take 1 away from group 2 and add to group 3 goes up 5 and so on
+# lbmoves <- -outer(elb, elb, "-")
+
+# elb <- 1:5
+# eub <- 2:6
+# -outer(elb, elb, "-")
+
+move_estabs <- function(emp, elb, ests){
+  empdiff <- emp - sum(elb * ests)
+  ests2 <- ests
+  need <- empdiff
+  lbmoves <- -outer(elb, elb, "-")
+  
+  for(i in 1:(length(elb) - 1)){
+    print(need)
+    if(need > 0){
+      # move up to some fraction of ests out
+      maxestmove <- ests2[i] * .75 # allow moves up to this amount
+      maxestneed <- need / lbmoves[i, i+1] # can't be larger than the need
+      imove <- pmin(maxestneed, maxestmove)
+      print(imove)
+      # ests
+      ests2[i] <- ests2[i] - imove
+      ests2[i + 1] <- ests2[i + 1] + imove
+      need <- emp - sum(elb * ests2)
+    } else break
+  }
+  ests2
+}
+
+fempest_weighted <- function(emp, estabs, elb, eub, esize_estabs, area=NULL, naics=NULL, weights=c(1, 1, 1), lbmoves=TRUE){
+  # estimate esize_estabs and esize_emp jointly, minimizing movement from
+  # initial esize_estabs while keeping esize_emp close to bounds
+  
+  obj <- function(par, emptot, estabs_tot, initial_estabs, area, weights, lbmoves){
+    n <- length(par) # must be even
+    iemp <- 1:(n / 2)
+    iestabs <- (n / 2 + 1):n
+    es_emp <- par[iemp]
+    es_estabs <- par[iestabs]
+    
+    part1 <- (emptot - sum(es_emp * es_estabs))^2 # employment sum
+    part2 <- (estabs_tot - sum(es_estabs))^2
+    part3 <- sum((es_estabs - initial_estabs)^2)
+    
+    part1 * weights[1] + part2 * weights[2] + part3 * weights[3]
+  }
+  
+  grad_obj <- function(par, emptot, estabs_tot, initial_estabs, area, weights, lbmoves) {
+    n <- length(par)  # must be even
+    iemp <- 1:(n / 2)
+    iestabs <- (n / 2 + 1):n
+    es_emp <- par[iemp]
+    es_estabs <- par[iestabs]
+    
+    # Gradient of part1: (emptot - sum(es_emp * es_estabs))^2 * weights[1]
+    grad_part1_emp <- -2 * (emptot - sum(es_emp * es_estabs)) * es_estabs * weights[1]
+    grad_part1_estabs <- -2 * (emptot - sum(es_emp * es_estabs)) * es_emp * weights[1]
+
+    # Gradient of part2: sum((estabs_tot - sum(es_estabs))^2) * weights[2]
+    grad_part2_estabs <- -2 * (estabs_tot - sum(es_estabs)) * weights[2]    
+    
+    # Gradient of part2: sum((es_estabs - initial_estabs)^2) * weights[3]
+    grad_part3_estabs <- 2 * (es_estabs - initial_estabs) * weights[3]
+    
+    # Combine gradients
+    grad_emp <- grad_part1_emp
+    grad_estabs <- grad_part1_estabs + grad_part2_estabs + grad_part3_estabs
+    
+    # Combine gradients into a single vector
+    gradient <- c(grad_emp, grad_estabs)
+    
+    return(gradient)
+    }
+  
+  # establish lower bound of at least 1 if we have estabs in that range??
+  lbx <- elb * .9
+  # lbx[1] <- ifelse(esize_estabs[1] > 0, 1, 0)
+  
+  # move initial establishments if we are below employment total
+  empdiff <- emp[1] - sum(esize_estabs * elb)
+  # print(empdiff)
+  if(empdiff > 0 && lbmoves){
+    # move some establishments into higher estab sizes
+    print("Adjusting establishments...")
+    esize_estabs <- move_estabs(emp[1], elb, esize_estabs)
+  }
+  
+  par0 <- c(lbx, esize_estabs)
+  n <- length(par0) # must be even
+  iemp <- 1:(n / 2)
+  iestabs <- (n / 2 + 1):n
+  
+  # scaling_vector <- ifelse(par0==0, 0.1, par0)
+  # conlist <- list(fnscale=1e5, parscale=scaling_vector)
+  conlist <- list(fnscale=1e10)
+  
+  res <- optim(
+    par = par0,
+    fn = obj,
+    gr = grad_obj,
+    method = "L-BFGS-B",
+    control = conlist,
+    lower = c(lbx, rep(0, n/2)),
+    # upper = eub * 1.1,
+    emptot = emp[1],
+    estabs_tot = estabs[1],
+    initial_estabs = esize_estabs,
+    weights = weights,
+    lbmoves = lbmoves)
+  
+    if(res$convergence != 0){
+      print(res$convergence)
+      print(res$message)
+      print(area[1])
+      print(naics[1])
+    }
+  
+  esize_avgemp <- res$par[iemp]
+  esize_estabsadj <- res$par[iestabs]
+  return(tibble(esize_estabsadj, esize_avgemp, converge=res$convergence, res=list(res)))
+}
+
+
+```
+
+```{r}
+#| label: optim-function-weighted2
+
+fempest_weighted <- function(emp, estabs, emplb, empub, estabs_initial, weights=c(1, 1, 1)){
+  # inputs:
+  #   emp = total emp
+  #   estabs = total estabs
+  #   elb and eub are range bounds
+  #   esize_estabs=# estabs in group
+  
+  # solve for avgemp per establishment, and
+  #           # of establishments
+  
+  # estimate esize_estabs and esize_emp jointly, minimizing movement from
+  # initial esize_estabs while keeping esize_emp close to bounds
+  
+obj <- function(par, emptot, estabs_tot, estabs_initial, emplb, empub, weights) {
+  n <- length(par)
+  iemp <- 1:(n / 2)
+  iestabs <- (n / 2 + 1):n
+
+  es_emp <- par[iemp]          # average employees per establishment
+  es_estabs <- par[iestabs]    # number of establishments
+  es_emptot <- es_emp * es_estabs
+
+  # 1. Match total employment
+  part1 <- (emptot - sum(es_emptot))^2
+
+  # 2. Match total establishments
+  part2 <- (estabs_tot - sum(es_estabs))^2
+
+  # 3. Stay close to initial guess for establishments
+  part3 <- sum((es_estabs - estabs_initial)^2)
+
+  # 4. Discourage values in 0 < estabs < 1 (prefer 0 or ≥ 1)
+  part4 <- sum((pmax(0, 1 - es_estabs))^2)
+
+  # 5. Group 1: if used, avg emp should be in [1, 4]
+  part5 <- es_estabs[1] * ((pmax(0, 1 - es_emp[1]))^2 + (pmax(0, es_emp[1] - 4))^2)
+
+  # 6. All groups: if used, avg emp ∈ [emplb, empub]
+  threshold <- 0.5
+  part6 <- sum(ifelse(
+    es_estabs > threshold,
+    (pmax(0, emplb - es_emp)^2 + pmax(0, es_emp - empub)^2),
+    0
+  ))
+
+  # 7. Penalize mismatched establishments and employment
+  part7 <- sum(
+    (es_estabs > threshold & es_emp < emplb) * (emplb - es_emp)^2 +
+    (es_emp > threshold & es_estabs < 1) * (1 - es_estabs)^2 * es_emp
+  )
+
+  # 8. Penalize large employment in a group with <1 establishment
+  part8 <- sum(ifelse(
+    es_emptot > 2 & es_estabs < 1,
+    # (2 - es_estabs)^2 * es_emptot,
+    (pmax(0, 2 - es_estabs))^4 * es_emptot,
+    0
+  ))
+
+  # 9. Penalize group 1 hoarding establishments but contributing no employment
+  part9 <- (pmax(0, es_estabs[1] - 1) * pmax(0, 1 - es_emptot[1]))^2
+
+  # Weighted total penalty
+  total_penalty <- weights[1] * part1 +
+                   weights[2] * part2 +
+                   weights[3] * part3 +
+                   weights[4] * part4 +
+                   weights[5] * part5 +
+                   weights[6] * part6 +
+                   weights[7] * part7 +
+                   weights[8] * part8 +
+                   weights[9] * part9
+
+  return(total_penalty)
+}
+
+
+  ub <- empub
+  ub[9] <- 2 * emplb[9]
+  emp_initial <- (emplb + ub) / 2
+
+  par0 <- c(emp_initial, estabs_initial)  # number of emps PER estab in group, # of estabs in group
+  n <- length(par0) # must be even
+  iemp <- 1:(n / 2)
+  iestabs <- (n / 2 + 1):n
+  
+  # scaling_vector <- ifelse(par0==0, 0.1, par0)
+  # conlist <- list(fnscale=1e5, parscale=scaling_vector)
+  conlist <- list(fnscale=1e10)
+  
+  res <- optim(
+    par = par0,
+    fn = obj,
+    method = "L-BFGS-B",
+    control = conlist,
+    lower = c(emplb, rep(0, n/2)),
+    emptot = emp[1],
+    estabs_tot = estabs[1],
+    estabs_initial = estabs_initial,
+    emplb = emplb,
+    empub = empub,
+    weights = weights)
+  
+    if(res$convergence != 0){
+      print(res$convergence)
+      print(res$message)
+      print(area[1])
+      print(naics[1])
+    }
+  
+  esize_avgemp <- res$par[iemp]
+  esize_estabsadj <- res$par[iestabs]
+  return(tibble(esize_estabsadj, esize_avgemp, converge=res$convergence, res=list(res)))
+}
+
+
+```
+
+```{r}
+
+# qclong vars:
+#   estab: TOTAL estabs in the group
+#   avgemp: TOTAL emp in the group
+#   value:  initial % of estab in each group (adds to 1)
+# results:
+#   esize_estabs -- initial # estabs in group -- value * estabs
+#   esize_estabsadj -- final # estabs in group from optim
+#   esize_avgemp -- average # of employees per establishment in group
+
+groups <- qclong |> 
+  distinct(area, naics)
+
+use <- groups |> 
+  filter(row_number() == 790)
+use
+
+data <- qclong |> 
+  # filter(area=="Dutchess County", naics=="111") |> 
+  filter(area==use$area, naics==use$naics)
+data
+
+
+# weights:
+#  1 emp
+#  2 estabs
+#  3 deviation
+#  4 small-fraction establishment penalty
+#  5 encourage es_emp[i] ∈ [emplb[i], empub[i]] if es_estabs[i] > 0, all groups
+
+
+weights <- c(100, 100, 1, 10, 50, 10, 100, 1000)
+
+weights <- rep(1, 8)
+
+weights <- c(
+  100,   # part1: match total employment
+  100,   # part2: match total establishments
+  1,     # part3: be close to initial guess (soft)
+  10,    # part4: penalize fractional establishments (0 < x < 1)
+  100,   # part5: penalize group 1 having avg emp outside [1,4]
+  10,    # part6: keep es_emp within group bounds [emplb, empub]
+  1000,  # part7: penalize emp > 0 but estabs < 1, or estabs > 0 but emp < emplb
+  1000   # part8: prevent big employment when estabs < 1
+)
+
+weights <- c(
+  1,   # part1: match total employment
+  1,   # part2: match total establishments
+  0,     # part3: be close to initial guess (soft)
+  100,    # part4: penalize fractional establishments (0 < x < 1)
+  100,   # part5: penalize group 1 having avg emp outside [1,4]
+  1,    # part6: keep es_emp within group bounds [emplb, empub]
+  1000,  # part7: penalize emp > 0 but estabs < 1, or estabs > 0 but emp < emplb
+  1   # part8: prevent big employment when estabs < 1
+)
+
+weights <- c(
+  1000,  # part1: match total employment
+  1000,  # part2: match total establishments
+  10,    # part3: stay close to estabs_initial
+  50,    # part4: discourage estabs in (0, 1)
+  100,   # part5: group 1 avg emp ∈ [1, 4]
+  50,    # part6: avg emp ∈ [emplb, empub]
+  100,   # part7: mismatched estabs and emp
+  100,   # part8: big emp but tiny estabs
+  200    # part9: group 1 hoarding estabs but no emp
+)
+
+# djb adjusted
+weights <- c(
+  100,  # part1: match total employment
+  100,  # part2: match total establishments
+  1,    # part3: stay close to estabs_initial
+  5,    # part4: discourage estabs in (0, 1)
+  10,   # part5: group 1 avg emp ∈ [1, 4]
+  5,    # part6: avg emp ∈ [emplb, empub]
+  10,   # part7: mismatched estabs and emp
+  100,   # part8: big emp but tiny estabs
+  20    # part9: group 1 hoarding estabs but no emp
+)
+
+weights <- c(
+  100,   # part1
+  100,   # part2
+  1,     # part3
+  5,     # part4
+  10,    # part5
+  5,     # part6
+  10,    # part7
+  200,  # part8 (was 100)
+  20     # part9
+)
+
+
+check <- data |> 
+  mutate(avgwage = totwage / avgemp) |> 
+  # inputs: emp = total emp, estabs = total estabs, elb and eub are range bounds, esize_estabs=# estabs in group
+  mutate(fempest_weighted(emp=avgemp, estabs=estab, estabs_initial=estabs_initial, emplb=elb, empub=eub, weights = weights), # emp, est, est ss
+         .by=c(year, area, naics)) |> 
+  mutate(esize_emp = esize_avgemp * esize_estabsadj,
+         esize_wage = esize_emp * avgwage)
+check
+check |> 
+  select(emplb=elb,
+         empub=eub,
+         emptot=avgemp,
+         estabs_tot=estab,
+         estabs_initial,
+         es_emp=esize_avgemp,
+         es_estabs=esize_estabsadj,
+         es_emptot=esize_emp)
+
+check |> 
+  summarise(across(c(estab, avgemp, totwage), first),
+            across(c(esize_estabsadj, esize_emp, esize_wage), sum)) |> 
+  mutate(estpct=esize_estabsadj / estab - 1,
+         emppct = esize_emp / avgemp - 1,
+         wagepct = esize_wage / totwage -1)
+
+
+check2 <- check |> 
+  mutate(esize_estabsadj = ifelse(esize_estabsadj < .01, 0, esize_estabsadj),
+         esize_avgemp  = ifelse(esize_avgemp < .01, 0, esize_avgemp))
+
+check2 |> 
+  summarise(across(c(estab, avgemp, totwage), first),
+            across(c(esize_estabsadj, esize_emp, esize_wage), sum)) |> 
+  mutate(estpct=esize_estabsadj / estab - 1,
+         emppct = esize_emp / avgemp - 1,
+         wagepct = esize_wage / totwage -1)
+
+wts <- c(1e2, 1e2, 1e1)
+qcopt1 <- qclong |> 
+  # filter(area=="Dutchess County", naics=="111") |> 
+  filter(area==use$area, naics==use$naics) |> 
+  mutate(esize_estabs = estab * value) |> # total establishments in each group
+  # inputs: emp = total emp, estabs = total estabs, elb and eub are range bounds, esize_estabs=# estabs in group
+  mutate(fempest_weighted(emp=avgemp, estabs=estab, elb, eub, esize_estabs, weights = wts), # emp, est, est ss
+         .by=c(year, area, naics))
+qcopt1 |> select(area, naics, title, estab:converge)
+
+summary(qcopt1 |> select(-res))
+
+qcopt2 <- qcopt1 |> 
+  mutate(emp=esize_estabsadj * esize_avgemp,
+         empraw=esize_estabs * esize_avgemp)
+
+sum(qcopt2$emp)
+sum(qcopt2$empraw)
+sum(qcopt2$esize_estabs)
+sum(qcopt2$esize_estabsadj)
+summary(qcopt2 |> select(-res))
+
+qcopt2 |> 
+  summarise(estabs=sum(esize_estabs),
+            emp=sum(emp),
+            empraw=sum(empraw))
+
+readRDS(fs::path(PDINTERMEDIATE, "qmta_atoms.rds")) |> 
+  filter(ownerf==1) |> 
+  summarise(estab=sum(estab), avgemp=sum(avgemp), totwage=sum(totwage))
+
+qcopt1 |> 
+  select(area, naics, title, estab, avgemp, totwage, name, esize_estabs, esize_estabsadj, esize_avgemp) |> 
+  mutate(emp=esize_estabsadj * esize_avgemp) |> 
+  summarise(avgemp=first(avgemp), emp=sum(emp), 
+            .by=c(area, naics))
+
+tmp <- qcopt1 |> 
+  select(area, naics, title, res) |> 
+  unnest_wider(res)
+
+
+qclong <- wide2 |> 
+  select(-fipscty) |> 
+  pivot_longer(cols=nlt_5:n1000, names_to = "ename", values_to = "esize_cestabs") |> 
+  left_join(estab_sizes, by = join_by(ename)) |> 
+  mutate(esize_cestabs = replace_na(esize_cestabs, 0),
+         esize_estabs=estabs * esize_cestabs / sum(esize_cestabs),
+         .by=c(owner, area, naics))
+
+```
+
+```{r}
+#| label: cleanup
+
+rm(list = ls())
+
+```
+
+```{r stop_here, echo=FALSE}
+knitr::knit_exit()
+```

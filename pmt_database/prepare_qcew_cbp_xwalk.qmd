@@ -1,0 +1,110 @@
+---
+title: "prepare_qcew_cbp_xwalk"
+format: html
+---
+
+---
+output: html_document
+editor_options: 
+  chunk_output_type: console
+---
+
+{{< include _setup.qmd >}}
+
+# Prepare QCEW-CBP crosswalk
+
+For every NAICS 2022 industry in QCEW 2023 we need to choose a NAICS 2017 industry in CBP 2022 for which we will use the establishment percentages by establishment sizes.
+
+```{r}
+
+qmta <- readRDS(fs::path(PDINTERMEDIATE, "qmta_atoms.rds"))
+qind <- count(qmta, naics, title) # 101 industries
+
+# we can only match private data against the CBP so extract private
+qprivate <- qmta |> 
+  filter(ownerf==1)
+qindp <- count(qprivate, naics, title) # 86 industries -- we need a match for each
+
+estshares <- readRDS(fs::path(PDINTERMEDIATE, "cbp_estab_shares.rds"))
+cind <- count(estshares, cnaics_level, cnaics, ctitle) # 105 industries to choose 1
+
+```
+
+```{r}
+#| label: match-3-digits
+
+# try to do as well as possible on direct match
+
+match3d <- qindp |> 
+  select(-n) |> 
+  left_join(cind |> 
+              select(-n) |> 
+              mutate(naics=cnaics),
+            by = join_by(naics))
+
+# look at the matches and examine the bad ones
+look3d <- match3d |> 
+  filter(!is.na(cnaics))
+# based on examination of titles, every one of the 71 matches looks good!
+
+# get the other ones and do by hand
+fix1 <- qindp |> 
+  select(-n) |> 
+  filter(!naics %in% look3d$naics)
+fix1
+
+replace1 <- read_delim(delim=";", trim_ws=TRUE, col_types="ccc",
+"naics; title; cnaics
+111; NAICS 111: Crop Production; 11
+112; NAICS 112: Animal Production; 11
+211; NAICS 211: Oil and Gas Extraction; 21
+449; NAICS 449: Furniture, Home Furnishings, Electronics, and Appliance Retailers; 442
+455; NAICS 455: General Merchandise Retailers; 452
+456; NAICS 456: Health and Personal Care Retailers; 446
+457; NAICS 457: Gasoline Stations and Fuel Dealers; 447
+458; NAICS 458: Clothing, Clothing Accessories, Shoe, and Jewelry Retailers; 448
+459; NAICS 459: Sporting Goods, Hobby, Musical Instrument, Book, and Miscellaneous Retailers; 451
+491; NAICS 491: Postal Service; 0
+513; NAICS 513: Publishing Industries; 511
+516; NAICS 516: Internet Publishing and Broadcasting; 511
+814; NAICS 814: Private Households; 0
+999; Unclassified; 0
+xxx; All other; 0")
+replace1
+
+# cind |> filter(str_detect(ctitle, coll("inter", ignore_case = TRUE)))
+
+# match the replacements against qindp and cind to get full info
+
+replace2 <- replace1 |> 
+  select(naics, cnaics) |> 
+  left_join(qindp |> 
+              select(-n),
+            by = join_by(naics)) |> 
+  left_join(cind |> 
+              select(-n),
+            by = join_by(cnaics)) |> 
+  select(naics, title, cnaics_level, cnaics, ctitle)
+replace2
+
+xwalk1 <- bind_rows(
+  look3d,
+  replace2)
+
+xwalk <- xwalk1 |> 
+  arrange(naics)
+
+saveRDS(xwalk, fs::path(PDINTERMEDIATE, "xwalk_qcew_cbp.rds"))
+
+```
+
+```{r}
+#| label: cleanup
+
+rm(list = ls())
+
+```
+
+```{r stop_here, echo=FALSE}
+knitr::knit_exit()
+```

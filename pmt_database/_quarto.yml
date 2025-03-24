@@ -24,6 +24,10 @@ book:
     - part: "Prepare data"
       chapters:           
       - prepare_atomistic_qcew_data.qmd
+      - prepare_cleaned_cbp.qmd
+      - prepare_qcew_cbp_xwalk.qmd
+      - combine_qcew_and_cbq.qmd
+      - allocate_qcew_data_to_establishment_size_groups.qmd
       # - simple_estabs_basis # THIS IS THE ONE TO USE AFTER GETTING CBP AND QCEW DATA
       # - method_steps.qmd # SHOULD BE JUST INFO
       # - get_susb_data.qmd # NO LONGER USED
