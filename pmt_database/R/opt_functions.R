@@ -42,7 +42,7 @@ constraint_function <- function(x, prob) {
 setup_problem <- function(estabs_initial, emptot, estabs_tot){
   prob <- list(
     emplb = c(0, 5, 10, 20, 50, 100, 250, 500, 1000),
-    empub = c(4, 9, 19, 49, 99, 249, 499, 999, 2000),
+    empub = c(4, 9, 19, 49, 99, 249, 499, 999, 10000),
     estabs_initial = estabs_initial,
     emptot = emptot,
     estabs_tot = estabs_tot,
@@ -121,6 +121,9 @@ post_process <- function(prob, res){
 }
 
 allocate <- function(estabs_initial, emptot, estabs_tot){
+  
+  if(emptot == 0 | estabs_tot == 0) return(tibble(esize_estabsadj=estabs_initial, esize_avgemp=0))
+  
   prob <- setup_problem(estabs_initial, emptot, estabs_tot)
   x0 <- initialize(prob)
   res <- prob_solve(prob, x0)

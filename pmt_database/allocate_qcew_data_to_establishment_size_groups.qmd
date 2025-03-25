@@ -45,32 +45,163 @@ qclong |>
 ```
 
 ```{r}
+
+library(multidplyr)
+
+cluster <- new_cluster(4)
+cluster_library(cluster, "dplyr")
+
+```
+
+```{r}
 #| label: cobyla
+
+# In group 290: `year = 2023`, `area = "Nassau County"`, `naics = "xxx"`
+# Caused by error:ℹ In index: 1.Caused by error in `mutate()`:
+#ℹ In argument: `allocate(...)`.Caused by error in `initialize()` at pmt_database/R/opt_functions.R:125:3:
+# ! all(x0$estabs <= prob$estabs_tot * 3) is not TRUE
+
 
 source(fs::path(DMAIN, "R", "opt_functions.R"))
 
 groups <- qclong |> 
   distinct(area, naics)
 
+groups <- qclong |> 
+  summarise(avgemp=first(avgemp),
+            .by=c(area, naics, title))
+
 use <- groups |> 
   filter(row_number() == 790)
 use
 
 data <- qclong |> 
-  # filter(area=="Dutchess County", naics=="111") |> 
   filter(area==use$area, naics==use$naics)
-data
 
-# estabs_initial, emptot, estabs_tot
+data <- qclong |> 
+  filter(area=="Nassau County", naics=="xxx")
+
+data <- qclong |> 
+  filter(area=="Nassau County", naics %in% c("xxx", "322"))
+
+data <- qclong |> 
+  right_join(groups |> 
+               slice_sample(n=12),
+             by = join_by(area, naics))
+
+data <- qclong |> 
+  right_join(groups |> 
+               arrange(desc(avgemp)) |> 
+               slice_head(n=25) |> 
+               select(area, naics),
+             by = join_by(area, naics))
+
+data <- qclong |> 
+  filter(area=="New York County", naics=="622")
+
+data <- qclong |> 
+  filter(area=="Richmond County", naics=="622")
+
+data <- qclong
+
+a <- proc.time()
+check <- data |> 
+  mutate(avgwage = totwage / avgemp) |> 
+  mutate(allocate(estabs_initial=estabs_initial, emptot=avgemp[1], estabs_tot=estab[1]),
+         .by=c(year, area, naics)) |> 
+  mutate(esize_emp = esize_avgemp * esize_estabsadj,
+         esize_wage = esize_emp * avgwage)
+b <- proc.time()
+b - a # about 5 mins
+saveRDS(check, fs::path(PDINTERMEDIATE, "test.rds"))
+
+bak <- check
+
+
+library(furrr)  # for future_map
+library(purrr)  # for map functions
+
+# Set up parallel processing
+plan(multisession)  # or multicore if on Unix/Linux
+
+data <- qclong
+a <- proc.time()
+check <- data |> 
+  mutate(avgwage = totwage / avgemp) |>
+  group_by(year, area, naics) |>
+  nest() |>
+  mutate(processed_data = future_map(data, ~ {
+    .x |> 
+      mutate(allocate(estabs_initial = estabs_initial,
+                     emptot = avgemp[1],
+                     estabs_tot = estab[1]))
+  }, .progress = TRUE)) |>
+  select(-data) |>
+  unnest(processed_data) |>
+  ungroup()
+b <- proc.time()
+b - a
+saveRDS(check, fs::path(PDINTERMEDIATE, "test.rds"))
+
+
+tmp <- check |> 
+  summarise(across(c(estab, avgemp, totwage), first),
+            across(c(esize_estabsadj, esize_emp, esize_wage), sum),
+            .by=c(area, naics, title)) |> 
+  mutate(dest = esize_estabsadj / estab,
+         demp = esize_emp - avgemp,
+         dwage = esize_wage - totwage,
+         estpct=esize_estabsadj / estab - 1,
+         emppct = esize_emp / avgemp - 1,
+         wagepct = esize_wage / totwage -1)
+
+# Investigate:
+#  New York County 622
+#  Bronx 622
+#  Richmond, Nassau, Suffolk, Rockland 622
+#  Queens 523, Richmond 524
+#  Bronx 711
+
+check |> 
+  filter(area=="New York County", naics=="622")
+
+t2 <- check |> 
+  filter(area=="New York County", naics=="622") |> 
+  select(area, naics, title, res) |> 
+  unnest(res)
+
+
+
+# If you want to completely shut down workers
+future::plan("sequential")
+closeAllConnections()  # closes any remaining connections
 
 check <- data |> 
   mutate(avgwage = totwage / avgemp) |> 
-  # inputs: emp = total emp, estabs = total estabs, elb and eub are range bounds, esize_estabs=# estabs in group
   mutate(allocate(estabs_initial=estabs_initial, emptot=avgemp[1], estabs_tot=estab[1]),
          .by=c(year, area, naics)) |> 
   mutate(esize_emp = esize_avgemp * esize_estabsadj,
          esize_wage = esize_emp * avgwage)
 check
+
+check |> 
+  summarise(across(c(estab, avgemp, totwage), first),
+            across(c(esize_estabsadj, esize_emp, esize_wage), sum),
+            .by=c(area, naics, title)) |> 
+  mutate(estpct=esize_estabsadj / estab - 1,
+         emppct = esize_emp / avgemp - 1,
+         wagepct = esize_wage / totwage -1)
+
+check |> 
+  select(area, naics, title, elb, initial=estabs_initial, solved=esize_estabsadj) |>
+  pivot_longer(c(initial, solved)) |> 
+  # ggplot(aes(elb, log(value + 1), colour=name)) +
+  ggplot(aes(elb, value, colour=name)) +
+  geom_line() +
+  facet_wrap(~area + title, scales="free")
+
+
+
 check |> 
   select(emplb=elb,
          empub=eub,
@@ -80,18 +211,6 @@ check |>
          es_emp=esize_avgemp,
          es_estabs=esize_estabsadj,
          es_emptot=esize_emp)
-
-
-check |> 
-  summarise(across(c(estab, avgemp, totwage), first),
-            across(c(esize_estabsadj, esize_emp, esize_wage), sum)) |> 
-  mutate(estpct=esize_estabsadj / estab - 1,
-         emppct = esize_emp / avgemp - 1,
-         wagepct = esize_wage / totwage -1)
-
-
-
-
 
 # Suffolk County 531 ------------------------------------------------------
 estabs_initial <- c(1360.45616973758, 142.281407035176, 50.0619765494137, 17.5656058068118, 
