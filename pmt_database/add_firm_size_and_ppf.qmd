@@ -1,0 +1,209 @@
+---
+output: html_document
+editor_options: 
+  chunk_output_type: console
+---
+
+{{< include _setup.qmd >}}
+
+# Allocate QCEW data to private establishment size groups
+
+```{r}
+
+pmtdb1 <- readRDS(fs::path(PDINTERMEDIATE, "test.rds"))
+susb <- readRDS(fs::path(PDINTERMEDIATE, "susb2021_mta.rds"))
+
+```
+
+```{r}
+# map firm sizes to estab sizes by industry
+glimpse(susb)
+
+fpe <- susb |> 
+  select(county, snaics=naics, stitle=description, firmsize, firms, estabs, emp) |> 
+  mutate(fpe=firms / estabs,
+         esize=emp / estabs, 
+         fsize=emp / firms,
+         ratio = fsize / esize)
+
+inds <- fpe |> 
+  filter(firmsize=="1: Total") |> 
+  summarise(across(c(firms, estabs, emp), sum),
+            .by=c(snaics, stitle))
+
+tmp <- inds |> 
+  arrange(desc(emp))
+
+# -- 62
+
+# fpe |> 
+#   # filter(snaics=="62") |> 
+#   filter(snaics %in% tmp$snaics[1:12]) |> 
+#   mutate(snaics=factor(snaics)) |> 
+#   ggplot(aes(esize, fpe, colour=firmsize)) +
+#   geom_point() +
+#   facet_wrap(~snaics + stitle, scales="free")
+
+# fpe |> 
+#   filter(snaics=="72") |> 
+#   mutate(snaics=factor(snaics)) |> 
+#   ggplot(aes(esize, fpe, colour=firmsize)) +
+#   geom_point() +
+#   facet_wrap(~county, scales="free")
+# 
+# fpe |> 
+#   mutate(esgroup = ntile(esize, 4),
+#          .by=c(snaics, stitle)) |> 
+#   summarise(n=n(), 
+#             esize=mean(esize),
+#             .by=c(esgroup, snaics, stitle)) |> 
+#   arrange(esize) |> 
+#   select(-n) |> 
+#   pivot_wider(names_from = esgroup, values_from = esize) |> 
+#   arrange(desc(`4`))
+
+# fpe |> 
+#   mutate(esgroup = ntile(esize, 4),
+#          .by=c(snaics, stitle)) |> 
+#   summarise(n=n(), 
+#             fpe=mean(fpe),
+#             .by=c(esgroup, snaics, stitle)) |> 
+#   arrange(esgroup) |> 
+#   select(-n) |> 
+#   pivot_wider(names_from = esgroup, values_from = fpe) |> 
+#   arrange(`4`) |> 
+#   filter(nchar(snaics)==2)
+
+# fpe |> 
+#   mutate(esgroup = ntile(esize, 4),
+#          .by=c(snaics, stitle)) |> 
+#   summarise(n=n(), 
+#             fpe=mean(fpe),
+#             .by=c(esgroup, snaics, stitle)) |> 
+#   arrange(esgroup) |> 
+#   select(-fpe) |> 
+#   pivot_wider(names_from = esgroup, values_from = n) |> 
+#   arrange(`4`) |> 
+#   filter(nchar(snaics)==2)
+
+# create fpe values to save ----
+fpegroups <- fpe |> 
+  filter(nchar(snaics)==2) |> 
+  mutate(esgroup = ntile(esize, 4), # divide the records into 4 groups for each industry
+         .by=c(snaics, stitle)) |> 
+  select(snaics, stitle, esgroup, esize, fpe) |> 
+  summarise(
+    esmin=min(esize),
+    esmax=max(esize),
+    fpemin=min(fpe),
+    fpemdn=median(fpe),
+    fpemax=max(fpe),
+    .by=c(esgroup, snaics, stitle)) |> 
+  arrange(snaics, esgroup) |> 
+  mutate(lowcut=case_when(esgroup==1 ~ 0,
+                       esgroup > 1 ~ pmean(esmin, lag(esmax)),
+                       .default = 0),
+         hicut = case_when(esgroup==4 ~ 1,
+                           esgroup < 4 ~ pmean(esmax, lead(esmin)),
+                           .default = Inf))
+fpegroups
+
+
+A <- pmtdb1 |> 
+  filter(area=="Bronx County", naics=="622") |> 
+  select(naics, esize_avgemp) |> 
+  mutate(naics2=str_sub(naics, 1, 2))
+A
+
+B <- fpegroups |>
+  mutate(naics2=snaics)
+
+# B |> filter(naics2 %in% "62")
+
+result <- A  |> 
+  left_join(B, by = "naics2", relationship = "many-to-many") |> 
+  filter(esize_avgemp >= lowcut & esize_avgemp < hicut) |> 
+  select(names(A), fpemdn)
+result
+
+
+```
+
+## Get firm-establishment ratios corresponding to industry and size of establishment
+
+```{r}
+library(fuzzyjoin)
+
+result <- A %>%
+  fuzzy_left_join(
+    B,
+    by = c("industry" = "industry", "firm size" = "fslow", "firm size" = "fshi"),
+    match_fun = list(`==`, `>=`, `<`)
+  ) %>%
+  select(names(A), ratio)
+
+lookup <- fpegroups |>
+  mutate(naics2=snaics) |> 
+  arrange(snaics, esgroup)
+
+
+df <- tibble(naics2=c("22", "22"), es=c(20, 70))
+
+f <- function(naics2, es){
+  lookup |> 
+    filter(naics2==!!naics2) |> 
+    filter(!!es >= lowcut, !!es <= hicut) |>
+    select(fpemdn)
+}
+
+df |> 
+  rowwise() |> 
+  mutate(fpemdn=f(naics2, es))
+
+f(df$naics2, df$es)
+
+
+matches <- pmtdb1 |> 
+  select(-res) |> 
+  mutate(naics2=str_sub(naics, 1, 2)) |> 
+  left_join(lookup,
+            by = join_by(naics2),
+            relationship = "many-to-many") |> 
+  filter(!is.na(fpemdn)) |> 
+  mutate(match = (esize_estabsadj) >= (lowcut & esize_estabsadj < hicut))
+  # mutate(lowcut = ifelse(is.na(lowcut), -Inf, lowcut),
+  #        hicut = ifelse(is.na(hicut), Inf, hicut),
+  #        fpemdn=ifelse(is.na(fpemdn), 1, fpemdn)) |> 
+  # filter(esize_estabsadj >= lowcut, esize_estabsadj < hicut)
+glimpse(pmtdb2)
+sum(matches$match, na.rm=TRUE) # 11072 matches but 7848 records
+summary(pmtdb2)
+
+
+f <- function(naics2, es){
+  val <- lookup |> 
+    filter(naics2==!!naics2) |> 
+    filter(!!es >= lowcut, !!es <= hicut) |>
+    select(lowcut, hicut, fpemdn) |> 
+    mutate(naics2=!!naics2, es=!!es)
+  # print(val)
+  return(val$fpemdn)
+  # if(length(val)==0) {
+  #   print(val)
+  #   return(NA_real_)
+  # }
+}
+pmtdb2 <- pmtdb1 |> 
+  select(-res) |> 
+  mutate(naics2=str_sub(naics, 1, 2)) |> 
+  # filter(row_number() <= 100) |> 
+  rowwise() |>
+  mutate(fpe=list(f(naics2, esize_estabsadj))) |> 
+  ungroup() |> 
+   mutate(fpe=as.numeric(fpe),
+          fpe=ifelse(is.na(fpe), 1, fpe))
+summary(pmtdb2)
+
+saveRDS(pmtdb2, fs::path(PDINTERMEDIATE, "pmtdb_fpe.rds"))
+
+```

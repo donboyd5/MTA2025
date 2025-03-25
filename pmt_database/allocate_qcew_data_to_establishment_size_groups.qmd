@@ -115,7 +115,20 @@ b <- proc.time()
 b - a # about 5 mins
 saveRDS(check, fs::path(PDINTERMEDIATE, "test.rds"))
 
+# ------ stop here ----
+
+
 bak <- check
+
+check |> 
+  summarise(totwage=first(totwage),
+            calcwage=sum(esize_wage),
+            .by=c(area, naics, title)) |> 
+  summarise(totwage=sum(totwage), 
+            calcwage=sum(calcwage)) |> 
+  mutate(dwage=calcwage - totwage,
+         dpct=dwage / totwage)
+  
 
 
 library(furrr)  # for future_map

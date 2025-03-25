@@ -1,0 +1,96 @@
+---
+output: html_document
+editor_options: 
+  chunk_output_type: console
+---
+
+{{< include _setup.qmd >}}
+
+# Combine private and public data
+
+```{r}
+# check private wages
+shares <- readRDS(fs::path(PDINTERMEDIATE, "qcew_cbpshares.rds"))
+# sum(shares$totwage) # matches qmta, good 592827320140
+
+test <- readRDS(fs::path(PDINTERMEDIATE, "test.rds")) # 7848 records
+count(test, ownerf, owner)
+test |> 
+  summarise(totwage=first(totwage),
+            .by=c(area, naics)) |> 
+  summarise(totwage=sum(totwage)) # good 592827320140
+test |> 
+  summarise(totwage=sum(esize_wage)) # good 592865608153.
+# 592865608153. / 592827320140 - 1 = 6.4e-5
+  
+
+private <- readRDS(fs::path(PDINTERMEDIATE, "pmtdb_fpe.rds")) # 7848 recs
+glimpse(private)
+count(private, ownerf, owner)
+private |> 
+  summarise(totwage=sum(esize_wage)) # 592865608153 good same as test
+
+qmta <- readRDS(fs::path(PDINTERMEDIATE, "qmta_atoms.rds"))
+count(qmta, ownerf, owner)
+
+qmta |> 
+  summarise(totwage=sum(totwage),
+            .by=c(ownerf, owner)) |> 
+  adorn_totals()
+
+private |> 
+  summarise(totwage=first(totwage),
+            .by=c(area, naics)) |> 
+  summarise(totwage=sum(totwage)) # good 592827320140 sames as qmta private
+
+
+combined <- private |> 
+  bind_rows(qmta |> 
+              filter(ownerf != 1))
+
+
+```
+
+```{r}
+#| label: compatibility
+
+glimpse(combined)
+ns(combined)
+summary(combined)
+combined |> filter(is.na(fpe)) |> count(ownerf)
+combined |> filter(is.na(esize_wage)) |> count(ownerf)
+combined |> filter(is.na(esize_estabsadj)) |> count(ownerf)
+combined |> filter(is.na(esize_avgemp)) |> count(ownerf)
+combined |> filter(is.na(estab)) |> count(ownerf)
+combined |> filter(estab==0) |> count(ownerf)
+
+combined2 <- combined |> 
+  mutate(estab=ifelse(estab <0, 0, estab),
+         avgemp=ifelse(avgemp <0, 0, avgemp)) |> 
+  # g variables are for estab size by employment group
+  mutate(gestab = ifelse(ownerf==1, esize_estabsadj, estab),
+         gfirm_est = ifelse(is.na(fpe), 1, fpe),
+         gfirm = gfirm_est * gestab,
+         gemp = ifelse(ownerf==1, esize_emp, avgemp),
+         gemp_est = ifelse(ownerf==1, esize_avgemp, ifelse(estab==0, 0, avgemp / estab)),
+         gpayroll = ifelse(ownerf==1, esize_wage, totwage),
+         gpay_emp = ifelse(gemp > 0, gpayroll / gemp, 0),
+         gpay_est = ifelse(gestab > 0, gpayroll / gestab, 0),
+         gpay_firm = ifelse(gfirm > 0, gpayroll / gfirm, 0))
+
+summary(combined2)
+
+combined2 |> 
+  summarise(across(c(gestab, gemp, gpayroll, gfirm), sum))
+
+qmta |> 
+  summarise(across(c(estab, avgemp, totwage), sum))
+
+combined3 <- combined2 |> 
+  select(year, area, nyc, ownerf, owner, naics, title, starts_with("g"))
+summary(combined3)
+glimpse(combined3)
+
+saveRDS(combined3, fs::path(PDINTERMEDIATE, "pmtdb_full.rds")) #
+
+```

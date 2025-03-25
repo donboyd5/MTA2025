@@ -28,6 +28,11 @@ book:
       - prepare_qcew_cbp_xwalk.qmd
       - combine_qcew_and_cbq.qmd
       - allocate_qcew_data_to_establishment_size_groups.qmd
+      - add_firm_size_and_ppf.qmd
+      - combine_private_and_public.qmd
+    - part: "Model checks"
+      chapters:
+      - model_checks.qmd
       # - simple_estabs_basis # THIS IS THE ONE TO USE AFTER GETTING CBP AND QCEW DATA
       # - method_steps.qmd # SHOULD BE JUST INFO
       # - get_susb_data.qmd # NO LONGER USED
