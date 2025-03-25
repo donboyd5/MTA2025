@@ -21,6 +21,9 @@ library(RcppRoll)
 library(fredr)
 library(tidycensus)
 
+# optimization
+library(nloptr)
+
 # boyd libraries
 library(btools)
 library(bdata)
