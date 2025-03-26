@@ -127,7 +127,7 @@ char_cols <- c("fipstate", "fipscty", "naics", "emp_nf", "qp1_nf", "ap_nf")
 # put state and county names on the data
 
 cbp2 <- cbp1 |> 
-  mutate(across(-all_of(char_cols), as.numeric)) |> 
+  mutate(across(-all_of(char_cols), as.numeric)) |> # this will generate warnings, ok
   rename(n0_4=`n<5`, n1000_inf=n1000) |> 
   left_join(areas2 |> 
               select(fipstate, fipscty, state, county),
@@ -151,21 +151,36 @@ saveRDS(cbp3, fs::path(PDINTERMEDIATE, "cbpny.rds"))
 
 ```
 
+Save MTA CBP data. Rename variables.
+
+```{r}
+#| label: clean-cbp
+#| output: false
+
+cbpny <- readRDS(fs::path(PDINTERMEDIATE, "cbpny.rds"))
+glimpse(cbpny)
+
+cbpmta <- cbpny |> 
+  filter(mta) |> 
+  mutate(county=str_remove(county, " County")) |> 
+  select(fipscty, area=county, nyc, cnaics=naics, ctitle=description,
+         cestabs=est, cemp=emp, cpayroll=ap, n0_4:n1000_inf)
+
+glimpse(cbpmta)
+summary(cbpmta)
+count(cbpmta, area)
+
+saveRDS(cbpmta, fs::path(PDINTERMEDIATE, "cbpmta.rds"))
+
+```
+
 ```{r}
 #| label: cleanup
 
-# rm(areas, areas2, cbp1, cbp2, cbp3, char_cols, check, fpath, inds, inds2)
 rm(list = ls())
 
 ```
 
 ```{r stop_here, echo=FALSE}
 knitr::knit_exit()
-```
-
-```{r}
-
-cbpny <- readRDS(fs::path(PDINTERMEDIATE, "cbpny.rds"))
-glimpse(cbpny)
-
 ```
