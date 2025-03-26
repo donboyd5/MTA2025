@@ -122,15 +122,13 @@ post_process <- function(prob, res){
 
 allocate <- function(estabs_initial, emptot, estabs_tot){
   
-  if(emptot == 0 | estabs_tot == 0) return(tibble(esize_estabsadj=estabs_initial, esize_avgemp=0))
+  if(emptot == 0 | estabs_tot == 0) return(tibble(gestabs=estabs_initial, gemp_est=0))
   
   prob <- setup_problem(estabs_initial, emptot, estabs_tot)
   x0 <- initialize(prob)
   res <- prob_solve(prob, x0)
   final <- post_process(prob, res)
-  # final
-  # converge
-  return(tibble(esize_estabsadj=final$estabs, esize_avgemp=final$emp, res=list(res)))
+  return(tibble(gestabs=final$estabs, gemp_est=final$emp, res=list(res)))
 }
 
 

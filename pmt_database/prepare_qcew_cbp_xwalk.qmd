@@ -64,7 +64,7 @@ replace1 <- read_delim(delim=";", trim_ws=TRUE, col_types="ccc",
 516; NAICS 516: Internet Publishing and Broadcasting; 511
 814; NAICS 814: Private Households; 0
 999; Unclassified; 0
-xxx; All other; 0")
+xxxx; All other; 0")
 replace1
 
 # cind |> filter(str_detect(ctitle, coll("inter", ignore_case = TRUE)))

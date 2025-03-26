@@ -244,7 +244,7 @@ all_other2 <- all_other1 |>
   mutate(across(c(estabs, emp, payroll), \(x) ifelse(x < 0, 0, x)),
          naics_level = 9,
          naics = "xxxx",
-         title = "xxxx All other")
+         title = "All other")
 
 qcew_atoms1 <- bind_rows(
   stack |> filter(naics_level != 1),
