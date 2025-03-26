@@ -38,14 +38,15 @@ CBP Establishment size groups
 #| label: get-and-trim-cbp-data
 
 cbp1 <- readRDS(fs::path(PDINTERMEDIATE, "cbpny.rds")) 
+cbp1 <- readRDS(fs::path(PDINTERMEDIATE, "cbpmta.rds")) 
 
 # clean data ----
 cbase <- cbp1 |> 
-  filter(mta) |> 
-  select(fipstate, fipscty, area=county, cnaics=naics, ctitle=description, 
-         cestab=est, cemp = emp, cpayroll = ap, starts_with("n"), -nyc) |> 
+  # filter(mta) |> 
+  # select(fipstate, fipscty, area=county, cnaics=naics, ctitle=description, 
+  #        cestab=est, cemp = emp, cpayroll = ap, starts_with("n"), -nyc) |> 
   mutate(year=2022,
-         area=str_remove(area, " County"),
+         # area=str_remove(area, " County"),
          cnaics=str_remove_all(cnaics, "[/-]+$") |> str_trim(),
          cnaics=ifelse(cnaics=="", "0", cnaics),
          cnaics_level=nchar(cnaics)) |> 
@@ -58,17 +59,17 @@ count(tmp, cnaics_level)
 
 # keep essential variables ----
 cbase1 <- cbase |> 
-  select(-c(n1000_1:n1000_4)) |> 
-  select(area, cnaics_level, cnaics, ctitle, cemp, cestab, starts_with("n"))
+  # select(-c(n1000_1:n1000_4)) |> 
+  select(area, cnaics_level, cnaics, ctitle, cemp, cestabs, starts_with("n"))
 summary(cbase1) # good, no missing cestab
 
 # how do sums of establishments compare to reported establishments? ----
 cbase2 <- cbase1 |> 
   rowwise() |> 
-  mutate(estab_sum=sum(c_across(n0_4:n1000_inf), na.rm = TRUE),
-         estab_pct = estab_sum / cestab) |> 
-  relocate(estab_sum, estab_pct, 
-           .after=cestab) |> 
+  mutate(estabs_sum=sum(c_across(n0_4:n1000_inf), na.rm = TRUE),
+         estabs_pct = estabs_sum / cestabs) |> 
+  relocate(estabs_sum, estabs_pct, 
+           .after=cestabs) |> 
   ungroup()
 cbase2
 summary(cbase2)
@@ -88,7 +89,7 @@ cutpoint <- .75  # keep records where sum of estabs is >= this value
 # for replacements, get cnaics_alt, estab_pct_alt; keep n1000_inf
 
 keep1 <- cbase2 |> 
-  filter(estab_pct >= cutpoint)
+  filter(estabs_pct >= cutpoint)
 
 # first round of replacement ----
 # fix1: records to fix
@@ -97,19 +98,19 @@ keep1 <- cbase2 |>
 #    filtered to keep those where % of employment is >= cutpoint
 
 fix1 <- cbase2 |> 
-  filter(estab_pct < cutpoint) # we need to fix these records
+  filter(estabs_pct < cutpoint) # we need to fix these records
 count(fix1, cnaics_level)
 
 replace1 <- fix1 |> 
   filter(cnaics_level==3) |> 
-  select(area, cnaics_level, cnaics, ctitle, cemp, cestab, estab_pct) |> 
+  select(area, cnaics_level, cnaics, ctitle, cemp, cestabs, estabs_pct) |> 
   mutate(cnaics_alt=str_sub(cnaics, 1, 2)) |> 
   # use same county next higher level of aggregation
   left_join(cbase2 |> 
-              select(area, cnaics_alt=cnaics, estab_pct_alt=estab_pct,
+              select(area, cnaics_alt=cnaics, estabs_pct_alt=estabs_pct,
                      n0_4:n1000_inf),
             by = join_by(area, cnaics_alt)) |> 
-  filter(estab_pct_alt >= cutpoint)
+  filter(estabs_pct_alt >= cutpoint)
 
 # second round of replacement ----
 # fix2: records from fix1 still needing replacement
@@ -132,10 +133,10 @@ cbase2 |>
 
 # use the county overall average for the remaining ~0.7% (by employment) in fix2
 replace2 <- fix2 |> 
-  select(area, cnaics_level, cnaics, ctitle, cemp, cestab, estab_pct) |> 
+  select(area, cnaics_level, cnaics, ctitle, cemp, cestabs, estabs_pct) |> 
   left_join(cbase2 |> 
               filter(cnaics_level == 1) |> 
-              select(area, cnaics_alt=cnaics, estab_pct_alt=estab_pct, n0_4:n1000_inf),
+              select(area, cnaics_alt=cnaics, estabs_pct_alt=estabs_pct, n0_4:n1000_inf),
             by = join_by(area))
   
 cbp_fixed <- bind_rows(keep1,
@@ -160,7 +161,7 @@ cbp_fixed |> filter(is.na(ctitle) | ctitle=="")
 cbp_fixed
 summary(cbp_fixed)
 
-cbp_estab_shares1 <- cbp_fixed |> 
+cbp_estabs_shares1 <- cbp_fixed |> 
   mutate(across(n0_4:n1000_inf,
          \(x) replace_na(x, 0))) |> 
   rowwise() |> 
@@ -169,449 +170,22 @@ cbp_estab_shares1 <- cbp_fixed |>
   mutate(across(n0_4:n1000_inf,
          \(x) x / calcsum))
   
-summary(cbp_estab_shares1)
+summary(cbp_estabs_shares1)
 
-cbp_estab_shares <- cbp_estab_shares1 |> 
-  select(area, cnaics_level, cnaics, ctitle, cnaics_alt, cemp, cestab, estab_pct, estab_pct_alt, n0_4:n1000_inf)
+cbp_estabs_shares <- cbp_estabs_shares1 |> 
+  select(area, cnaics_level, cnaics, ctitle, cnaics_alt, cemp, cestabs, estabs_pct, estabs_pct_alt, n0_4:n1000_inf)
 
-summary(cbp_estab_shares)
+summary(cbp_estabs_shares)
 
-saveRDS(cbp_estab_shares, fs::path(PDINTERMEDIATE, "cbp_estab_shares.rds"))
+saveRDS(cbp_estabs_shares, fs::path(PDINTERMEDIATE, "cbp_estabs_shares.rds"))
 
 ```
 
 ```{r}
 #| label: cleanup
-
-# rm(areas, areas2, cbp1, cbp2, cbp3, char_cols, check, fpath, inds, inds2)
 rm(list = ls())
-
 ```
 
 ```{r stop_here, echo=FALSE}
 knitr::knit_exit()
-```
-
---- END ---
-
-```{r}
-
-qmta <- readRDS(fs::path(PDINTERMEDIATE, "qmta_atoms.rds"))
-
-tmp <- count(qmta, naics, title) # 101 industries
-
-# we can only match private data against the CBP so extract private
-qprivate <- qmta |> 
-  filter(ownerf==1)
-
-```
-
-```{r}
-#| label: cbp-check-est-sums
-
-df <- cbase |> 
-  select(-c(n1000_1:n1000_4)) |> 
-  select(area, cnaics_level, cnaics, ctitle, cemp, cestab, starts_with("n"))
-summary(df) # good, no missing cestab
-
-df2 <- df |> 
-  rowwise() |> 
-  mutate(estab_sum=sum(c_across(n0_4:n1000_inf), na.rm = TRUE),
-         estab_need = cestab - estab_sum) |> 
-  relocate(estab_sum, estab_need, .after=cestab)
-df2
-summary(df2)
-
-
-
-
-
-
-
-
-
-
-
-
-# figure out approximate employment need, to help decide where to put the missing estabs
-df3 <- df2 |> 
-  pivot_longer(cols = n0_4:n1000_inf, values_to = "nestabs") |> 
-  separate_wider_delim(name, delim="_", names=c("emp_min", "emp_max"), cols_remove = FALSE) |> 
-  mutate(emp_min = str_remove(emp_min, "n") |> as.integer(),
-         emp_max = as.integer(emp_max)) |> 
-  mutate(emin=sum(emp_min * nestabs, na.rm = TRUE),
-         emax=sum(emp_max * nestabs, na.rm=TRUE),
-         .by=c(area, cnaics)) 
-summary(df3)
-df3
-
-test <- df3 |> 
-  filter(area=="Bronx", cnaics=="22")
-
-
-f <- function(cemp, cestab, estab_sum, emp_min, emp_max, nestabs){
-  cemp_target <- cemp[1]
-  estab_target <- cestab[1]
-  estab_calc <- estab_sum[1]
-  estab_need <- estab_target - estab_calc
-  empsum_min <- sum(emp_min * nestabs, na.rm=TRUE)
-  empsum_max <- sum(emp_max * nestabs, na.rm=TRUE)
-  empneed_atmin <- cemp_target - empsum_min # we can add this much emp if all at min
-  empneed_atmax <- cemp_target - empsum_max
-  avgneed <- empneed_atmin / estab_need
-  
-  # add 1 to each NA group above low until we use up employment
-  n <- length(cemp)
-  nestabs2 <- nestabs
-  empneed_atmin2 <- empneed_atmin
-  # first fill
-  for(i in n:1){
-    if(estab_need > 0 && is.na(nestabs[i]) && empneed_atmin2 >= emp_min[i]){
-      nestabs2[i] <- 1
-      estab_need <- estab_need - 1
-      empsum_min2 <- sum(emp_min * nestabs2, na.rm=TRUE)
-      empneed_atmin2 <- cemp_target - empsum_min2
-    }
-  }
-  # second fill
-  if(empneed_atmin2 > 0){
-    for(i in n:1){
-      if(estab_need > 0 && is.na(nestabs[i]) && empneed_atmin2 >= emp_min[i]){
-        nestabs2[i] <- nestabs2[i] + 1
-        estab_need <- estab_need - 1
-        empsum_min2 <- sum(emp_min * nestabs2, na.rm=TRUE)
-        empneed_atmin2 <- cemp_target - empsum_min2
-    }
-  }
-  }
-  
-  # third fill
-  if(empneed_atmin2 > 0){
-    for(i in n:1){
-      if(estab_need > 0 && is.na(nestabs[i]) && empneed_atmin2 >= emp_min[i]){
-        nestabs2[i] <- nestabs2[i] + 1
-        estab_need <- estab_need - 1
-        empsum_min2 <- sum(emp_min * nestabs2, na.rm=TRUE)
-        empneed_atmin2 <- cemp_target - empsum_min2
-    }
-  }
-  }  
-  
-  # 4th fill
-  if(empneed_atmin2 > 0){
-    for(i in n:1){
-      if(estab_need > 0 && is.na(nestabs[i]) && empneed_atmin2 >= emp_min[i]){
-        nestabs2[i] <- nestabs2[i] + 1
-        estab_need <- estab_need - 1
-        empsum_min2 <- sum(emp_min * nestabs2, na.rm=TRUE)
-        empneed_atmin2 <- cemp_target - empsum_min2
-    }
-  }
-  }    
-    
-  return(nestabs2)
-}
-
-(x <- f(cemp = test$cemp, cestab = test$cestab, estab_sum=test$estab_sum, emp_min=test$emp_min, emp_max=test$emp_max, nestabs=test$nestabs))
-test
-
-test |> 
-  mutate(nestabs2=x[, "nestabs2"]) |> 
-  mutate(newsum=sum(nestabs2 * emp_min, na.rm=TRUE))
-
-
-f2 <- function(cemp, cestab, estab_sum, emp_min, emp_max, nestabs){
-  cemp_target <- cemp[1]
-  estab_target <- cestab[1]
-  estab_calc <- estab_sum[1]
-  estab_need <- estab_target - estab_calc
-  empsum_min <- sum(emp_min * nestabs, na.rm=TRUE)
-  empsum_max <- sum(emp_max * nestabs, na.rm=TRUE)
-  empneed_atmin <- cemp_target - empsum_min # we can add this much emp if all at min
-  empneed_atmax <- cemp_target - empsum_max
-  avgneed <- empneed_atmin / estab_need
-  
-  # add 1 to each NA group above low until we use up employment
-  n <- length(cemp)
-  nestabs2 <- nestabs
-  empneed_atmin2 <- empneed_atmin
-  
-  # first fill
-  for(i in n:1){
-    if(estab_need > 0 && is.na(nestabs[i]) && empneed_atmin2 >= emp_min[i]){
-      nestabs2[i] <- 1
-      estab_need <- estab_need - 1
-      empsum_min2 <- sum(emp_min * nestabs2, na.rm=TRUE)
-      empneed_atmin2 <- cemp_target - empsum_min2
-    }
-  }
-  
-  # subsequent fills
-  for(k in 1:100){
-    if(empneed_atmin2 > 0){
-      for(i in n:1){
-        if(estab_need > 0 && is.na(nestabs[i]) && empneed_atmin2 >= emp_min[i]){
-          nestabs2[i] <- nestabs2[i] + 1
-          estab_need <- estab_need - 1
-          empsum_min2 <- sum(emp_min * nestabs2, na.rm=TRUE)
-          empneed_atmin2 <- cemp_target - empsum_min2
-        }
-      }
-      }
-  }
-
-  return(nestabs2)
-  }
-
-
-f3 <- function(cemp, cestab, estab_sum, emp_min, emp_max, nestabs){
-  fixit <- function(x) {
-    x[is.na(x) | is.infinite(x) | is.nan(x)] <- 0
-    x
-  }
-  
-  cemp_target <- cemp[1]
-  estab_target <- cestab[1]
-  estab_calc <- estab_sum[1]
-  estab_need <- estab_target - estab_calc
-  empsum_min <- sum(emp_min * nestabs, na.rm=TRUE)
-  empsum_max <- sum(emp_max * nestabs, na.rm=TRUE)
-  empneed_atmin <- cemp_target - empsum_min # we can add this much emp if all at min
-  empneed_atmax <- cemp_target - empsum_max
-  avgneed <- empneed_atmin / estab_need
-  
-  # add 1 to each NA group above low until we use up employment
-  n <- length(cemp)
-  nestabs2 <- fixit(nestabs)
-  # print(nestabs2)
-  empneed_atmin2 <- empneed_atmin # the minimum amount of employment we can add
-  
-  nloops <- 2
-  for(iloop in 1:nloops){
-    # loop through the missing
-    for(i in n:1){ # start at highest employment
-      if(!is.na(nestabs[i])) next # only add to estab groups that are NA
-      # how many can we add to this group?
-      # print("i empneed emp_min")
-      # print(i)
-      # print(empneed_atmin2)
-      # print(emp_min[i])
-      max_estadd <- floor(empneed_atmin2 / emp_min[i]) |> fixit()
-      max_estadd <- pmin(max_estadd, estab_need, 2) # only cells < 3 estabs are suppressed
-      nestabs2[i] <- nestabs2[i] + max_estadd
-      estab_need <- estab_need - max_estadd
-      empsum_min2 <- sum(emp_min * nestabs2, na.rm=TRUE)
-      empneed_atmin2 <- cemp_target - empsum_min2
-    }
-  }
-  # print("estabs target, calc")
-  # print(estab_target)
-  # print(sum(nestabs2, na.rm=TRUE))
-  # print("emp target, calc at min")
-  # print(cemp_target)
-  # print(sum(emp_min * nestabs2, na.rm=TRUE))
-  # print("nestabs nestabs2")
-  # print(nestabs)
-  # print(nestabs2)
-
-  return(nestabs2)
-}
-
-# pseudo code
-#  if top is not na
-#    fill na slots below top
-#  if top is na
-#    if can solve without adding to top, fill na slots below top
-#    else
-#      determine whether to put 1 or 2 in the top and do so
-#      fill na slots below top
-
-# pseudo code details
-#  if top is not na
-#    fill na slots below top
-#  if top is na
-#    if can solve without adding to top -- i.e., sum over i below top: (max emp * max estabs), >= emp need
-#      fill na slots below top
-#    else
-#      below-top emp need = sum over i below top: (max emp * max estabs) < emp need
-#      determine whether to put 1 or 2 in the top and do so
-#      fill na slots below top
-
-
-f4 <- function(cemp, cestab, estab_sum, emp_min, emp_max, nestabs){
-  fixit <- function(x) {
-    x[is.na(x) | is.infinite(x) | is.nan(x)] <- 0
-    x
-  }
-  
-  cemp_target <- cemp[1]
-  estab_target <- cestab[1]
-  estab_calc <- estab_sum[1]
-  estab_need <- estab_target - estab_calc
-  empsum_min <- sum(emp_min * nestabs, na.rm=TRUE)
-  empsum_max <- sum(emp_max * nestabs, na.rm=TRUE)
-  empneed_atmin <- cemp_target - empsum_min # we can add this much emp if all at min
-  empneed_atmax <- cemp_target - empsum_max
-  avgneed <- empneed_atmin / estab_need
-  
-  # add 1 to each NA group above low until we use up employment
-  n <- length(cemp)
-  nestabs2 <- fixit(nestabs)
-  # print(nestabs2)
-  empneed_atmin2 <- empneed_atmin # the minimum amount of employment we can add
-  
-  # first, determine how many we MUST add to the top range -- only 0, 1, or 2
-  topna <- is.na(nestabs[n])
-  
-  inontop <- 1:8
-  maxemp_nontop <- sum(nestabs[inontop] * emp_max[inontop], na.rm=TRUE) # max CURRENT employment in the nontop groups
-  minemp_nontop <- sum(nestabs[inontop] * emp_min[inontop], na.rm=TRUE) # min CURRENT employment in the nontop groups
-  emp_need_xtop <- cemp_target - maxemp_nontop
-  # can we add the needed employment WITHOUT filling in the top?
-  # we need 950, we have 10 avails
-  empadd <- 0
-  estadd <- 0
-  max_estadd <- estab_need 
-  for(i in rev(inontop)){
-    canadd <- is.na(nestabs[i])
-    add2 <- 2 * emp_max[i]
-    max_estadd <- pmin()
-    add2 <- 2 * emp_max[i]
-    if(add2 < emp_need_xtop)
-    print(add2)
-    
-  }
-  
-  cemp_target
-  need_temp <- estab_need
-  nestabs_temp <- nestabs
-  for(i in rev(inontop)){
-    print(i)
-    nestabs_temp[i] <- 
-  }
-  
-  
-  
-  
-  max_nontop <- sum(is.na(nestabs[inontop]) * emp_max[inontop])
-  return(max_nontop)
-  
-  
-  nloops <- 2
-  for(iloop in 1:nloops){
-    # loop through the missing
-    for(i in n:1){ # start at highest employment
-      if(!is.na(nestabs[i])) next # only add to estab groups that are NA
-      # how many can we add to this group?
-      # print("i empneed emp_min")
-      # print(i)
-      # print(empneed_atmin2)
-      # print(emp_min[i])
-      max_estadd <- floor(empneed_atmin2 / emp_min[i]) |> fixit()
-      max_estadd <- pmin(max_estadd, estab_need, 2) # only cells < 3 estabs are suppressed
-      nestabs2[i] <- nestabs2[i] + max_estadd
-      estab_need <- estab_need - max_estadd
-      empsum_min2 <- sum(emp_min * nestabs2, na.rm=TRUE)
-      empneed_atmin2 <- cemp_target - empsum_min2
-    }
-  }
-  # print("estabs target, calc")
-  # print(estab_target)
-  # print(sum(nestabs2, na.rm=TRUE))
-  # print("emp target, calc at min")
-  # print(cemp_target)
-  # print(sum(emp_min * nestabs2, na.rm=TRUE))
-  # print("nestabs nestabs2")
-  # print(nestabs)
-  # print(nestabs2)
-
-  return(nestabs2)
-}
-
-cemp = test$cemp; cestab = test$cestab; estab_sum=test$estab_sum; emp_min=test$emp_min; emp_max=test$emp_max; nestabs=test$nestabs
-(x <- f3(cemp = test$cemp, cestab = test$cestab, estab_sum=test$estab_sum, emp_min=test$emp_min, emp_max=test$emp_max, nestabs=test$nestabs))
-test
-
-
-(x <- f4(cemp = test$cemp, cestab = test$cestab, estab_sum=test$estab_sum, emp_min=test$emp_min, emp_max=test$emp_max, nestabs=test$nestabs))
-test
-test <- df3 |> filter(area=="New York", cnaics=="622")
-test <- df3 |> filter(area=="Putnam", cnaics=="623")
-test <- df3 |> filter(area=="Putnam", cnaics=="62")
-test <- df3 |> filter(area=="New York", cnaics=="623")
-test <- df3 |> filter(area=="Statewide", cnaics=="623")
-
-count(df3, area)
-
-
-  # # first fill
-  # for(i in n:1){
-  #   if(estab_need > 0 && is.na(nestabs[i]) && empneed_atmin2 >= emp_min[i]){
-  #     nestabs2[i] <- 1
-  #     estab_need <- estab_need - 1
-  #     empsum_min2 <- sum(emp_min * nestabs2, na.rm=TRUE)
-  #     empneed_atmin2 <- cemp_target - empsum_min2
-  #   }
-  # }
-  # 
-  # # subsequent fills
-  # for(k in 1:100){
-  #   if(empneed_atmin2 > 0){
-  #     for(i in n:1){
-  #       if(estab_need > 0 && is.na(nestabs[i]) && empneed_atmin2 >= emp_min[i]){
-  #         nestabs2[i] <- nestabs2[i] + 1
-  #         estab_need <- estab_need - 1
-  #         empsum_min2 <- sum(emp_min * nestabs2, na.rm=TRUE)
-  #         empneed_atmin2 <- cemp_target - empsum_min2
-  #       }
-  #     }
-  #     }
-  # }
-
-# 
-# nestabs2 = ifelse(cestab > estab_sum,
-#                            f3(cemp, cestab, estab_sum, emp_min, emp_max, nestabs),
-#                            nestabs),
-
-
-df4 <- df3 |> 
-  mutate(nestabs2 = f3(cemp, cestab, estab_sum, emp_min, emp_max, nestabs),
-         .by=c(area, cnaics)) |> 
-  mutate(estab_sum2=sum(nestabs2, na.rm=TRUE),
-         emin2=sum(emp_min * nestabs2, na.rm = TRUE),
-         emax2=sum(emp_max * nestabs2, na.rm=TRUE),
-         .by=c(area, cnaics))
-
-check <- df4 |> 
-  filter(cestab != estab_sum2)
-
-check <- df4 |> 
-  filter(abs(cestab - estab_sum2) > 1)
-
-check <- df4 |> 
-  summarise(across(c(cemp, cestab, estab_sum, estab_sum2),
-                   first),
-            top0=last(nestabs2)==0,
-            empatmin=sum(nestabs2 * emp_min, na.rm = TRUE),
-            empatmax=sum(nestabs2 * emp_max, na.rm = TRUE),
-            .by = c(area, cnaics, ctitle)) |> 
-  mutate(empdiffmin = cemp - empatmin,
-         empdiffmax = cemp - empatmax,
-         estdiff=cestab - estab_sum2)
-summary(check)
-  
-# employment
-check2 <- check |> filter(cemp < empatmin | cemp > empatmax) # emp at max does not include top emp range
-check |> filter(cemp < empatmin | cemp > empatmax, top0) # employment is possible for all
-
-# estabs
-check3 <- check |> filter(estdiff != 0)
-
-
-# possible problems
-tmp <- df4 |> filter(area=="Putnam", cnaics=="623") # come back to this?
-tmp <- df4 |> filter(area=="Queens", cnaics=="325")
-tmp
-
-
 ```
