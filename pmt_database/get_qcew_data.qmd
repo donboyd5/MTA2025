@@ -95,16 +95,29 @@ Save an MTA subset with just the latest year. Rename variables for consistency w
 #| label: qcew-mta
 
 qcew <- readRDS(fs::path(PDINTERMEDIATE, "qcewstco.rds"))
+ns(qcew)
 count(qcew, areatype)
 
 qcewmta <- qcew |> 
   filter(year == max(year),
          areatype == "county",
          mta) |>
-  mutate(naics_level=ifelse(naics=="00", 1, naics_level)) |> 
-  select(-mta, -areatype)
-
+  mutate(naics_level=ifelse(naics=="00", 1, naics_level),
+         area = str_remove(area, " County"),
+         ownerf = factor(
+           owner, 
+           levels=c("Private", "Federal Government", "State Government", "Local Government", # details
+                    "Total Private and Government", "Total Government"), # totals
+           labels=1:6),
+         ownerf = as.integer(as.character(ownerf))) |> 
+    select(year, area, nyc, naics_level, naics, title, ownerf, owner, estabs=estab, emp=avgemp, payroll=totwage)
+glimpse(qcewmta)
+summary(qcewmta)
 count(qcewmta, area)
+count(qcewmta, naics_level, naics, title)
+count(qcewmta, ownerf, owner)
+qcewmta |> filter(payroll==max(payroll))
+
 saveRDS(qcewmta, fs::path(PDINTERMEDIATE, "qcewmta.rds"))
 
 ```
@@ -116,85 +129,4 @@ rm(list = ls())
 
 ```{r stop_here, echo=FALSE}
 knitr::knit_exit()
-```
-
-## Explore qcew - NO CHANGES TO SAVED DATA
-
-THIS SECTION DOES NOT CHANGE ANY DATA AND DOES NOT RESAVE DATA.
-
-```{r}
-#| label: explore
-#| eval: false
-#| output: false
-
-qcew <- readRDS(fs::path(PDINTERMEDIATE, "qcewstco.rds"))
-
-count(qcew |> filter(areatype=="state"), area)
-count(qcew |> filter(areatype=="county"), area)
-# 65: 57 + 5 NYC +
-#     Locations Statewide (16) + Out of State Locations (2) + Unknown Locations (16)
-
-count(qcew, year)
-count(qcew, owner)
-check <- count(qcew, naics, naics_level, title)
-
-# check sums
-qcew |> 
-  filter(year==2023, naics=="00", owner=="Total Private and Government") |> 
-  summarise(totwage=sum(totwage),
-            avgemp=sum(avgemp), 
-            estab=sum(estab),
-            .by=c(areatype)) |> 
-  pivot_longer(-areatype) |> 
-  pivot_wider(names_from = areatype) |> 
-  mutate(pct=county / state)
-
-#   name           state       county   pct
-#   <chr>          <dbl>        <dbl> <dbl>
-# 1 totwage 866004485600 844079889657 0.975
-# 2 avgemp       9472105      9293900 0.981
-# 3 estab         697828       640188 0.917
-
-# count(df2, areatype)
-#   areatype                            n
-#   <chr>                           <int>
-# 1 Balance of State               101498
-# 2 County                        2066833
-# 3 Labor Market Area              741876
-# 4 Metropolitan Division          140696
-# 5 Metropolitan Statistical Area  716101
-# 6 Micropolitan Statistical Area  292755
-# 7 State                          112968
-# 8 Workforce Investment Region    103316
-  
-
-# count(df2, areatype, owner)
-# 37 State                         Federal Government              2166
-# 38 State                         Local Government                2743
-# 39 State                         Private                        48547
-# 40 State                         State Government                1664
-# 41 State                         Total Government                6658
-# 42 State                         Total Private and Government   51190
-
-```
-
-```{r}
-#| label: nyc-share-of-mta
-#| eval: false
-#| output: false
-
-qcew <- readRDS(fs::path(PDINTERMEDIATE, "qcewstco.rds"))
-glimpse(qcew)
-
-df <- qcew |> 
-  filter(mta, naics=="00", owner=="Private")
-
-df |> 
-  summarise(totwageb=sum(totwage) / 1e9, .by=c(year, nyc)) |> 
-  mutate(nyc=factor(nyc, levels = c(TRUE, FALSE), labels=c("nyc", "suburban"))) |> 
-  pivot_wider(names_from = nyc, values_from = totwageb) |> 
-  mutate(mta=nyc + suburban,
-         nycpct = nyc / mta)
-
-
 ```
