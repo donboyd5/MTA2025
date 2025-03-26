@@ -13,6 +13,7 @@ editor_options:
 -   Do minor cleaning
 -   Put NYC and MTA markers on the file
 -   Save as `qcewstco.rds` in the intermediate data folder
+-   Save an MTA subset with just the latest year
 
 ## QCEW data from the New York State Department of Labor
 
@@ -88,7 +89,7 @@ saveRDS(df3, fs::path(PDINTERMEDIATE, "qcewstco.rds"))
 
 ```
 
-Save an MTA subset with just the latest year
+Save an MTA subset with just the latest year. Rename variables for consistency with rest of project.
 
 ```{r}
 #| label: qcew-mta

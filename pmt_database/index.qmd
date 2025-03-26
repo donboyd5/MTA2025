@@ -4,7 +4,13 @@ editor_options:
   chunk_output_type: console
 ---
 
-# Creating the PMT database
+# Introduction
+
+This project creates a database that can be used to estimate policy options for the MTA payroll mobility tax (PMT).
+
+```{r stop_here, echo=FALSE}
+knitr::knit_exit()
+```
 
 ## Overview
 
@@ -42,34 +48,3 @@ Do not forecast the database beyond the latest year in this project. That is a s
 
 -   QCEW -- get NY state and county records, put NYC and MTA markers on file, save as qcewstco.rds
 -   CBP --
-
-```{r stop_here, echo=FALSE}
-knitr::knit_exit()
-```
-
-**pmt_final.rds** -- created in simple_estabs_basis.qmd (earlier version created in create_pmt_file.qmd)
-
--   simple_estabs_basis.qmd
-    -   get **qcewstco.rds** (created in get_qcew_data.qmd)
-
-    -   create **uqmta.rds** unique (atomistic); check oddballs
-
-    -   apportion to estab sizes:
-
-        -   get **cbpny.rds** (created in get_cbp_data_2025version.rds), create **ucbp.rds**
-
-        -   create cbp qcew xwalk, save as qcxwalk.rds
-
-        -   match uqmta, ucbp, xwalk
-
-        -   save as **qcwide.rds**
-
-        -   replace some bad recs (revisit)
-
-        -   make long file
-
-        -   optimize (which one??) save **qcew_cbp_opt_results.rds**
-
-        -   adjust whien \< 0.5 or 1
-
-        -   check sums

@@ -16,6 +16,7 @@ book:
   date-format: long
   chapters:
     - index.qmd
+    - database_characteristics.qmd
     - part: "Get and save needed datasets"
       chapters:        
       - get_qcew_data.qmd # save multi-year state-county qcew file; set eval true to run
@@ -33,18 +34,6 @@ book:
     - part: "Model checks"
       chapters:
       - model_checks.qmd
-      # - simple_estabs_basis # THIS IS THE ONE TO USE AFTER GETTING CBP AND QCEW DATA
-      # - method_steps.qmd # SHOULD BE JUST INFO
-      # - get_susb_data.qmd # NO LONGER USED
-      # - create_pmt_file.qmd # NO LONGER USED
-      # - pmt_model.qmd  # after we've saved data use this
-      # - pmt_model_data_notes.qmd
-    
-      # - fillin_qcew.qmd
-      # - employer_size.qmd
-      # - make_pmt_base.qmd
-
-# bibliography: references.bib
 
 format:
   html:
@@ -60,6 +49,12 @@ editor_options:
 # ```{r stop_here, echo=FALSE}
 # knitr::knit_exit()
 # ```
+
+# ---
+# output: html_document
+# editor_options: 
+#   chunk_output_type: console
+# ---
 
 # useful reminders of quarto commands:
 # quarto publish netlify --no-render
