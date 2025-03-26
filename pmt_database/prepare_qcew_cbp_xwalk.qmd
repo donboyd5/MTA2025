@@ -1,9 +1,4 @@
 ---
-title: "prepare_qcew_cbp_xwalk"
-format: html
----
-
----
 output: html_document
 editor_options: 
   chunk_output_type: console
@@ -25,7 +20,7 @@ qprivate <- qmta |>
   filter(ownerf==1)
 qindp <- count(qprivate, naics, title) # 86 industries -- we need a match for each
 
-estshares <- readRDS(fs::path(PDINTERMEDIATE, "cbp_estab_shares.rds"))
+estshares <- readRDS(fs::path(PDINTERMEDIATE, "cbp_estabs_shares.rds"))
 cind <- count(estshares, cnaics_level, cnaics, ctitle) # 105 industries to choose 1
 
 ```
@@ -100,9 +95,7 @@ saveRDS(xwalk, fs::path(PDINTERMEDIATE, "xwalk_qcew_cbp.rds"))
 
 ```{r}
 #| label: cleanup
-
 rm(list = ls())
-
 ```
 
 ```{r stop_here, echo=FALSE}
