@@ -228,7 +228,6 @@ stack <- bind_rows(
   mutate(detail = naics_level != 1)
 summary(stack)
 
-
 ```
 
 ```{r}
@@ -244,7 +243,8 @@ all_other1 # we have some small negative amounts, just zero them out
 all_other2 <- all_other1 |> 
   mutate(across(c(estabs, emp, payroll), \(x) ifelse(x < 0, 0, x)),
          naics_level = 9,
-         naics = "xxxx All other")
+         naics = "xxxx",
+         title = "xxxx All other")
 
 qcew_atoms1 <- bind_rows(
   stack |> filter(naics_level != 1),
@@ -253,13 +253,11 @@ qcew_atoms1 <- bind_rows(
 qcew_atoms1
 summary(qcew_atoms1)
 
-
 ```
 
 ```{r}
 #| label: confirm-totals
 #| output: true
-
 
 controls_owner_allinds
 
@@ -277,7 +275,6 @@ comp <- bind_rows(
   mutate(diff=calc - control) |> 
   arrange(desc(abs(diff)))
 comp
-
 
 ```
 
@@ -298,9 +295,9 @@ saveRDS(qcew_atoms1, fs::path(PDINTERMEDIATE, "qmta_atoms.rds"))
 
 noddballs <- c("491", "814", "999")
 
-details |> 
+qcew_atoms1 |> 
   filter(naics %in% noddballs) |> 
-  summarise(across(c(estab, avgemp, totwage),
+  summarise(across(c(estabs, emp, payroll),
                    sum),
                    .by=c(naics, title))
   
@@ -312,12 +309,10 @@ details |>
 
 # probably treat 999  as taxable but not 814 or 491
 
-
 ```
 
 ```{r}
 #| label: cleanup
-
 rm(list = ls())
 ```
 
