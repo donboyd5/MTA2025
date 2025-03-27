@@ -9,6 +9,8 @@ editor_options:
 # Combine private and public data
 
 ```{r}
+#| label: get-data
+
 # check private wages
 shares <- readRDS(fs::path(PDINTERMEDIATE, "qcew_cbpshares.rds"))
 # sum(shares$totwage) # matches qmta, good 592827320140
@@ -78,4 +80,13 @@ glimpse(combined3)
 
 saveRDS(combined3, fs::path(PDINTERMEDIATE, "pmtdb_full.rds")) #
 
+```
+
+```{r}
+#| label: cleanup
+rm(list = ls())
+```
+
+```{r stop_here, echo=FALSE}
+knitr::knit_exit()
 ```

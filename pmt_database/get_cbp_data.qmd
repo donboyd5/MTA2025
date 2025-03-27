@@ -119,7 +119,7 @@ inds2 <- inds |>
 -   Save file as cbpny.rds
 
 ```{r}
-#| label: clean-cbp
+#| label: clean-cbpny
 #| output: false
 
 char_cols <- c("fipstate", "fipscty", "naics", "emp_nf", "qp1_nf", "ap_nf")
@@ -154,7 +154,7 @@ saveRDS(cbp3, fs::path(PDINTERMEDIATE, "cbpny.rds"))
 Save MTA CBP data. Rename variables.
 
 ```{r}
-#| label: clean-cbp
+#| label: clean-cbpmta
 #| output: false
 
 cbpny <- readRDS(fs::path(PDINTERMEDIATE, "cbpny.rds"))

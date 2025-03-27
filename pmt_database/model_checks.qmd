@@ -9,8 +9,168 @@ editor_options:
 # Model checks
 
 ```{r}
+#| label: startup
+
+get_pervars <- function(gfirms, gestabs, gemp, gpayroll){
+  # calculate values per firm, per establishment, per employee
+  # typically done after forecasting payroll and employment
+  gpay_firm <- ifelse(gfirms > 0, gpayroll / gfirms, 0)
+  gpay_estab <- ifelse(gestabs > 0, gpayroll / gestabs, 0)
+  gpay_emp <- ifelse(gemp > 0, gpayroll / gemp, 0)
+  return(tibble(gpay_firm, gpay_estab, gpay_emp))
+}
+
+```
+
+```{r}
+#| label: get-data
+
 
 pmtdb <- readRDS(fs::path(PDINTERMEDIATE, "pmtdb_full.rds"))
+glimpse(pmtdb)
+
+# define payroll cuts and labels
+(payroll_cuts <- c(0, 500e3, seq(1e6, 2e6, 200e3), seq(2e6, 5e6, 1e6), Inf, 1.25e6, 1.75e6) |> unique() |> sort())
+paygroup_labels <- cutlabs(payroll_cuts)
+
+pmtdb |> 
+  summarise(gpayroll=sum(gpayroll), .by=c(ownerf, owner)) |> 
+  adorn_totals()
+
+```
+
+```{r}
+#| label: baseline-model-forecast
+
+# two year total growth rates; don't change estab
+empgrowth <- .035 # see NYC Council; my rough guess; https://council.nyc.gov/wp-content/uploads/2024/03/Dashboard_FY25-Prelim_EMBARGOED.pdf
+avgwagegrowth <- .04
+
+pmtfc <- pmtdb |> 
+  mutate(year=2025,
+         gemp = gemp * (1 + empgrowth),
+         gpayroll = gpayroll * (1 + avgwagegrowth) * (1 + empgrowth)) |> 
+  # get per- variables
+  mutate(get_pervars(gfirms, gestabs, gemp, gpayroll))
+
+count(pmtfc |> filter(ownerf==4), naics, title)
+
+```
+
+```{r}
+#| label: baseline-model-data
+
+mod_prep <- pmtfc |> 
+  mutate(exempt = case_when(owner == "Federal Government" ~ TRUE,
+                            owner == "Local Government" & naics=="6111" ~ TRUE,
+                            .default = FALSE),
+         excluded = case_when(
+           naics %in% c("491", "814") ~ TRUE, # the oddballs Post Office and household workers
+           gpayroll == 0 ~ TRUE, # short term fix
+           .default = FALSE)
+         ) |> 
+  mutate(entity_pay = gpay_firm)
+
+summary(mod_prep)
+
+```
+
+```{r}
+#| label: baseline-model-rates-and-results
+
+mod_calcs <- mod_prep |>
+  
+  mutate(baserate = case_when(
+    exempt ~ 0,
+    excluded ~ 0,    
+    entity_pay < 312500 * 4 ~ 0,
+    nyc & entity_pay < 4 * 375000 ~ 0.0011,
+    nyc & entity_pay < 4 * 437500 ~ 0.0023,
+    nyc ~ 0.0060,
+    !nyc & entity_pay < 4 * 375000 ~ 0.0011,
+    !nyc & entity_pay < 4 * 437500 ~ 0.0023,
+    !nyc & entity_pay >= 4 * 437500 ~ 0.0034,
+    .default = -99999)) |> 
+  
+  mutate(altrate = case_when(
+    exempt ~ 0,
+    excluded ~ 0,
+    entity_pay < 312500 * 4 ~ 0,
+    nyc & entity_pay < 4 * 375000 ~ 0.0011,
+    nyc & entity_pay < 4 * 437500 ~ 0.0023,
+    nyc & entity_pay < 10e6 ~ 0.0060,
+    nyc & entity_pay >= 10e6 ~ 0.006 + 0.005,
+    
+    !nyc & entity_pay < 4 * 375000 ~ 0.0011,
+    !nyc & entity_pay < 4 * 437500 ~ 0.0023,
+    !nyc & entity_pay < 10e6 ~ 0.0034,
+    !nyc & entity_pay >= 10e6 ~ 0.0034 + 0.005,
+    .default = -99999)) |> 
+  
+  mutate(basetax = baserate * gpayroll,
+         alttax = altrate * gpayroll,
+         change=alttax - basetax)
+
+```
+
+```{r}
+#| label: baseline-tables
+#| output: true
+
+mod_calcs |> 
+  summarise(gpayroll = sum(gpayroll),
+            basetax=sum(basetax),
+            alttax=sum(alttax),
+            change=sum(change),
+            .by=c(ownerf, owner)) |> 
+  adorn_totals() |> 
+  gt() |> 
+  tab_header(md("50bp PMT increase for **firms** with payroll > $10m, NYC+Suburbs combined"),
+             subtitle="$ millions, 2025 levels. Local Government needs refinement") |> 
+  fmt_number(columns = -c(ownerf, owner),
+             scale = 1e-6,
+             decimals = 0)
+
+mod_calcs |> 
+  summarise(gpayroll = sum(gpayroll),
+            basetax=sum(basetax),
+            alttax=sum(alttax),
+            change=sum(change),
+            .by=c(nyc, ownerf, owner)) |> 
+  mutate(nyc=ifelse(nyc, "nyc", "suburbs")) |> 
+  select(-gpayroll) |> 
+  pivot_wider(names_from = nyc, values_from = c(basetax, alttax, change)) |> 
+  adorn_totals() |>
+  mutate(base_total = basetax_nyc + basetax_suburbs,
+         alt_total = alttax_nyc + alttax_suburbs,
+         change_total = change_nyc + change_suburbs,
+         nyc_change_pct=change_nyc / change_total) |> 
+  relocate(base_total, .after=basetax_suburbs) |> 
+  relocate(alt_total, .after=alttax_suburbs) |> 
+  gt() |> 
+  tab_header(md("50bp PMT increase for **firms** with payroll > $10m"),
+             subtitle="$ millions, 2025 levels. Local Government needs refinement") |> 
+  fmt_number(columns = -c(ownerf, owner,nyc_change_pct),
+             scale = 1e-6,
+             decimals = 0) |> 
+  fmt_percent(columns=nyc_change_pct,
+              decimals = 1)
+
+```
+
+```{r}
+#| label: cleanup
+rm(list = ls())
+```
+
+```{r stop_here, echo=FALSE}
+knitr::knit_exit()
+```
+
+```{r}
+
+pmtdb <- readRDS(fs::path(PDINTERMEDIATE, "pmtdb_full.rds"))
+glimpse(pmtdb)
 
 # define payroll cuts and labels
 (payroll_cuts <- c(0, 500e3, seq(1e6, 2e6, 200e3), seq(2e6, 5e6, 1e6), Inf, 1.25e6, 1.75e6) |> unique() |> sort())

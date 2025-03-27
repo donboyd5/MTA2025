@@ -19,3 +19,9 @@ cutlabs <- function(payroll_cuts){
   
   paybounds
 }
+
+getlabel <- function(paygroup, labels, rightleft="left"){
+  i <- match(paygroup, labels$paygroup)
+  colname <- paste0("range_", rightleft)
+  labels[i, colname] |> pull()
+}
