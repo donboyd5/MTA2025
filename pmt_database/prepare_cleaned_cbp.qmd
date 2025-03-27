@@ -36,6 +36,7 @@ CBP Establishment size groups
 
 ```{r}
 #| label: get-and-trim-cbp-data
+#| output: false
 
 cbp1 <- readRDS(fs::path(PDINTERMEDIATE, "cbpny.rds")) 
 cbp1 <- readRDS(fs::path(PDINTERMEDIATE, "cbpmta.rds")) 
@@ -81,6 +82,7 @@ Keep records where sum of establishments over establishment sizes is sufficientl
 
 ```{r}
 #| label: replace-recs
+#| output: false
 
 # keep good records, replace others with best substitute -----
 cutpoint <- .75  # keep records where sum of estabs is >= this value
@@ -157,6 +159,7 @@ cbp_fixed |> filter(is.na(ctitle) | ctitle=="")
 
 ```{r}
 #| label: calc-percents
+#| output: false
 
 cbp_fixed
 summary(cbp_fixed)

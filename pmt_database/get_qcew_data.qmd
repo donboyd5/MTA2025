@@ -123,7 +123,7 @@ saveRDS(qcewmta, fs::path(PDINTERMEDIATE, "qcewmta.rds"))
 
 ```
 
-## Show summary information from QCEW
+## Summary totals from QCEW
 
 ```{r}
 #| label: show-summary
@@ -135,7 +135,8 @@ qcewmta |>
             .by=c(year, ownerf, owner)) |> 
   arrange(ownerf) |> 
   gt() |> 
-  tab_header("Sums of MTA region # establishments, # employees, and payroll ($ millions) by owner type") |> 
+  tab_header("Sums of MTA region # establishments, # employees, and payroll ($ millions) by owner type",
+             subtitle = "All-industries total") |> 
   cols_label(payroll="payroll ($ millions)") |> 
   fmt_number(columns = c(estabs, emp), decimals=0) |> 
   fmt_currency(columns = payroll, decimals=0,

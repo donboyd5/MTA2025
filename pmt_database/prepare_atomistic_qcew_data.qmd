@@ -26,6 +26,7 @@ We go through multiple steps of creating control totals and creating "all other"
 
 ```{r}
 #| label: preprocess
+#| output: false
 
 qmta1 <- readRDS(fs::path(PDINTERMEDIATE, "qcewmta.rds"))
 glimpse(qmta1)
@@ -38,6 +39,7 @@ tmp <- qmta1 |> filter(ownerf==4, str_starts(naics, "61111"))
 
 ```{r}
 #| label: owner-control-totals
+#| output: false
 
 # verify owner totals -- government -- IDENTICAL
 qmta1 |> 
@@ -121,7 +123,6 @@ qmta1 |>
   fmt_number(columns = c(estabs, emp, payroll),
              decimals = 0)
 
-
 ```
 
 It looks like NAICS 61 in New York County must hold a large share of K-12 school employees, and for now I use it. This is not enough to include all of K-12 however -- see below. A refinement could be to bring in external data on NYCDOE establishments, employment, and payroll. But in the near term, we will understate the exemption for public schools in NYC, thus overstating tax revenue from local governments.
@@ -165,10 +166,13 @@ These records have the level of detail we want for each ownership type. They are
 
 For NYC I will create total estimates of K12 activity. Assumptions based primarily on internet searches or convenience:
 
-estabs 1650 emp 155e3 avg employee pay 90% of Westchester's spread across the 5 counties in same proportion as all-industries private employment (simple)
+-   estabs 1650
+-   emp 155e3
+-   avg employee pay 90% of Westchester's spread across the 5 counties in same proportion as all-industries private employment (simple)
 
 ```{r}
 #| label: get-details
+#| output: false
 
 private <- qmta1 |> 
   filter(ownerf == 1, naics_level %in% c(1, 3))
@@ -232,6 +236,7 @@ summary(stack)
 
 ```{r}
 #| label: add-all-other
+#| output: false
 
 all_other1 <- stack |> 
   mutate(across(c(estabs, emp, payroll),
@@ -257,7 +262,7 @@ summary(qcew_atoms1)
 
 ```{r}
 #| label: confirm-totals
-#| output: true
+#| output: false
 
 controls_owner_allinds
 
@@ -285,7 +290,10 @@ saveRDS(qcew_atoms1, fs::path(PDINTERMEDIATE, "qmta_atoms.rds"))
 
 ```
 
+## Check odd NAICS codes
+
 ```{r}
+#| output: true
 
 # check potential naicsd oddballs 491, 814, 999
 

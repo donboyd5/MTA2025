@@ -11,6 +11,7 @@ editor_options:
 For every NAICS 2022 industry in QCEW 2023 we need to choose a NAICS 2017 industry in CBP 2022 for which we will use the establishment percentages by establishment sizes.
 
 ```{r}
+#| output: false
 
 qmta <- readRDS(fs::path(PDINTERMEDIATE, "qmta_atoms.rds"))
 qind <- count(qmta, naics, title) # 101 industries
@@ -27,6 +28,7 @@ cind <- count(estshares, cnaics_level, cnaics, ctitle) # 105 industries to choos
 
 ```{r}
 #| label: match-3-digits
+#| output: false
 
 # try to do as well as possible on direct match
 

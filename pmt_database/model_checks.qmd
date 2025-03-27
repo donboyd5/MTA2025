@@ -10,6 +10,7 @@ editor_options:
 
 ```{r}
 #| label: startup
+#| output: false
 
 get_pervars <- function(gfirms, gestabs, gemp, gpayroll){
   # calculate values per firm, per establishment, per employee
@@ -24,7 +25,7 @@ get_pervars <- function(gfirms, gestabs, gemp, gpayroll){
 
 ```{r}
 #| label: get-data
-
+#| output: false
 
 pmtdb <- readRDS(fs::path(PDINTERMEDIATE, "pmtdb_full.rds"))
 glimpse(pmtdb)
@@ -41,6 +42,7 @@ pmtdb |>
 
 ```{r}
 #| label: baseline-model-forecast
+#| output: false
 
 # two year total growth rates; don't change estab
 empgrowth <- .035 # see NYC Council; my rough guess; https://council.nyc.gov/wp-content/uploads/2024/03/Dashboard_FY25-Prelim_EMBARGOED.pdf
@@ -59,6 +61,7 @@ count(pmtfc |> filter(ownerf==4), naics, title)
 
 ```{r}
 #| label: baseline-model-data
+#| output: false
 
 mod_prep <- pmtfc |> 
   mutate(exempt = case_when(owner == "Federal Government" ~ TRUE,
@@ -77,6 +80,7 @@ summary(mod_prep)
 
 ```{r}
 #| label: baseline-model-rates-and-results
+#| output: false
 
 mod_calcs <- mod_prep |>
   
@@ -165,248 +169,4 @@ rm(list = ls())
 
 ```{r stop_here, echo=FALSE}
 knitr::knit_exit()
-```
-
-```{r}
-
-pmtdb <- readRDS(fs::path(PDINTERMEDIATE, "pmtdb_full.rds"))
-glimpse(pmtdb)
-
-# define payroll cuts and labels
-(payroll_cuts <- c(0, 500e3, seq(1e6, 2e6, 200e3), seq(2e6, 5e6, 1e6), Inf, 1.25e6, 1.75e6) |> unique() |> sort())
-paygroup_labels <- cutlabs(payroll_cuts)
-
-pmtdb |> 
-  summarise(gpayroll=sum(gpayroll), .by=c(ownerf, owner)) |> 
-  adorn_totals()
-
-# 491 postal service private -- prob can't tax!!
-# 814 Private households - households that employ workers to run the household, such as cooks, maids, and gardeners -- don't tax
-# 999 Unclassified -- often new businesses
-
-# two year total growth rates; don't change estab
-empgrowth <- .035 # see NYC Council; my rough guess; https://council.nyc.gov/wp-content/uploads/2024/03/Dashboard_FY25-Prelim_EMBARGOED.pdf
-avgwagegrowth <- .04
-
-mod1 <- pmtdb |> 
-  mutate(year=2025,
-         gemp = gemp * (1 + empgrowth),
-         gpayroll = gpayroll * (1 + avgwagegrowth + empgrowth),
-         gemp_est = gemp / gestab,
-         gpay_emp = gpayroll / gemp,
-         gpay_est = gpayroll / gestab,
-         gpay_firm = gpayroll / gfirm) |> 
-  mutate(exempt = case_when(owner == "Federal Government" ~ TRUE,
-                            owner == "Local Government" & naics=="61" ~ TRUE, # go back for detail!!!
-                            .default = FALSE)) |> 
-  mutate(taxbase = gpay_firm) |>  # gpay_firm or gpay_est
-  mutate(baserate = case_when(
-    exempt ~ 0,
-    naics %in% c("491", "814") ~ 0,
-    gpayroll ==0 ~ 0, # short term fix
-    taxbase < 312500 * 4 ~ 0,
-    nyc & taxbase < 4 * 375000 ~ 0.0011,
-    nyc & taxbase < 4 * 437500 ~ 0.0023,
-    nyc ~ 0.0060,
-    !nyc & taxbase < 4 * 375000 ~ 0.0011,
-    !nyc & taxbase < 4 * 437500 ~ 0.0023,
-    !nyc & taxbase >= 4 * 437500 ~ 0.0034,
-    .default = -99999)) |> 
-  mutate(altrate = case_when(
-    exempt ~ 0,
-    naics %in% c("491", "814") ~ 0,
-    gpayroll ==0 ~ 0, # short term fix
-    taxbase < 312500 * 4 ~ 0,
-    nyc & taxbase < 4 * 375000 ~ 0.0011,
-    nyc & taxbase < 4 * 437500 ~ 0.0023,
-    nyc & taxbase < 10e6 ~ 0.0060,
-    nyc & taxbase >= 10e6 ~ 0.006 + 0.005,
-    
-    !nyc & taxbase < 4 * 375000 ~ 0.0011,
-    !nyc & taxbase < 4 * 437500 ~ 0.0023,
-    !nyc & taxbase < 10e6 ~ 0.0034,
-    !nyc & taxbase >= 10e6 ~ 0.0034 + 0.005,
-    .default = -99999))
-
-count(mod1, ownerf, owner, exempt)
-count(mod1, baserate, altrate)
-
-tmp <- mod1 |> 
-  filter(baserate < 0)
-
-mod1 |> filter(ownerf==4, exempt)
-mod1 |> filter(ownerf==4) |> summarise(gpayroll=sum(gpayroll), .by=exempt)
-  
-mod2 <- mod1 |> 
-  mutate(basetax = baserate * gpayroll,
-         alttax = altrate * gpayroll,
-         change=alttax - basetax)
-
-mod2 |> 
-  summarise(gpayroll = sum(gpayroll),
-            basetax=sum(basetax),
-            alttax=sum(alttax),
-            change=sum(change),
-            .by=c(ownerf, owner)) |> 
-  adorn_totals() |> 
-  gt() |> 
-  tab_header(md("50bp PMT increase for **firm** payroll > $10m, NYC+Suburbs combined"),
-             subtitle="$ millions, 2025 levels. Local Government needs refinement") |> 
-  fmt_number(columns = -c(ownerf, owner),
-             scale = 1e-6,
-             decimals = 0)
-
-mod2 |> 
-  summarise(gpayroll = sum(gpayroll),
-            basetax=sum(basetax),
-            alttax=sum(alttax),
-            change=sum(change),
-            .by=c(nyc, ownerf, owner)) |> 
-  mutate(nyc=ifelse(nyc, "nyc", "suburbs")) |> 
-  select(-gpayroll) |> 
-  pivot_wider(names_from = nyc, values_from = c(basetax, alttax, change)) |> 
-  adorn_totals() |>
-  mutate(base_total = basetax_nyc + basetax_suburbs,
-         alt_total = alttax_nyc + alttax_suburbs,
-         change_total = change_nyc + change_suburbs,
-         nyc_change_pct=change_nyc / change_total) |> 
-  relocate(base_total, .after=basetax_suburbs) |> 
-  relocate(alt_total, .after=alttax_suburbs) |> 
-  gt() |> 
-  tab_header(md("50bp PMT increase for **firm** payroll > $10m"),
-             subtitle="$ millions, 2025 levels. Local Government needs refinement") |> 
-  fmt_number(columns = -c(ownerf, owner,nyc_change_pct),
-             scale = 1e-6,
-             decimals = 0) |> 
-  fmt_percent(columns=nyc_change_pct,
-              decimals = 1)
-
-
-count(pmtdb, ownerf, owner)
-count(pmtdb |> filter(ownerf==4), naics, title)
-
-# tabdata |> 
-#   gt() |> 
-#   tab_header("Estimated distribution of PMT wage tax by establishment payroll size, 2024",
-#              subtitle = "Private sector only. Amounts in $ millions") |> 
-#   cols_label(paylabel="Average establishment payroll ($)",
-#              esize_estabsadj="# of establishments",
-#              esize_emp="# of employees",
-#              esize_payroll="Total payroll ($m)",
-#              base_tax="PMT wage tax ($m)",
-#              taxpct="Tax as % of total") |> 
-#   fmt_number(columns = c(esize_estabsadj, esize_emp), decimals=0) |>
-#   fmt_number(columns = c(esize_payroll, base_tax), scale=1e-6, decimals=1) |>
-#   fmt_currency(rows=c(1, nrow(tabdata)), columns = c(esize_payroll, base_tax), scale=1e-6, decimals=1) |> 
-#   fmt_percent(columns = c(taxpct), decimals=1)  |> 
-#   tab_source_note(source_note = source_note) |> 
-#   tab_source_note(source_note = long_note)
-
-```
-
-# Now examine the 2023 law change
-
-```{r}
-
-
-# two year total growth rates; don't change estab
-empgrowth <- .035 # see NYC Council; my rough guess; https://council.nyc.gov/wp-content/uploads/2024/03/Dashboard_FY25-Prelim_EMBARGOED.pdf
-avgwagegrowth <- .04
-
-empgrowth <- .0
-avgwagegrowth <- .0
-
-
-mod1 <- pmtdb |> 
-  mutate(year=2025,
-         gemp = gemp * (1 + empgrowth),
-         gpayroll = gpayroll * (1 + avgwagegrowth + empgrowth),
-         gemp_est = gemp / gestab,
-         gpay_emp = gpayroll / gemp,
-         gpay_est = gpayroll / gestab,
-         gpay_firm = gpayroll / gfirm) |> 
-  mutate(exempt = case_when(owner == "Federal Government" ~ TRUE,
-                            owner == "Local Government" & naics=="61" ~ TRUE, # go back for detail!!!
-                            .default = FALSE))
-
-mod2 <- mod1 |> 
-  mutate(taxbase = gpay_firm) |>  # gpay_firm or gpay_est
-  mutate(baserate = case_when(
-    exempt ~ 0,
-    naics %in% c("491", "814") ~ 0,
-    gpayroll ==0 ~ 0, # short term fix
-    taxbase < 312500 * 4 ~ 0,
-    nyc & taxbase < 4 * 375000 ~ 0.0011,
-    nyc & taxbase < 4 * 437500 ~ 0.0023,
-    nyc ~ 0.0034,
-    !nyc & taxbase < 4 * 375000 ~ 0.0011,
-    !nyc & taxbase < 4 * 437500 ~ 0.0023,
-    !nyc & taxbase >= 4 * 437500 ~ 0.0034,
-    .default = -99999)) |> 
-  mutate(altrate = case_when(
-    exempt ~ 0,
-    naics %in% c("491", "814") ~ 0,
-    gpayroll == 0 ~ 0, # short term fix
-    taxbase < 312500 * 4 ~ 0,
-    nyc & taxbase < 4 * 375000 ~ 0.0011,
-    nyc & taxbase < 4 * 437500 ~ 0.0023,
-    nyc ~ 0.0060,
-    !nyc & taxbase < 4 * 375000 ~ 0.0011,
-    !nyc & taxbase < 4 * 437500 ~ 0.0023,
-    !nyc & taxbase >= 4 * 437500 ~ 0.0034,
-    .default = -99999))
-
-count(mod2, ownerf, owner, exempt)
-count(mod2, baserate, altrate)
-
-tmp <- mod2 |> 
-  filter(baserate < 0)
-
-mod2 |> filter(ownerf==4, exempt)
-mod2 |> filter(ownerf==4) |> summarise(gpayroll=sum(gpayroll), .by=exempt)
-  
-mod3 <- mod2 |> 
-  mutate(basetax = baserate * gpayroll,
-         alttax = altrate * gpayroll,
-         change=alttax - basetax)
-
-mod3 |> 
-  summarise(gpayroll = sum(gpayroll),
-            basetax=sum(basetax),
-            alttax=sum(alttax),
-            change=sum(change),
-            .by=c(ownerf, owner)) |> 
-  adorn_totals() |> 
-  gt() |> 
-  tab_header(md("Raise NYC top rate from .34 to .60"),
-             subtitle="$ millions, 2023 levels. Local Government needs refinement") |> 
-  fmt_number(columns = -c(ownerf, owner),
-             scale = 1e-6,
-             decimals = 0)
-
-mod3 |> 
-  summarise(gpayroll = sum(gpayroll),
-            basetax=sum(basetax),
-            alttax=sum(alttax),
-            change=sum(change),
-            .by=c(nyc, ownerf, owner)) |> 
-  mutate(nyc=ifelse(nyc, "nyc", "suburbs")) |> 
-  select(-gpayroll) |> 
-  pivot_wider(names_from = nyc, values_from = c(basetax, alttax, change)) |> 
-  adorn_totals() |>
-  mutate(base_total = basetax_nyc + basetax_suburbs,
-         alt_total = alttax_nyc + alttax_suburbs,
-         change_total = change_nyc + change_suburbs,
-         nyc_change_pct=change_nyc / change_total) |> 
-  relocate(base_total, .after=basetax_suburbs) |> 
-  relocate(alt_total, .after=alttax_suburbs) |> 
-  gt() |> 
-  tab_header(md("Raise NYC top rate from .34 to .60"),
-             subtitle="$ millions, 2023 levels. Local Government needs refinement") |> 
-  fmt_number(columns = -c(ownerf, owner,nyc_change_pct),
-             scale = 1e-6,
-             decimals = 0) |> 
-  fmt_percent(columns=nyc_change_pct,
-              decimals = 1)
-
 ```
