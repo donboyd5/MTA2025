@@ -93,6 +93,7 @@ Save an MTA subset with just the latest year. Rename variables for consistency w
 
 ```{r}
 #| label: qcew-mta
+#| output: false
 
 qcew <- readRDS(fs::path(PDINTERMEDIATE, "qcewstco.rds"))
 ns(qcew)
@@ -119,6 +120,27 @@ count(qcewmta, ownerf, owner)
 qcewmta |> filter(payroll==max(payroll))
 
 saveRDS(qcewmta, fs::path(PDINTERMEDIATE, "qcewmta.rds"))
+
+```
+
+## Show summary information from QCEW
+
+```{r}
+#| label: show-summary
+#| output: true
+
+qcewmta |> 
+  filter(naics_level == 1) |> 
+  summarise(across(c(estabs, emp, payroll), sum),
+            .by=c(year, ownerf, owner)) |> 
+  arrange(ownerf) |> 
+  gt() |> 
+  tab_header("Sums of MTA region # establishments, # employees, and payroll ($ millions) by owner type") |> 
+  cols_label(payroll="payroll ($ millions)") |> 
+  fmt_number(columns = c(estabs, emp), decimals=0) |> 
+  fmt_currency(columns = payroll, decimals=0,
+             scale=1e-6)
+  
 
 ```
 
