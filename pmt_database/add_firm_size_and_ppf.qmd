@@ -6,10 +6,13 @@ editor_options:
 
 {{< include _setup.qmd >}}
 
-# Allocate QCEW data to private establishment size groups
+# Add \# of firms relative to \# of establishments
+
+Pull in data from SUSB.
 
 ```{r}
 #| label: get-data
+#| output: false
 
 # pmtdb1 <- readRDS(fs::path(PDINTERMEDIATE, "test.rds"))
 pmtdb1 <- readRDS(fs::path(PDINTERMEDIATE, "qcew_allocated.rds"))
@@ -19,6 +22,7 @@ susb <- readRDS(fs::path(PDINTERMEDIATE, "susb2021_mta.rds"))
 
 ```{r}
 #| label: map-firm-sizes-to-estab-sizes-by-industry
+#| output: false
 
 # fpe stands for firms per establishment
 
@@ -64,7 +68,7 @@ fpegroups
 
 ```{r}
 #| label: match
-
+#| output: false
 
 lookup <- fpegroups |>
   mutate(naics2=snaics) |> 
@@ -103,73 +107,4 @@ rm(list = ls())
 
 ```{r stop_here, echo=FALSE}
 knitr::knit_exit()
-```
-
-```{r}
-#| label: older-test-code
-
-A <- pmtdb1 |> 
-  filter(area=="Bronx County", naics=="622") |> 
-  select(naics, esize_avgemp) |> 
-  mutate(naics2=str_sub(naics, 1, 2))
-A
-
-B <- fpegroups |>
-  mutate(naics2=snaics)
-
-# B |> filter(naics2 %in% "62")
-
-result <- A  |> 
-  left_join(B, by = "naics2", relationship = "many-to-many") |> 
-  filter(esize_avgemp >= lowcut & esize_avgemp < hicut) |> 
-  select(names(A), fpemdn)
-result
-
-
-library(fuzzyjoin)
-
-result <- A %>%
-  fuzzy_left_join(
-    B,
-    by = c("industry" = "industry", "firm size" = "fslow", "firm size" = "fshi"),
-    match_fun = list(`==`, `>=`, `<`)
-  ) %>%
-  select(names(A), ratio)
-
-
-
-df <- tibble(naics2=c("22", "22"), es=c(20, 70))
-
-
-f <- function(naics2, es){
-  lookup |> 
-    filter(naics2==!!naics2) |> 
-    filter(!!es >= lowcut, !!es <= hicut) |>
-    select(fpemdn)
-}
-
-df |> 
-  rowwise() |> 
-  mutate(fpemdn=f(naics2, es))
-
-f(df$naics2, df$es)
-
-
-matches <- pmtdb1 |> 
-  select(-res) |> 
-  mutate(naics2=str_sub(naics, 1, 2)) |> 
-  left_join(lookup,
-            by = join_by(naics2),
-            relationship = "many-to-many") |> 
-  filter(!is.na(fpemdn)) |> 
-  mutate(match = (esize_estabsadj) >= (lowcut & esize_estabsadj < hicut))
-  # mutate(lowcut = ifelse(is.na(lowcut), -Inf, lowcut),
-  #        hicut = ifelse(is.na(hicut), Inf, hicut),
-  #        fpemdn=ifelse(is.na(fpemdn), 1, fpemdn)) |> 
-  # filter(esize_estabsadj >= lowcut, esize_estabsadj < hicut)
-glimpse(pmtdb2)
-sum(matches$match, na.rm=TRUE) # 11072 matches but 7848 records
-summary(pmtdb2)
-
-
 ```

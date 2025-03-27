@@ -10,6 +10,7 @@ editor_options:
 
 ```{r}
 #| label: get-data
+#| output: false
 
 qmta <- readRDS(fs::path(PDINTERMEDIATE, "qmta_atoms.rds"))
 
@@ -30,6 +31,7 @@ count(qprivate, area)
 
 ```{r}
 #| label: get-shares
+#| output: false
 
 qcshares1 <- qprivate |> 
   left_join(xwalk |> 

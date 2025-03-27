@@ -10,6 +10,7 @@ editor_options:
 
 ```{r}
 #| label: get-data
+#| output: false
 
 qcshares <- readRDS(fs::path(PDINTERMEDIATE, "qcew_cbpshares.rds"))
 
@@ -23,6 +24,7 @@ readRDS(fs::path(PDINTERMEDIATE, "qmta_atoms.rds")) |>
 
 ```{r}
 #| label: long-file
+#| output: false
 
 qclong <- qcshares |> 
   pivot_longer(cols=n0_4:n1000_inf) |> 
@@ -47,6 +49,7 @@ qclong |>
 
 ```{r}
 #| label: optimization
+#| output: false
 
 source(fs::path(DMAIN, "R", "opt_functions.R"))
 
@@ -71,10 +74,10 @@ saveRDS(qcew_allocated, fs::path(PDINTERMEDIATE, "qcew_allocated.rds"))
 
 qcew_allocated <- readRDS(fs::path(PDINTERMEDIATE, "qcew_allocated.rds"))
 
-summary(qcew_allocated |> select(-res))
-qcew_allocated |> select(-res) |> filter(is.na(gemp))
-
-glimpse(qcew_allocated)
+# summary(qcew_allocated |> select(-res))
+# qcew_allocated |> select(-res) |> filter(is.na(gemp))
+# 
+# glimpse(qcew_allocated)
 
 qcew_allocated |> 
   select(-res) |> 
@@ -84,7 +87,14 @@ qcew_allocated |>
   summarise(payroll=sum(payroll), 
             gpayroll=sum(gpayroll)) |> 
   mutate(dpayroll=gpayroll - payroll,
-         dpct=dpayroll / payroll)
+         dpct=dpayroll / payroll) |> 
+  gt() |> 
+  tab_header("QCEW 2023 reported private sector payroll and sum of 'atomistic' payroll across counties, industries, and employer size groups") |> 
+  cols_label(payroll="payroll: reported", gpayroll="payroll: sum of details", dpayroll="sum of details minus reported", dpct="% difference from reported") |> 
+  fmt_number(columns = contains("payroll"),
+             decimals = 0) |> 
+  fmt_percent(columns = dpct,
+              decimals=4)
 
 ```
 

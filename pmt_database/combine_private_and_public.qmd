@@ -10,6 +10,7 @@ editor_options:
 
 ```{r}
 #| label: get-data
+#| output: false
 
 # check private wages
 shares <- readRDS(fs::path(PDINTERMEDIATE, "qcew_cbpshares.rds"))
@@ -42,6 +43,7 @@ combined <- private |>
 
 ```{r}
 #| label: compatibility
+#| output: false
 
 glimpse(combined)
 ns(combined)
