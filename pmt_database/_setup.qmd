@@ -1,0 +1,24 @@
+```{r}
+#| echo: false
+#| messages: false
+#| notes: false
+#| warnings: false
+
+# put the following shortcode on a standalone line in any qmd file that uses this code:
+# {{< include _setup.qmd >}}
+
+DMAIN <- here::here("pmt_database")
+
+libs <- function(){
+  source(fs::path(DMAIN, "R", "libraries.r"))
+  source(fs::path(DMAIN, "R", "libraries_ts.r"))
+}
+
+suppressPackageStartupMessages(libs())
+  
+source(fs::path(DMAIN, "R", "constants.r"))
+source(fs::path(DMAIN, "R", "functions.r"))
+
+rm(libs)
+
+```

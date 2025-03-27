@@ -1,0 +1,161 @@
+---
+output: html_document
+editor_options: 
+  chunk_output_type: console
+---
+
+{{< include _setup.qmd >}}
+
+# Data for MTA
+
+```{r}
+#| label: startup
+#| output: false
+
+get_pervars <- function(gfirms, gestabs, gemp, gpayroll){
+  # calculate values per firm, per establishment, per employee
+  # typically done after forecasting payroll and employment
+  gpay_firm <- ifelse(gfirms > 0, gpayroll / gfirms, 0)
+  gpay_estab <- ifelse(gestabs > 0, gpayroll / gestabs, 0)
+  gpay_emp <- ifelse(gemp > 0, gpayroll / gemp, 0)
+  return(tibble(gpay_firm, gpay_estab, gpay_emp))
+}
+
+```
+
+```{r}
+#| label: get-data
+#| output: true
+
+pmtdb <- readRDS(fs::path(PDINTERMEDIATE, "pmtdb_full.rds"))
+# glimpse(pmtdb)
+
+# essential cuts:
+
+# define payroll cuts and labels
+
+pmtdb |> 
+  summarise(n=n(),
+            gpayroll=sum(gpayroll), 
+            .by=c(ownerf, owner)) |> 
+  adorn_totals() |> 
+  gt() |> 
+  tab_header("Sum of detailed database payroll by owner type") |> 
+  fmt_number(columns = c(n, gpayroll),
+             decimals = 0)
+
+```
+
+```{r}
+#| label: cutpoints
+#| output: false
+
+legal_cuts <- 4 * c(312.5e3, 375e3, 437.5e3)
+
+(payroll_cuts <- c(0, 500e3, seq(1e6, 2e6, 200e3), seq(2e6, 10e6, 500e3), Inf, legal_cuts) |> unique() |> sort())
+paygroup_labels <- cutlabs(payroll_cuts)
+
+```
+
+```{r}
+#| label: functions
+#| output: false
+
+fbase <- function(entity_pay, nyc, exempt, excluded){
+  
+  taxrate <- case_when(
+    entity_pay < 312500 * 4 ~ 0,
+    nyc & entity_pay < 4 * 375000 ~ 0.0011,
+    nyc & entity_pay < 4 * 437500 ~ 0.0023,
+    nyc ~ 0.0060,
+    !nyc & entity_pay < 4 * 375000 ~ 0.0011,
+    !nyc & entity_pay < 4 * 437500 ~ 0.0023,
+    !nyc & entity_pay >= 4 * 437500 ~ 0.0034,
+    .default = 0)
+  
+  taxrate[exempt | excluded] <- 0
+  taxrate
+}
+
+f10m <- function(entity_pay, nyc, exempt, excluded){
+  
+  taxrate <- case_when(
+    exempt | excluded ~ 0,
+    entity_pay < 312500 * 4 ~ 0,
+    nyc & entity_pay < 4 * 375000 ~ 0.0011,
+    nyc & entity_pay < 4 * 437500 ~ 0.0023,
+    nyc & entity_pay < 10e6 ~ 0.0060,
+    nyc & entity_pay >= 10e6 ~ 0.006 + 0.005,
+    
+    !nyc & entity_pay < 4 * 375000 ~ 0.0011,
+    !nyc & entity_pay < 4 * 437500 ~ 0.0023,
+    !nyc & entity_pay < 10e6 ~ 0.0034,
+    !nyc & entity_pay >= 10e6 ~ 0.0034 + 0.005,
+    .default = -99999)
+  
+  taxrate[exempt | excluded] <- 0
+  taxrate
+}
+
+```
+
+```{r}
+#| label: prepare-data
+#| output: false
+
+# see NYC Council; my rough guess; https://council.nyc.gov/wp-content/uploads/2024/03/Dashboard_FY25-Prelim_EMBARGOED.pdf
+empgrowth <- .035 
+avgwagegrowth <- .04
+
+pmt2025 <- pmtdb |> 
+  mutate(year=2025,
+         gemp = gemp * (1 + empgrowth),
+         gpayroll = gpayroll * (1 + avgwagegrowth) * (1 + empgrowth)) |> 
+  # get per- variables
+  mutate(get_pervars(gfirms, gestabs, gemp, gpayroll)) |> 
+  mutate(exempt = case_when(owner == "Federal Government" ~ TRUE,
+                            owner == "Local Government" & naics=="6111" ~ TRUE,
+                            .default = FALSE),
+         excluded = case_when(
+           naics %in% c("491", "814") ~ TRUE, # the oddballs Post Office and household workers
+           gpayroll == 0 ~ TRUE, # short term fix
+           .default = FALSE)) |> 
+  mutate(entity_pay = gpay_firm,
+         paygroup=cut(entity_pay, payroll_cuts, right=FALSE, labels=FALSE),
+         paylabel=getlabel(paygroup, paygroup_labels),
+         area=ifelse(nyc, "NYC", area))
+
+glimpse(pmt2025)
+
+for_mta <- pmt2025 |> 
+  summarise(across(c(gfirms, gestabs, gemp, gpayroll), sum),
+            .by=c(year, exempt, excluded, nyc, area, ownerf, owner, paygroup, paylabel)) |> 
+  mutate(get_pervars(gfirms, gestabs, gemp, gpayroll)) |> 
+  mutate(rate2024 = fbase(gpay_firm, nyc, exempt, excluded),
+         tax2024 = gpayroll * rate2024,
+         ratedob = f10m(gpay_firm, nyc, exempt, excluded),
+         taxdob = gpayroll * ratedob) |> 
+  arrange(year, exempt, excluded, paygroup, paylabel, desc(nyc), area)
+
+for_mta |> 
+  openxlsx::write.xlsx(fs::path(DMAIN, "data_for_mta", "pmt_summary_database_with_base_and_dob_tax.xlsx"))
+  
+```
+
+## Show summary of data file prepared for MTA
+
+```{r}
+#| output: true
+
+for_mta |> 
+  summarise(across(c(gpayroll, tax2024, taxdob), sum),
+            .by=c(ownerf, owner)) |> 
+  arrange(ownerf) |> 
+  adorn_totals() |> 
+  mutate(change = taxdob - tax2024) |> 
+  gt() |> 
+  tab_header("Payroll and tax amounts, 2024 law and DOB proposal for 50bp increase firms with >= $10m payroll",
+             subtitle = "MTA region") |> 
+  fmt_number(columns = gpayroll:change, decimals = 0)
+
+```

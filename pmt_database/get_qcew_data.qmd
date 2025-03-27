@@ -1,0 +1,155 @@
+---
+output: html_document
+editor_options: 
+  chunk_output_type: console
+---
+
+{{< include _setup.qmd >}}
+
+# Get QCEW data
+
+-   2023 is the latest full year as of 3/22/325
+-   Get annual QCEW data for NY counties
+-   Do minor cleaning
+-   Put NYC and MTA markers on the file
+-   Save as `qcewstco.rds` in the intermediate data folder
+-   Save an MTA subset with just the latest year
+
+## QCEW data from the New York State Department of Labor
+
+-   [NYSDOL QCEW landing page](https://dol.ny.gov/quarterly-census-employment-and-wages)
+-   [direct zip link](https://statistics.labor.ny.gov/qcew.zip)
+-   [technical notes](https://dol.ny.gov/qcew-technical-notes)
+
+The New York State Department of Labor (NYSDOL) provides a version of the BLS Quarterly Census of Employment and Wages (QCEW) that has quarterly county-level wage, establishment, and employment data in a format we need. The data are available from 2000 through a recent quarter. A new quarter and revisions to prior quarters generally are available about 6 months after end of a quarter.
+
+```{r}
+#| label: qcew-names
+#| output: false
+
+url <- "https://statistics.labor.ny.gov/qcew.zip"
+fname <- fs::path_file(url)
+zpath <- fs::path(PDRAW, fname)
+zpath <- paste0(PDRAW, "/", fname)
+
+```
+
+## Download qcew data
+
+Note: The latest qcew.zip file, which I downloaded once manually and once with the code below, appears to have been corrupted, at least as downloaded by my machine. I had to use an external utility (WinRar) to unzip it to a separate folder, then rezip it, after which the computer could read it.
+
+Change eval: to true in chunk below to re-download data.
+
+```{r}
+#| label: download-qcew
+#| eval: false
+
+# Sys.setenv(R_DEFAULT_INTERNET_TIMEOUT = 400)  
+options(timeout = max(400, getOption("timeout")))
+download.file(url, zpath, mode="wb")
+
+```
+
+## Read, make minor adjustments, and save QCEW data
+
+-   variable names --\> lower case
+-   keep only state and county records - drop other kinds of areas and balance of state
+-   add logical indicators for mta and nyc counties
+
+```{r}
+#| label: read-save-qcew
+#| eval: false
+#| output: false
+
+# get names of the csv annual files and then read them
+
+zfiles <- zip::zip_list(zpath)
+
+csvfiles <- zfiles |> 
+  filter(str_starts(filename, "qcew_annual_")) |> 
+  pull(filename)
+
+# read directly from the zip file
+system.time(df <- vroom(purrr::map(csvfiles, \(x)  unz(zpath, x)))) # 2.8 secs
+# obj_size(df)
+
+df2 <- df |> 
+  rename_with(str_to_lower)
+
+# count(df2, areatype)
+# count(df2, areatype, owner)
+
+df3 <- df2 |> 
+  filter(areatype %in% c("State", "County")) |> 
+  mutate(areatype=str_to_lower(areatype)) |> 
+  mutate(mta=area %in% constants$mtaregion$area,
+         nyc=area %in% constants$nyc$area)
+
+saveRDS(df3, fs::path(PDINTERMEDIATE, "qcewstco.rds"))
+
+```
+
+Save an MTA subset with just the latest year. Rename variables for consistency with rest of project.
+
+```{r}
+#| label: qcew-mta
+#| output: false
+
+qcew <- readRDS(fs::path(PDINTERMEDIATE, "qcewstco.rds"))
+ns(qcew)
+count(qcew, areatype)
+
+qcewmta <- qcew |> 
+  filter(year == max(year),
+         areatype == "county",
+         mta) |>
+  mutate(naics_level=ifelse(naics=="00", 1, naics_level),
+         area = str_remove(area, " County"),
+         ownerf = factor(
+           owner, 
+           levels=c("Private", "Federal Government", "State Government", "Local Government", # details
+                    "Total Private and Government", "Total Government"), # totals
+           labels=1:6),
+         ownerf = as.integer(as.character(ownerf))) |> 
+    select(year, area, nyc, naics_level, naics, title, ownerf, owner, estabs=estab, emp=avgemp, payroll=totwage)
+glimpse(qcewmta)
+summary(qcewmta)
+count(qcewmta, area)
+count(qcewmta, naics_level, naics, title)
+count(qcewmta, ownerf, owner)
+qcewmta |> filter(payroll==max(payroll))
+
+saveRDS(qcewmta, fs::path(PDINTERMEDIATE, "qcewmta.rds"))
+
+```
+
+## Summary totals from QCEW
+
+```{r}
+#| label: show-summary
+#| output: true
+
+qcewmta |> 
+  filter(naics_level == 1) |> 
+  summarise(across(c(estabs, emp, payroll), sum),
+            .by=c(year, ownerf, owner)) |> 
+  arrange(ownerf) |> 
+  gt() |> 
+  tab_header("Sums of MTA region # establishments, # employees, and payroll ($ millions) by owner type",
+             subtitle = "All-industries total") |> 
+  cols_label(payroll="payroll ($ millions)") |> 
+  fmt_number(columns = c(estabs, emp), decimals=0) |> 
+  fmt_currency(columns = payroll, decimals=0,
+             scale=1e-6)
+  
+
+```
+
+```{r}
+#| label: cleanup
+rm(list = ls())
+```
+
+```{r stop_here, echo=FALSE}
+knitr::knit_exit()
+```

@@ -1,0 +1,97 @@
+---
+output: html_document
+editor_options: 
+  chunk_output_type: console
+---
+
+{{< include _setup.qmd >}}
+
+# Combine QCEW and CBP-shares data
+
+```{r}
+#| label: get-data
+#| output: false
+
+qmta <- readRDS(fs::path(PDINTERMEDIATE, "qmta_atoms.rds"))
+
+tmp <- count(qmta, naics, title) # 101 industries
+
+# we can only match private data against the CBP so extract private
+qprivate <- qmta |> 
+  filter(ownerf==1)
+
+xwalk <- readRDS(fs::path(PDINTERMEDIATE, "xwalk_qcew_cbp.rds"))
+
+cshares <- readRDS(fs::path(PDINTERMEDIATE, "cbp_estabs_shares.rds"))
+
+count(cshares, area)
+count(qprivate, area)
+
+```
+
+```{r}
+#| label: get-shares
+#| output: false
+
+qcshares1 <- qprivate |> 
+  left_join(xwalk |> 
+              select(naics, cnaics),
+            by = join_by(naics)) |> 
+  left_join(cshares,
+            by = join_by(area, cnaics))
+summary(qcshares1)
+
+# we have 15 nonmatches
+fix1 <- qcshares1 |> 
+  filter(is.na(n0_4))
+fix1
+
+# we can get 7 by using higher industry aggregation
+replace1 <- fix1 |> 
+  select(area, naics) |> 
+  mutate(cnaics=str_sub(naics, 1, 2)) |>  
+  left_join(cshares,
+            by = join_by(area, cnaics)) |> 
+  filter(!is.na(n0_4))
+replace1
+
+# replace remaining 8 with overall for the area in question
+replace2 <- fix1 |> 
+  select(area, naics) |> 
+  anti_join(replace1,
+            join_by(area, naics)) |> 
+  mutate(cnaics="0") |> 
+  left_join(cshares,
+            by = join_by(area, cnaics))
+replace2
+
+fixstubs <- fix1 |> 
+  select(area, nyc, ownerf, owner, naics, naics_level, title, year, estabs, emp, payroll)
+
+replace1a <- fixstubs |> 
+  right_join(replace1,
+             by = join_by(area, naics))
+  
+replace2a <- fixstubs |> 
+  right_join(replace2,
+             by = join_by(area, naics))
+
+qcshares <- qcshares1 |> 
+  filter(!is.na(n0_4)) |> 
+  bind_rows(replace1a, replace2a) |> 
+  select(area, nyc, ownerf, owner, naics, naics_level, title, cnaics, year, estabs, emp, payroll, n0_4:n1000_inf)
+
+summary(qcshares)
+
+saveRDS(qcshares, fs::path(PDINTERMEDIATE, "qcew_cbpshares.rds"))
+
+```
+
+```{r}
+#| label: cleanup
+rm(list = ls())
+```
+
+```{r stop_here, echo=FALSE}
+knitr::knit_exit()
+```

@@ -1,0 +1,53 @@
+---
+output: html_document
+editor_options: 
+  chunk_output_type: console
+---
+
+# Database characteristics
+
+The goal was to create a database that can be used to estimate the impacts of MTA Payroll Mobility Tax (PMT) policy options, particularly options that vary tax rates or taxability by employer payroll size, county, or industry. The database should be faithful, as much as possible, to totals and patterns seen in high-quality data sources. In addition, it should be possible to calibrate the database to actual MTA PMT revenue collections.
+
+No existing public database has data with the necessary level of detail. Constructing the database requires combining information from multiple sources, which this project does.
+
+The result is a database of approximately **8,000** business-establishment groupings in the MTA region for 2023 (latest available year) that can be forecast to later years and used for tax analysis.
+
+The database has:
+
+-   a row for each combination of:
+
+    -   county -- the 12 counties in the MTA region
+
+    -   business ownership type -- 4 types: private sector, or federal, state, or local government
+
+    -   industry -- up to approximately 100 industries (3-digit NAICS for private sector), higher levels of aggregation were used for government ownership types
+
+    -   establishment size -- 9 groups, by \# of employees
+
+        This allows for up to approximately 12 x 4 x 100 x 9 combinations, but not all combinations are present in the data. (There are fewer industry groupings for governments than for the private sector, data for governments are not broken down by establishment size, and some private-sector industries are not present in some counties.)
+
+-   each row has \# firms, \# establishments, \# of employees, and payroll for the group
+
+    -   these values can be used to calculate average firm payroll, average establishment payroll, average establishment size, and average pay per worker
+    -   which in turn can be used to calculate tax under different policies
+
+-   sums of \# establishments, \# of employees, and payroll across all records, for each of the 4 ownership types, equal U.S. BLS reported totals on the 2023 Quarterly Census of Employment and Wages (QCEW) for the 12 counties of the MTA region, within extremely small tolerances (2023 is the latest full year of the QCEW as of this writing; 2024 will be available in early June 2025)
+
+-   for each of the approximately **870** county-ownership-industry combinations, sums of \# establishments, \# of employees, and \$ payroll approximately equal corresponding control totals from the 2023 QCEW
+
+-   # data by employer-size group for each private sector county-industry combination:
+
+    -   the percentage and number of establishments for each of the 9 establishment-size groups (defined by \# of employees per establishment) are consistent, to the extent practical, with the pattern of \# of establishments by county, industry, and size group in the U.S. Bureau of the Census's County Business Patterns (CBP) for 2022 (latest year)
+    -   the pattern is adjusted so that the sums for the \# of establishments, \# of employees, and \$ payroll across the 9 size groups equals, approximately, the reported QCEW totals for these items, under the simplifying assumption that average employee wages in each establishment-size group is the same as average wages for the county-ownership-industry group as a whole
+
+-   \# of firms: for each private sector county-industry combination and broad establishment-size group, the number of firms relative to the number of establishments is assumed to be consistent with the \# of firms relative to the \# of establishments in a corresponding or similar county-industry-size group in the 2021 U.S. Census Bureau's Statistics of United States Businesses (SUSB) (2021 is the latest year).
+
+The resulting database hits control totals from the QCEW within extremely small tolerances and is consistent, to the greatest extent possible, with patterns in the CBP and SUSB.
+
+The main weaknesses of the database are:
+
+-   It assumes that average employee wages are the same across employer size groups. Evidence from academic studies suggests that wages in larger firms often are higher than in smaller firms. This suggests that database payroll could be too low in the larger employer groups and too high in the smaller employer groups, evan though totals by county-industry are correct, in turn biasing PMT tax rates based on employer size downward for large employers. However, inspection of average wages by employer size in the CBP and SUSB show great variation and no simple patterns. This is a potential refinement worth examining at some point but I don't think it can have a meaningful impact on analysis of options.
+
+-   The local government data currently do not have enough detail to estimate the local government school district exemption properly. This probably can be improved upon.
+
+I don't think these weaknesses are troubling.

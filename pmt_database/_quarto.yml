@@ -1,0 +1,68 @@
+project:
+  type: book
+  output-dir: _web
+  
+execute:
+  eval: true
+  echo: false
+  output: false
+  freeze: auto  # auto, true, or false
+
+book:
+  title: "Develop PMT database"
+  subtitle: ""
+  author: "Don Boyd"
+  date: today
+  date-format: long
+  chapters:
+    - index.qmd
+    - database_characteristics.qmd
+    - part: "Get and save needed datasets"
+      chapters:        
+      - get_qcew_data.qmd # save multi-year state-county qcew file; set eval true to run
+      - get_cbp_data.qmd # save latest year of CBP data for NY counties
+      - get_susb_data.qmd #
+    - part: "Prepare data"
+      chapters:           
+      - prepare_atomistic_qcew_data.qmd
+      - prepare_cleaned_cbp.qmd
+      - prepare_qcew_cbp_xwalk.qmd
+      - combine_qcew_and_cbp.qmd
+      - allocate_qcew_data_to_establishment_size_groups.qmd
+      - add_firm_size_and_ppf.qmd
+      - combine_private_and_public.qmd
+    - part: "Model checks"
+      chapters:
+      - model_checks.qmd
+    - part: "Output data for MTA"
+      chapters:
+      - data_for_mta.qmd
+  page-footer:
+    center: "[Return to main MTA 2025 page](https://boyd-mta2025-links.netlify.app/)"      
+
+format:
+  html:
+    theme: cosmo
+    code-fold: true
+    number-depth: 5
+    toc-depth: 5
+    toc-expand: false
+
+editor_options:
+  chunk_output_type: console
+  
+# ```{r stop_here, echo=FALSE}
+# knitr::knit_exit()
+# ```
+
+# ---
+# output: html_document
+# editor_options: 
+#   chunk_output_type: console
+# ---
+
+# useful reminders of quarto commands:
+# quarto publish netlify --no-render
+# quarto publish netlify --no-browser --no-prompt
+# quarto publish netlify --no-render --no-browser --no-prompt 
+# 

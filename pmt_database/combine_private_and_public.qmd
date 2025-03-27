@@ -1,0 +1,94 @@
+---
+output: html_document
+editor_options: 
+  chunk_output_type: console
+---
+
+{{< include _setup.qmd >}}
+
+# Combine private and public data
+
+```{r}
+#| label: get-data
+#| output: false
+
+# check private wages
+shares <- readRDS(fs::path(PDINTERMEDIATE, "qcew_cbpshares.rds"))
+# sum(shares$totwage) # matches qmta, good 592827320140
+
+# test <- readRDS(fs::path(PDINTERMEDIATE, "test.rds")) # 7848 records
+private <- readRDS(fs::path(PDINTERMEDIATE, "pmtdb_fpe.rds")) # 7848 records
+count(private, ownerf, owner)
+private |> 
+  summarise(payroll=first(payroll),
+            .by=c(area, naics)) |> 
+  summarise(payroll=sum(payroll)) # good 592827320140
+private |> 
+  summarise(gpayroll=sum(gpayroll)) # good 592865608153.
+# 592865608153. / 592827320140 - 1 = 6.46e-5
+  
+qmta <- readRDS(fs::path(PDINTERMEDIATE, "qmta_atoms.rds"))
+count(qmta, ownerf, owner)
+
+qmta |> 
+  summarise(payroll=sum(payroll),
+            .by=c(ownerf, owner)) |> 
+  adorn_totals()
+
+combined <- private |> 
+  bind_rows(qmta |> 
+              filter(ownerf != 1))
+
+```
+
+```{r}
+#| label: compatibility
+#| output: false
+
+glimpse(combined)
+ns(combined)
+summary(combined)
+combined |> filter(is.na(fpe)) |> count(ownerf) # govts only
+combined |> filter(is.na(gpayroll)) |> count(ownerf) # govts only
+combined |> filter(is.na(gestabs)) |> count(ownerf) # govts only
+combined |> filter(is.na(gemp_est)) |> count(ownerf) # govts only
+combined |> filter(is.na(pay_emp)) |> count(ownerf) # govts only
+# combined |> filter(estab==0) |> count(ownerf)
+
+combined2 <- combined |> 
+  # g variables are for groups by estab size by employment group
+  # don't create any per-employee, per establishment or per firm data because 
+  # we'll compute those after forecasting
+  mutate(gestabs = ifelse(ownerf==1, gestabs, estabs),
+         gfirms_est = ifelse(is.na(fpe), 1, fpe),
+         gfirms = gfirms_est * gestabs, # number of firms
+         gemp = ifelse(ownerf==1, gemp, emp),
+         gpayroll = ifelse(ownerf==1, gpayroll, payroll)) |> 
+  select(-gfirms_est, -gemp_est)
+
+
+summary(combined2)
+
+combined2 |> 
+  summarise(across(c(gestabs, gemp, gpayroll, gfirms), sum))
+
+qmta |> 
+  summarise(across(c(estabs, emp, payroll), sum))
+
+combined3 <- combined2 |> 
+  select(year, area, nyc, ownerf, owner, naics, title, gfirms, gestabs, gemp, gpayroll)
+summary(combined3)
+glimpse(combined3)
+
+saveRDS(combined3, fs::path(PDINTERMEDIATE, "pmtdb_full.rds")) #
+
+```
+
+```{r}
+#| label: cleanup
+rm(list = ls())
+```
+
+```{r stop_here, echo=FALSE}
+knitr::knit_exit()
+```

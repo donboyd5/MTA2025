@@ -1,0 +1,194 @@
+---
+output: html_document
+editor_options: 
+  chunk_output_type: console
+---
+
+{{< include _setup.qmd >}}
+
+# Prepare cleaned CBP data
+
+In preparation for allocating QCEW data to establishment-size groups for private sector we need to:
+
+-   Get atomistic CBP data, choosing 3-digit where possible, 2 digit where not
+-   Calculate sums of establishments by size group and compare to reported total establishments for the area-industry
+-   Where sum of details are a high percentage of reported establishments, keep the records
+-   Where not, choose an alternative such as higher level of industrial aggregation in same industry and area, or where not available, total for the area
+
+## Prepare CBP atoms
+
+CBP Establishment size groups
+
+-   All establishments
+-   less than 5 employees
+-   5 to 9 employees
+-   10 to 19 employees
+-   20 to 49 employees
+-   50 to 99 employees
+-   100 to 249 employees
+-   250 to 499 employees
+-   500 to 999 employees
+-   1,000 employees or more
+-   and then:
+-   1,000 to 1,499 employees
+-   1,500 to 2,499 employees
+-   2,500 to 4,999 employees
+
+```{r}
+#| label: get-and-trim-cbp-data
+#| output: false
+
+cbp1 <- readRDS(fs::path(PDINTERMEDIATE, "cbpny.rds")) 
+cbp1 <- readRDS(fs::path(PDINTERMEDIATE, "cbpmta.rds")) 
+
+# clean data ----
+cbase <- cbp1 |> 
+  # filter(mta) |> 
+  # select(fipstate, fipscty, area=county, cnaics=naics, ctitle=description, 
+  #        cestab=est, cemp = emp, cpayroll = ap, starts_with("n"), -nyc) |> 
+  mutate(year=2022,
+         # area=str_remove(area, " County"),
+         cnaics=str_remove_all(cnaics, "[/-]+$") |> str_trim(),
+         cnaics=ifelse(cnaics=="", "0", cnaics),
+         cnaics_level=nchar(cnaics)) |> 
+  filter(cnaics_level <= 3) |> 
+  relocate(cnaics_level, .before=cnaics)
+# we'll use first 3 levels as possible matches against qprivate
+glimpse(cbase)
+tmp <- count(cbase, cnaics_level, cnaics)
+count(tmp, cnaics_level)
+
+# keep essential variables ----
+cbase1 <- cbase |> 
+  # select(-c(n1000_1:n1000_4)) |> 
+  select(area, cnaics_level, cnaics, ctitle, cemp, cestabs, starts_with("n"))
+summary(cbase1) # good, no missing cestab
+
+# how do sums of establishments compare to reported establishments? ----
+cbase2 <- cbase1 |> 
+  rowwise() |> 
+  mutate(estabs_sum=sum(c_across(n0_4:n1000_inf), na.rm = TRUE),
+         estabs_pct = estabs_sum / cestabs) |> 
+  relocate(estabs_sum, estabs_pct, 
+           .after=cestabs) |> 
+  ungroup()
+cbase2
+summary(cbase2)
+cbase2 |> filter(is.na(ctitle) | ctitle=="")
+
+```
+
+Keep records where sum of establishments over establishment sizes is sufficiently high relative to total establishments. Choose replacement records for those where percentage is too low.
+
+```{r}
+#| label: replace-recs
+#| output: false
+
+# keep good records, replace others with best substitute -----
+cutpoint <- .75  # keep records where sum of estabs is >= this value
+
+# for stubs, keep area, cnaics, cemp, cestab, estab_pct
+# for replacements, get cnaics_alt, estab_pct_alt; keep n1000_inf
+
+keep1 <- cbase2 |> 
+  filter(estabs_pct >= cutpoint)
+
+# first round of replacement ----
+# fix1: records to fix
+# replace1:
+#    same county higher industry aggregation
+#    filtered to keep those where % of employment is >= cutpoint
+
+fix1 <- cbase2 |> 
+  filter(estabs_pct < cutpoint) # we need to fix these records
+count(fix1, cnaics_level)
+
+replace1 <- fix1 |> 
+  filter(cnaics_level==3) |> 
+  select(area, cnaics_level, cnaics, ctitle, cemp, cestabs, estabs_pct) |> 
+  mutate(cnaics_alt=str_sub(cnaics, 1, 2)) |> 
+  # use same county next higher level of aggregation
+  left_join(cbase2 |> 
+              select(area, cnaics_alt=cnaics, estabs_pct_alt=estabs_pct,
+                     n0_4:n1000_inf),
+            by = join_by(area, cnaics_alt)) |> 
+  filter(estabs_pct_alt >= cutpoint)
+
+# second round of replacement ----
+# fix2: records from fix1 still needing replacement
+# replace2: 
+
+fix2 <- fix1 |> 
+  anti_join(replace1 |> 
+              select(cnaics, area),
+            by = join_by(area, cnaics))
+
+# what do these still-to-be-fixed records look like?
+# count(fix2, area) # Dutchess Orange, Rockland predominate
+# count(fix2, cnaics, ctitle)
+fix2 |> 
+  summarise(cemp = sum(cemp), 
+            .by=cnaics_level)
+cbase2 |> 
+  summarise(cemp = sum(cemp), 
+            .by=cnaics_level)
+
+# use the county overall average for the remaining ~0.7% (by employment) in fix2
+replace2 <- fix2 |> 
+  select(area, cnaics_level, cnaics, ctitle, cemp, cestabs, estabs_pct) |> 
+  left_join(cbase2 |> 
+              filter(cnaics_level == 1) |> 
+              select(area, cnaics_alt=cnaics, estabs_pct_alt=estabs_pct, n0_4:n1000_inf),
+            by = join_by(area))
+  
+cbp_fixed <- bind_rows(keep1,
+                   replace1,
+                   replace2)
+summary(cbp_fixed)
+
+cbp_fixed |> filter(is.na(ctitle) | ctitle=="")
+
+# later, maybe use msa records as replacements
+# msa "n<5","n5_9","n10_19","n20_49","n50_99","n100_249","n250_499","n500_999","n1000"
+# county "n<5","n5_9","n10_19","n20_49","n50_99","n100_249","n250_499","n500_999","n1000"
+# the same -- good
+
+```
+
+## Calculate percentages and save
+
+```{r}
+#| label: calc-percents
+#| output: false
+
+cbp_fixed
+summary(cbp_fixed)
+
+cbp_estabs_shares1 <- cbp_fixed |> 
+  mutate(across(n0_4:n1000_inf,
+         \(x) replace_na(x, 0))) |> 
+  rowwise() |> 
+  mutate(calcsum=sum(c_across(n0_4:n1000_inf), na.rm = TRUE)) |> 
+  ungroup() |> 
+  mutate(across(n0_4:n1000_inf,
+         \(x) x / calcsum))
+  
+summary(cbp_estabs_shares1)
+
+cbp_estabs_shares <- cbp_estabs_shares1 |> 
+  select(area, cnaics_level, cnaics, ctitle, cnaics_alt, cemp, cestabs, estabs_pct, estabs_pct_alt, n0_4:n1000_inf)
+
+summary(cbp_estabs_shares)
+
+saveRDS(cbp_estabs_shares, fs::path(PDINTERMEDIATE, "cbp_estabs_shares.rds"))
+
+```
+
+```{r}
+#| label: cleanup
+rm(list = ls())
+```
+
+```{r stop_here, echo=FALSE}
+knitr::knit_exit()
+```

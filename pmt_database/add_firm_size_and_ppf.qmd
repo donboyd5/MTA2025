@@ -1,0 +1,110 @@
+---
+output: html_document
+editor_options: 
+  chunk_output_type: console
+---
+
+{{< include _setup.qmd >}}
+
+# Add \# of firms relative to \# of establishments
+
+Pull in data from SUSB.
+
+```{r}
+#| label: get-data
+#| output: false
+
+# pmtdb1 <- readRDS(fs::path(PDINTERMEDIATE, "test.rds"))
+pmtdb1 <- readRDS(fs::path(PDINTERMEDIATE, "qcew_allocated.rds"))
+susb <- readRDS(fs::path(PDINTERMEDIATE, "susb2021_mta.rds"))
+
+```
+
+```{r}
+#| label: map-firm-sizes-to-estab-sizes-by-industry
+#| output: false
+
+# fpe stands for firms per establishment
+
+glimpse(susb)
+
+fpe <- susb |> 
+  select(area, snaics, stitle, firmsize, sfirms, sestabs, semp) |> 
+  mutate(fpe=sfirms / sestabs,
+         esize=semp / sestabs, 
+         fsize=semp / sfirms,
+         ratio = fsize / esize)
+
+inds <- fpe |> 
+  filter(firmsize=="1: Total") |> 
+  summarise(across(c(sfirms, sestabs, semp), sum),
+            .by=c(snaics, stitle))
+
+# create fpe values to save ----
+fpegroups <- fpe |> 
+  filter(nchar(snaics)==2) |> 
+  mutate(esgroup = ntile(esize, 4), # divide the records into 4 groups for each industry
+         .by=c(snaics, stitle)) |> 
+  select(snaics, stitle, esgroup, esize, fpe) |> 
+  summarise(
+    esmin=min(esize),
+    esmax=max(esize),
+    fpemin=min(fpe),
+    fpemdn=median(fpe),
+    fpemax=max(fpe),
+    .by=c(esgroup, snaics, stitle)) |> 
+  arrange(snaics, esgroup) |> 
+  mutate(lowcut=case_when(esgroup==1 ~ 0,
+                       esgroup > 1 ~ pmean(esmin, lag(esmax)),
+                       .default = 0),
+         hicut = case_when(esgroup==4 ~ 1,
+                           esgroup < 4 ~ pmean(esmax, lead(esmin)),
+                           .default = Inf))
+fpegroups
+
+```
+
+## Get firm-establishment ratios corresponding to industry and size of establishment
+
+```{r}
+#| label: match
+#| output: false
+
+lookup <- fpegroups |>
+  mutate(naics2=snaics) |> 
+  arrange(snaics, esgroup)
+
+
+f <- function(naics2, es){
+  val <- lookup |> 
+    filter(naics2==!!naics2) |> 
+    filter(!!es >= lowcut, !!es <= hicut) |>
+    select(lowcut, hicut, fpemdn) |> 
+    mutate(naics2=!!naics2, es=!!es)
+  return(val$fpemdn)
+}
+
+# speed this up !!!! ----
+pmtdb2 <- pmtdb1 |> 
+  select(-res) |> 
+  mutate(naics2=str_sub(naics, 1, 2)) |> 
+  rowwise() |>
+  mutate(fpe=list(f(naics2, gestabs))) |> 
+  ungroup() |> 
+   mutate(fpe=as.numeric(fpe),
+          fpe=ifelse(is.na(fpe), 1, fpe))
+summary(pmtdb2)
+pmtdb2
+
+saveRDS(pmtdb2, fs::path(PDINTERMEDIATE, "pmtdb_fpe.rds"))
+
+```
+
+```{r}
+#| label: cleanup
+rm(list = ls())
+```
+
+```{r stop_here, echo=FALSE}
+knitr::knit_exit()
+```

@@ -1,0 +1,936 @@
+---
+output: html_document
+editor_options: 
+  chunk_output_type: console
+---
+
+# create a simple database fleshed out by establishments only
+
+```{r}
+#| label: setup
+#| include: false
+
+source(here::here("R", "libraries.r"))
+source(here::here("R", "libraries_ts.r"))
+source(here::here("R", "constants.r"))
+source(here::here("R", "functions.r"))
+
+library(zip)
+library(lobstr)
+
+```
+
+## get qcew data and weed out any subtotals
+
+```{r}
+#| label: create-save-unique-qcew-mta-details
+
+qcew <- readRDS(fs::path(PDINTERMEDIATE, "qcewstco.rds"))
+
+tmp <- qcew |> 
+  # filter(areatype=="county", area=="Bronx County", year==2023) |> 
+  filter(areatype=="county", year==2023, mta) |> 
+  mutate(naics_level=ifelse(naics=="00", 1, naics_level))
+
+tmp |> 
+  summarise(across(c(estab, avgemp, totwage), sum),
+            .by=c(owner, naics_level)) |> 
+  arrange(owner, naics_level)
+
+# fed is all the same
+# local is only level 1
+# private is very close to same
+# stategov levels 1 and 2 are good
+
+
+count(qcew, naics_level)
+
+qmta_base <- qcew |> 
+  filter(areatype=="county", year==2023, mta) |> 
+  filter(owner %in% c("Private", "Federal Government", "Local Government", "State Government")) |>
+  mutate(naics_level=ifelse(naics=="00", 1, naics_level)) |> 
+  select(year, area, naics, naicslev=naics_level, title, owner, estabs=estab, emp=avgemp, payroll=totwage, nyc) |> 
+  mutate(area=str_remove(area, " County"),
+         owner=str_remove(owner, " Government"))
+
+# quick checks
+qmta_base |> mutate(avgwage=payroll / emp) # units are right
+count(qmta_base, owner)
+count(qmta_base, area)
+count(qmta_base, naicslev)
+qmta_base |> 
+  summarise(across(c(estabs, emp, payroll), sum),
+            .by=c(owner, naicslev))
+
+# decide what naics levels to keep, in addition to 1
+# keep:
+# private 3
+# federal 3
+# state 2?
+# 
+check <- qmta_base |> filter(owner=="Private", naicslev==3) # good
+check <- qmta_base |> filter(owner=="State", naicslev==2) # should be good enough
+check <- qmta_base |> filter(owner=="Local", naicslev %in% 1:3) # 1 and 2 are all that's useful
+check <- qmta_base |> filter(owner=="Federal", naicslev %in% 1:3) # 1 should be good enough
+
+# create next
+
+qmta2 <- qmta_base |> 
+  filter(naicslev==1 |
+           owner=="Private" & naicslev==3 |
+           owner=="State" & naicslev==2 |
+           owner=="Local" & naicslev==2 |
+           owner=="Federal" & naicslev==2)
+
+qmta2 |> 
+  mutate(ngroup=naicslev==1) |> 
+  summarise(across(c(estabs, emp, payroll), sum),
+            .by=c(ngroup, owner)) |> 
+  arrange(owner, desc(ngroup))
+
+# create all-other records by owner, county
+allother <- qmta2 |> 
+  mutate(ngroup=naicslev==1,
+         across(c(estabs, emp, payroll),
+                \(x) ifelse(ngroup, x, -x))) |> 
+  summarise(across(c(estabs, emp, payroll), sum),
+            .by=c(year, area, owner, nyc)) |> 
+  # there are a few tiny negatives, zero them out
+  mutate(across(c(estabs, emp, payroll), 
+                \(x) ifelse(x < 0, 0, x))) |> 
+  mutate(naicslev=99, naics="9xx", title="All other")
+allother |> filter(is.na(naics))
+
+
+qmta3 <- bind_rows(
+  qmta2, allother)
+qmta3 |> filter(is.na(naics))
+
+check <- qmta3 |> 
+  mutate(ngroup=naicslev==1) |> 
+  summarise(across(c(estabs, emp, payroll), sum),
+            .by=c(ngroup, area, owner, nyc))
+  
+qmta3 |> 
+  mutate(ngroup=naicslev==1) |> 
+  summarise(across(c(estabs, emp, payroll), sum),
+            .by=c(owner, ngroup)) |> 
+  arrange(owner, ngroup)
+
+# great, the details add to totals within tiny tolerances
+qmta4 <- qmta3 |> 
+  filter(naicslev != 1) |> 
+  mutate(status=case_when(
+    naics %in% c("491", "814") ~ "untaxable?",
+    .default = "tbd"))
+
+# one last check -- how do grand totals do vs reported grand totals
+qcew |> 
+  filter(areatype=="county", year==2023, mta, naics=="00", owner=="Total Private and Government") |> 
+  summarise(across(c(estab, avgemp, totwage), sum))
+
+qmta4 |> summarise(across(c(estabs, emp, payroll), sum))
+# extremely close, we're done
+# 
+saveRDS(qmta4, fs::path(PDINTERMEDIATE, "uqmta.rds")) # unique, meaning these are the only recs we need
+
+# check potential oddballs 491, 814, 999
+qmta4 |> 
+  filter(naics %in% c("999"))
+
+# 491 postal service private -- prob can't tax!!
+# 814 Private households - households that employ workers to run the household, such as cooks, maids, and gardeners -- don't tax
+# 999 Unclassified -- often new businesses
+# 
+qmta4 |> filter(status!="tbd")
+
+```
+
+## Apportion the qmta records to establishment sizes
+
+CBP Establishment sizes:
+
+-   All establishments
+-   less than 5 employees
+-   5 to 9 employees
+-   10 to 19 employees
+-   20 to 49 employees
+-   50 to 99 employees
+-   100 to 249 employees
+-   250 to 499 employees
+-   500 to 999 employees
+-   1,000 employees or more
+-   and then:
+-   1,000 to 1,499 employees
+-   1,500 to 2,499 employees
+-   2,500 to 4,999 employees
+
+```{r}
+#| label: create-save-unique-cbp-mta-details
+
+cbp1 <- readRDS(fs::path(PDINTERMEDIATE, "cbpny.rds")) |> 
+  filter(mta) |> 
+  mutate(year=2022) |> 
+  select(year, fipstate, fipscty, area=county, naics, ctitle=description, emp, payroll=ap, starts_with("n"), -nyc)
+cbp1
+
+cbp1 |> mutate(pay=payroll / emp) |>  select(area, ctitle, emp, payroll, pay) # check units
+
+cbp2 <- cbp1 |> 
+  mutate(area=str_remove(area, " County"),
+         naics2=str_remove_all(naics, "[/-]+$") |> str_trim(),
+         nlev=nchar(naics2))
+
+tmp <- count(cbp2, nlev, naics, naics2)
+
+cbp3 <- cbp2 |> 
+  filter(nlev <= 3) |> 
+  mutate(naics=naics2) |> 
+  select(-naics2) |> 
+  relocate(nlev, naics, .before=ctitle)
+
+saveRDS(cbp3, fs::path(PDINTERMEDIATE, "ucbp.rds"))
+
+```
+
+## CBP to QCEW cross walk
+
+```{r}
+#| label: create-save-qcew-cbp-xwalk
+
+qinds <- readRDS(fs::path(PDINTERMEDIATE, "uqmta.rds")) |> 
+  filter(owner=="Private" & status=="tbd") |> 
+  select(naicslev, naics, qtitle=title) |> 
+  distinct() # 84
+
+cinds <- cbp3 |> 
+  select(naics, ctitle) |> 
+  mutate(naics=ifelse(naics=="", "0", naics)) |> 
+  mutate(cnaics=naics) |> 
+  distinct() # 105
+
+check <- qinds |> 
+  left_join(cinds, by = join_by(naics))
+
+# recode cinds as needed to match qinds
+# certain rows need duplication
+cind_adds <- read_csv("
+naics, cnaics
+111, 11
+112, 11
+211, 21
+449, 442
+456, 446
+457, 447
+455, 452
+458, 448
+459, 451
+513, 511
+516, 511
+999, 0
+9xx, 0
+", col_types="cc") |> 
+  left_join(cinds |> select(cnaics, ctitle), by = join_by(cnaics))
+ 
+cinds2 <- bind_rows(cinds, cind_adds)
+anyDuplicated(cinds2$naics)
+# cinds2$naics |> sort()
+
+check2 <- qinds |> 
+  left_join(cinds2, by = join_by(naics)) |> 
+  filter(is.na(ctitle))
+
+check <- qinds |> 
+  left_join(cinds2, by = join_by(naics))
+
+# ok we now can match any potentially taxable qcew to a cbp counterpart
+xwalk <- qinds |> 
+  left_join(cinds2, by = join_by(naics))
+saveRDS(xwalk, fs::path(PDINTERMEDIATE, "qcxwalk.rds"))
+
+```
+
+# match and save
+
+```{r}
+#| label: create-save-matched-qcew-cbp-wide-file
+
+uqmta <- readRDS(fs::path(PDINTERMEDIATE, "uqmta.rds")) 
+ucbp <- readRDS(fs::path(PDINTERMEDIATE, "ucbp.rds"))
+xwalk <- readRDS(fs::path(PDINTERMEDIATE, "qcxwalk.rds"))
+
+ucbp2 <- ucbp |> 
+  select(year, fipstate, fipscty, area, cnaics=naics, ctitle, cemp=emp, cpayroll=payroll,
+         nlt_5:n1000) |> 
+  mutate(cnaics=ifelse(cnaics=="", "0", cnaics))
+
+matched <- left_join(
+  uqmta, 
+  xwalk |> 
+    select(-naicslev) |> 
+    mutate(owner="Private"),
+  by = join_by(naics, owner)) |> 
+  left_join(ucbp2 |> 
+              select(-year, -ctitle),
+            by = join_by(area, cnaics))
+
+summary(matched) # there are a few Private taxable industries with qcew data but no CBP data -- e.g., Bronx agriculture
+
+tmp <- matched |> filter(owner=="Private", is.na(cemp), status != "untaxable?")
+
+ucbp2 |> filter(area=="Bronx", cnaics=="115")
+
+# do a second match to fix this
+
+matched2 <- matched |> 
+  mutate(rematch=ifelse(owner=="Private" & is.na(cemp) & status != "untaxable?", 1, 0)) |> 
+  left_join(ucbp2 |> 
+              select(-year, -ctitle) |> 
+              filter(cnaics==0) |> 
+              select(area, cemp:n1000) |> 
+              rename_with(~ paste0("re_", .x),
+                          .cols=cemp:n1000) |> 
+              mutate(rematch=1),
+            by = join_by(area, rematch))
+
+tmp <- matched2 |> filter(owner=="Private", is.na(cemp), status != "untaxable?")
+
+matched3 <- matched2 |> 
+  mutate(across(cemp:n1000,
+                ~ if_else(rematch == 1, 
+                          get(paste0("re_", cur_column())), 
+                          .x)))
+
+tmp <- matched3 |> filter(rematch==1)
+
+matched4 <- matched3 |> 
+  select(-starts_with("re_"),
+         -ctitle, -title, -fipstate) |> 
+  select(year, owner, area, nyc, naicslev, naics, qtitle, cnaics, status, rematch, everything())
+
+summary(matched4)
+matched4 |> 
+  filter(owner=="Private", is.na(cemp))
+
+saveRDS(matched4, fs::path(PDINTERMEDIATE, "qcwide.rds"))
+
+matched4 |> 
+  summarise(across(c(estabs, emp, payroll), sum))
+
+```
+
+# Create long file
+
+```{r}
+#| label: optimization-function-deepseek
+
+fempest_deep <- function(emp, estabs, elb, eub, esize_estabs, area = NULL, naics = NULL) {
+  # Estimate esize_estabs and esize_emp jointly, minimizing movement from
+  # initial esize_estabs while keeping esize_emp close to bounds
+  
+  obj <- function(par, emptot, estabs_tot, initial_estabs, area) {
+    n <- length(par) # must be even
+    iemp <- 1:(n / 2)
+    iestabs <- (n / 2 + 1):n
+    es_emp <- par[iemp]
+    es_estabs <- par[iestabs]
+    
+    part1 <- (emptot - sum(es_emp * es_estabs))^2
+    part2 <- sum((es_estabs - initial_estabs)^2)
+    part3 <- sum((estabs_tot - sum(es_estabs))^2)
+    
+    # Penalty term for par[10] in (0, 1)
+    penalty <- if (par[10] > 0 && par[10] < 1) 1e6 * (par[10] * (1 - par[10]))^2 else 0
+    
+    part1 + part2 * 1e-3 + part3 + penalty
+  }
+  
+  grad_obj <- function(par, emptot, estabs_tot, initial_estabs, area) {
+    n <- length(par)
+    iemp <- 1:(n / 2)
+    iestabs <- (n / 2 + 1):n
+    es_emp <- par[iemp]
+    es_estabs <- par[iestabs]
+    
+    part1_grad_emp <- -2 * (emptot - sum(es_emp * es_estabs)) * es_estabs
+    part1_grad_estabs <- -2 * (emptot - sum(es_emp * es_estabs)) * es_emp
+    
+    part2_grad_estabs <- 2 * (es_estabs - initial_estabs) * 1e-3
+    
+    part3_grad_estabs <- -2 * (estabs_tot - sum(es_estabs))
+    
+    grad_emp <- part1_grad_emp
+    grad_estabs <- part1_grad_estabs + part2_grad_estabs + part3_grad_estabs
+    
+    # Gradient of penalty term for par[10]
+    penalty_grad <- if (par[10] > 0 && par[10] < 1) 2 * 1e6 * (par[10] * (1 - par[10])) * (1 - 2 * par[10]) else 0
+    grad_emp[1] <- grad_emp[1] + penalty_grad
+    
+    grad <- c(grad_emp, grad_estabs)
+    return(grad)
+  }
+  
+  # Establish lower bound of at least 1 if we have estabs in that range
+  lbx <- elb * .9
+  # lbx[1] <- ifelse(esize_estabs[1] > 0, 1, 0)
+  
+  par0 <- c(lbx, esize_estabs)
+  n <- length(par0) # must be even
+  iemp <- 1:(n / 2)
+  iestabs <- (n / 2 + 1):n
+  
+  # Scaling vector (optional)
+  # scaling_vector <- ifelse(par0 == 0, 0.1, par0)
+  # conlist <- list(fnscale = 1e5, parscale = scaling_vector)
+  conlist <- list(fnscale = 1e10)
+  
+  res <- optim(
+    par = par0,
+    fn = obj,
+    gr = grad_obj,
+    method = "L-BFGS-B",
+    control = conlist,
+    lower = c(lbx, rep(0, n / 2)),
+    # upper = eub * 1.1,
+    emptot = emp[1],
+    estabs_tot = estabs[1],
+    initial_estabs = esize_estabs
+  )
+  
+  if (res$convergence != 0) {
+    print(res$convergence)
+    print(res$message)
+    print(area[1])
+    print(naics[1])
+  }
+  
+  esize_avgemp <- res$par[iemp]
+  esize_estabs <- res$par[iestabs]
+  return(tibble(esize_estabsadj = esize_estabs, esize_avgemp, converge = res$convergence, res = list(res)))
+}
+
+```
+
+```{r}
+#| label: optimization-function
+
+move_estabs <- function(emp, elb, ests){
+  empdiff <- emp - sum(elb * ests)
+  ests2 <- ests
+  need <- empdiff
+  
+  for(i in 1:(length(elb) - 1)){
+    print(need)
+    if(need > 0){
+      # move up to some fraction of ests out
+      maxestmove <- ests2[i] * .75 # allow moves up to this amount
+      maxestneed <- need / lbmoves[i, i+1] # can't be larger than the need
+      imove <- pmin(maxestneed, maxestmove)
+      print(imove)
+      # ests
+      ests2[i] <- ests2[i] - imove
+      ests2[i + 1] <- ests2[i + 1] + imove
+      need <- emp - sum(elb * ests2)
+    } else break
+  }
+  ests2
+}
+
+fempest <- function(emp, estabs, elb, eub, esize_estabs, area=NULL, naics=NULL){
+  # estimate esize_estabs and esize_emp jointly, minimizing movement from
+  # initial esize_estabs while keeping esize_emp close to bounds
+  
+  obj <- function(par, emptot, estabs_tot, initial_estabs, area){
+    n <- length(par) # must be even
+    iemp <- 1:(n / 2)
+    iestabs <- (n / 2 + 1):n
+    es_emp <- par[iemp]
+    es_estabs <- par[iestabs]
+    
+    part1 <- (emptot - sum(es_emp * es_estabs))^2
+    part2 <- sum((es_estabs - initial_estabs)^2)
+    part3 <- sum((estabs_tot - sum(es_estabs))^2)
+    part1 + part2 * 1e-3 + part3
+    #part1 + part2
+  }
+  
+  grad_obj <- function(par, emptot, estabs_tot, initial_estabs, area) {
+    n <- length(par)
+    iemp <- 1:(n / 2)
+    iestabs <- (n / 2 + 1):n
+    es_emp <- par[iemp]
+    es_estabs <- par[iestabs]
+    
+    part1_grad_emp <- -2 * (emptot - sum(es_emp * es_estabs)) * es_estabs
+    part1_grad_estabs <- -2 * (emptot - sum(es_emp * es_estabs)) * es_emp
+    
+    part2_grad_estabs <- 2 * (es_estabs - initial_estabs) * 1e-3
+    
+    part3_grad_estabs <- -2 * (estabs_tot - sum(es_estabs))
+    
+    grad_emp <- part1_grad_emp
+    grad_estabs <- part1_grad_estabs + part2_grad_estabs + part3_grad_estabs
+    
+    grad <- c(grad_emp, grad_estabs)
+    return(grad)
+  }
+  
+  # establish lower bound of at least 1 if we have estabs in that range??
+  lbx <- elb * .9
+  # lbx[1] <- ifelse(esize_estabs[1] > 0, 1, 0)
+  
+  # move initial establishments if we are below employment total
+  empdiff <- emp[1] - sum(esize_estabs * elb)
+  print(empdiff)
+  if(empdiff > 0){
+    # move some establishments into higher estab sizes
+    print("Adjusting establishments...") 
+    esize_estabs <- move_estabs(emp[1], elb, esize_estabs)
+  }
+  
+  par0 <- c(lbx, esize_estabs)
+  n <- length(par0) # must be even
+  iemp <- 1:(n / 2)
+  iestabs <- (n / 2 + 1):n
+  
+  # scaling_vector <- ifelse(par0==0, 0.1, par0)
+  # conlist <- list(fnscale=1e5, parscale=scaling_vector)
+  conlist <- list(fnscale=1e10)
+  
+  res <- optim(
+    par = par0,
+    fn = obj,
+    gr = grad_obj,
+    method = "L-BFGS-B",
+    control = conlist,
+    lower = c(lbx, rep(0, n/2)),
+    # upper = eub * 1.1,
+    emptot = emp[1],
+    estabs_tot = estabs[1],
+    initial_estabs = esize_estabs)
+  
+    if(res$convergence != 0){
+      print(res$convergence)
+      print(res$message)
+      print(area[1])
+      print(naics[1])
+    }
+  
+  esize_avgemp <- res$par[iemp]
+  esize_estabsadj <- res$par[iestabs]
+  return(tibble(esize_estabsadj, esize_avgemp, converge=res$convergence, res=list(res)))
+}
+
+
+  obj <- function(par, emptot, estabs_tot, initial_estabs, area, weights=c(1, 1, 1)){
+    n <- length(par) # must be even
+    iemp <- 1:(n / 2)
+    iestabs <- (n / 2 + 1):n
+    es_emp <- par[iemp]
+    es_estabs <- par[iestabs]
+    
+    part1 <- (emptot - sum(es_emp * es_estabs))^2
+    part2 <- sum((es_estabs - initial_estabs)^2)
+    part3 <- sum((estabs_tot - sum(es_estabs))^2)
+    part1 * weights[1] + part2 * weights[2] + part3 * weights[3]
+    #part1 + part2
+  }
+
+
+```
+
+```{r}
+#| label: optim-function-weighted
+
+move_estabs <- function(emp, elb, ests){
+  empdiff <- emp - sum(elb * ests)
+  ests2 <- ests
+  need <- empdiff
+  
+  for(i in 1:(length(elb) - 1)){
+    print(need)
+    if(need > 0){
+      # move up to some fraction of ests out
+      maxestmove <- ests2[i] * .75 # allow moves up to this amount
+      maxestneed <- need / lbmoves[i, i+1] # can't be larger than the need
+      imove <- pmin(maxestneed, maxestmove)
+      print(imove)
+      # ests
+      ests2[i] <- ests2[i] - imove
+      ests2[i + 1] <- ests2[i + 1] + imove
+      need <- emp - sum(elb * ests2)
+    } else break
+  }
+  ests2
+}
+
+fempest_weighted <- function(emp, estabs, elb, eub, esize_estabs, area=NULL, naics=NULL, weights=c(1, 1, 1)){
+  # estimate esize_estabs and esize_emp jointly, minimizing movement from
+  # initial esize_estabs while keeping esize_emp close to bounds
+  
+  obj <- function(par, emptot, estabs_tot, initial_estabs, area, weights){
+    n <- length(par) # must be even
+    iemp <- 1:(n / 2)
+    iestabs <- (n / 2 + 1):n
+    es_emp <- par[iemp]
+    es_estabs <- par[iestabs]
+    
+    part1 <- (emptot - sum(es_emp * es_estabs))^2 # employment sum
+    part2 <- (estabs_tot - sum(es_estabs))^2
+    part3 <- sum((es_estabs - initial_estabs)^2)
+    
+    part1 * weights[1] + part2 * weights[2] + part3 * weights[3]
+  }
+  
+  grad_obj <- function(par, emptot, estabs_tot, initial_estabs, area, weights) {
+    n <- length(par)  # must be even
+    iemp <- 1:(n / 2)
+    iestabs <- (n / 2 + 1):n
+    es_emp <- par[iemp]
+    es_estabs <- par[iestabs]
+    
+    # Gradient of part1: (emptot - sum(es_emp * es_estabs))^2 * weights[1]
+    grad_part1_emp <- -2 * (emptot - sum(es_emp * es_estabs)) * es_estabs * weights[1]
+    grad_part1_estabs <- -2 * (emptot - sum(es_emp * es_estabs)) * es_emp * weights[1]
+
+    # Gradient of part2: sum((estabs_tot - sum(es_estabs))^2) * weights[2]
+    grad_part2_estabs <- -2 * (estabs_tot - sum(es_estabs)) * weights[2]    
+    
+    # Gradient of part2: sum((es_estabs - initial_estabs)^2) * weights[3]
+    grad_part3_estabs <- 2 * (es_estabs - initial_estabs) * weights[3]
+    
+    # Combine gradients
+    grad_emp <- grad_part1_emp
+    grad_estabs <- grad_part1_estabs + grad_part2_estabs + grad_part3_estabs
+    
+    # Combine gradients into a single vector
+    gradient <- c(grad_emp, grad_estabs)
+    
+    return(gradient)
+    }
+  
+  # establish lower bound of at least 1 if we have estabs in that range??
+  lbx <- elb * .9
+  # lbx[1] <- ifelse(esize_estabs[1] > 0, 1, 0)
+  
+  # move initial establishments if we are below employment total
+  empdiff <- emp[1] - sum(esize_estabs * elb)
+  print(empdiff)
+  if(empdiff > 0){
+    # move some establishments into higher estab sizes
+    print("Adjusting establishments...") 
+    esize_estabs <- move_estabs(emp[1], elb, esize_estabs)
+  }
+  
+  par0 <- c(lbx, esize_estabs)
+  n <- length(par0) # must be even
+  iemp <- 1:(n / 2)
+  iestabs <- (n / 2 + 1):n
+  
+  # scaling_vector <- ifelse(par0==0, 0.1, par0)
+  # conlist <- list(fnscale=1e5, parscale=scaling_vector)
+  conlist <- list(fnscale=1e10)
+  
+  res <- optim(
+    par = par0,
+    fn = obj,
+    gr = grad_obj,
+    method = "L-BFGS-B",
+    control = conlist,
+    lower = c(lbx, rep(0, n/2)),
+    # upper = eub * 1.1,
+    emptot = emp[1],
+    estabs_tot = estabs[1],
+    initial_estabs = esize_estabs,
+    weights = weights)
+  
+    if(res$convergence != 0){
+      print(res$convergence)
+      print(res$message)
+      print(area[1])
+      print(naics[1])
+    }
+  
+  esize_avgemp <- res$par[iemp]
+  esize_estabsadj <- res$par[iestabs]
+  return(tibble(esize_estabsadj, esize_avgemp, converge=res$convergence, res=list(res)))
+}
+
+
+
+```
+
+```{r}
+#| label: create-qcew-long-file-with-estab-sizes
+
+wide <- readRDS(fs::path(PDINTERMEDIATE, "qcwide.rds"))
+
+estab_sizes <- read_csv("
+esize, ename, elb, eub
+1, nlt_5, 0, 4   
+2, n5_9, 5, 9
+3, n10_19, 10, 19
+4, n20_49, 20, 49
+5, n50_99, 50, 99 
+6, n100_249, 100, 249
+7, n250_499, 250, 499
+8, n500_999, 500, 999
+9, n1000, 1000, Inf")
+
+# forecast first
+# 
+# # djb -- check the sums of the estabs below the top before filling in top 
+# 
+wide |> filter(area=="Bronx", owner=="Private", naics=="312")
+wide |> filter(owner=="Private", naics=="312")
+
+wide |> 
+  filter(owner=="Private", naics=="312") |> 
+  mutate(badrec = if_all(nlt_5:n1000, is.na))
+  
+badrecs <- wide |> 
+  filter(owner=="Private" & status !="untaxable?") |> 
+  mutate(badrec = if_all(nlt_5:n1000, is.na)) |> 
+  filter(badrec)
+badrecs$naics |> unique() |> length() # 19 bad industries
+count(badrecs, naics) # none is missing for all 12 counties so we can get avg for other counties
+
+# get averages for these badrecs in other counties and use that
+naicsavg <- wide |> 
+  filter(owner=="Private" & status !="untaxable?") |> 
+  filter(naics %in% badrecs$naics) |> 
+  filter(!if_all(nlt_5:n1000, is.na)) |> 
+  summarise(across(nlt_5:n1000, \(x) sum(x, na.rm=TRUE)),
+            .by=c(naics, qtitle)) 
+
+replace_recs <- badrecs |> 
+  select(-c(nlt_5:n1000)) |> 
+  left_join(naicsavg |> 
+              select(-qtitle),
+            by = join_by(naics)) |> 
+  rename(replaced=badrec)
+
+wide2 <- wide |> 
+  # drop the badrecs
+  left_join(badrecs |> 
+              select(owner, area, naics, status, badrec),
+            by = join_by(owner, area, naics, status)) |> 
+  filter(is.na(badrec)) |> 
+  select(-badrec) |> 
+  # add the replacement recs
+  bind_rows(replace_recs) |> 
+  relocate(replaced, .after=rematch)
+count(wide2, replaced)
+
+count(wide2, rematch, replaced)
+  
+qclong <- wide2 |> 
+  select(-fipscty) |> 
+  pivot_longer(cols=nlt_5:n1000, names_to = "ename", values_to = "esize_cestabs") |> 
+  left_join(estab_sizes, by = join_by(ename)) |> 
+  mutate(esize_cestabs = replace_na(esize_cestabs, 0),
+         esize_estabs=estabs * esize_cestabs / sum(esize_cestabs),
+         .by=c(owner, area, naics))
+
+qclong
+
+
+qcopt1 <- qclong |> 
+  filter(owner=="Private", status== "tbd") |> 
+  # filter(area=="Bronx", naics=="314") |> 
+  mutate(fempest(emp, estabs, elb, eub, esize_estabs, area, naics),
+         .by=c(year, owner, area, naics)) 
+
+qcopt1 <- qclong |> 
+  filter(owner=="Private", status== "tbd") |> 
+  # filter(area=="Bronx", naics=="314") |> 
+  mutate(fempest_weighted(emp, estabs, elb, eub, esize_estabs, area, naics, weights = c(1e3, 1, 1)), # emp, est, est ss
+         .by=c(year, owner, area, naics)) 
+
+# weights: emptot, estabs tot, ss estabs diff
+count(qcopt1, converge)
+
+#.. save optimization results ----
+saveRDS(qcopt1, fs::path(PDINTERMEDIATE, "qcew_cbp_opt_results.rds"))
+
+qcopt2 <- qcopt1 |> 
+  mutate(esize_estabsadj = case_when(esize_estabsadj < 0.5 ~ 0,
+                                      esize_estabsadj < 1 ~ 1,
+                                      .default = esize_estabsadj))
+
+# check totals
+ns(qcopt1)
+qcopt_check <- qcopt2 |> 
+  summarise(festabs=first(estabs),
+            estabs_sum=sum(esize_estabsadj),
+            femp=first(emp),
+            emp_sum=sum(esize_estabsadj * esize_avgemp),
+            fpayroll=first(payroll),
+            payroll_sum=sum(esize_estabsadj * esize_avgemp * payroll / emp),
+            .by=c(area, naics, qtitle)) |> 
+  mutate(estdiff=estabs_sum - festabs,
+         empdiff=emp_sum -femp,
+         paydiff= payroll_sum - fpayroll,
+         empdpct = empdiff / femp,
+         paydpct= paydiff / fpayroll)
+
+qcopt_check |> 
+  arrange(desc(abs(empdiff)))
+
+
+qcopt_check
+
+qcopt2 |> filter(area=="Dutchess", naics=="513")
+
+tmp <- df |> filter(esize_estabsadj >0, esize_estabsadj < 1, elb==0)
+tmp <- df |> filter(esize_estabs >0, esize_estabs < 1, elb==0)
+head(tmp)
+df |> filter(area=="Bronx", naics==622)
+
+```
+
+## Make final database
+
+Forecast Save Don't forget to deal with non tbd records
+
+```{r}
+#| label: final-database
+
+# we only have private - go back and get govt
+count(qcopt2, owner)
+count(qcopt2, status)
+
+qcopt3 <- qcopt1 |> 
+  # add key variables
+  select(year, owner, area, nyc, naics, qtitle, status, estabs, emp, payroll, esize, elb, eub, esize_estabsadj, esize_avgemp) |> 
+  mutate(esize_emp = esize_estabsadj * esize_avgemp,
+         esize_avgpay = payroll / emp, # same for everyone
+         esize_payroll = esize_avgpay * esize_emp,
+         esize_payestab = esize_payroll / esize_estabsadj)
+  
+qcopt3
+
+# check that payroll sums to total
+qcopt3 |> 
+  summarise(fpayroll=first(payroll),
+            paysum=sum(esize_payroll),
+            .by=c(area, naics)) |> 
+  filter(abs(fpayroll / paysum - 1) > 1e-3)
+
+saveRDS(qcopt3, fs::path(PDINTERMEDIATE, "pmt_final.rds"))
+
+pmtdb <- readRDS(fs::path(PDINTERMEDIATE, "pmt_final.rds"))
+
+```
+
+```{r}
+#| label: stuff
+
+obj <- function(empavg, emptot, estabs){
+  (emptot - sum(empavg * estabs))^2
+}
+
+lbx <- d$elb * .9
+lbx[1] <- ifelse(d$esize_estabs[1] > 0, 1, 0)
+lbx
+
+res3 <- optim(par = d$elb,
+      fn = obj,
+      method = "L-BFGS-B",
+      lower = lbx,
+      upper = d$eub * 1.1,
+      emptot = d$emp[1],
+      estabs = d$esize_estabs)
+
+res3
+cbind(d$elb, res3$par, d$eub, d$esize_estabs) |> knitr::kable()
+sum(res3$par * d$esize_estabs)
+d$emp[1]
+
+
+
+
+
+res <- optim(par = d$elb,
+      fn = obj,
+      method = "L-BFGS-B",
+      lower = d$elb,
+      upper = d$eub,
+      emptot = d$emp[1],
+      estabs = d$esize_estabs)
+
+res
+cbind(d$elb, res$par, d$eub)
+sum(res$par * d$esize_estabs)
+d$emp[1]
+
+
+obj1 <- function(empavg, emptot, estabs, elb){
+  part1 <- (emptot - sum(empavg * estabs))^2
+  part2 <- sum((empavg - elb)^2)
+  #print(paste0("emp diff: ", obj1))
+  #print(paste0("lb diff: ", obj2))
+  #obj1 + obj2
+  part1 + part2
+}
+
+res1 <- optim(par = d$elb,
+      fn = obj1,
+      method = "L-BFGS-B",
+      upper = d$eub,
+      emptot = d$emp[1],
+      estabs = d$esize_estabs,
+      elb = d$elb)
+
+res1
+cbind(d$elb, res1$par, d$eub)
+sum(res1$par * d$esize_estabs)
+d$emp[1]
+
+
+obj2 <- function(empavg, emptot, estabs, elb, eub){
+  part1 <- (emptot - sum(empavg * estabs))^2
+  part2 <- sum((empavg - elb)^2)
+  part3 <- sum((empavg - eub)^2)
+  part1 + part2 + part3
+}
+
+eubx <- ifelse(is.infinite(d$eub), 2 * d$elb, d$eub)
+
+res2 <- optim(
+  par = d$elb,
+  fn = obj2,
+  method = "L-BFGS-B",
+  lower = .8 * d$elb,
+  emptot = d$emp[1],
+  estabs = d$esize_estabs,
+  elb = d$elb,
+  eub = eubx)
+
+res2
+cbind(d$elb, res2$par, d$eub)
+sum(res2$par * d$esize_estabs)
+d$emp[1]
+
+
+
+
+lbx <- d$elb * .9
+lbx[1] <- ifelse(d$esize_estabs[1] > 0, 1, 0)
+lbx
+
+res3 <- optim(par = d$elb,
+      fn = obj,
+      method = "L-BFGS-B",
+      lower = lbx,
+      upper = d$eub * 1.1,
+      emptot = d$emp[1],
+      estabs = d$esize_estabs)
+
+res3
+cbind(d$elb, res3$par, d$eub, d$esize_estabs) |> knitr::kable()
+sum(res3$par * d$esize_estabs)
+d$emp[1]
+
+
+```

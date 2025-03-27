@@ -1,0 +1,329 @@
+---
+output: html_document
+editor_options: 
+  chunk_output_type: console
+---
+
+{{< include _setup.qmd >}}
+
+# Prepare "atomistic" QCEW data for the MTA
+
+QCEW data are hierarchical with information for different levels of industries (1-digit, 2-digit, 3-digit, ...).
+
+The subtotals don't always add to the higher-level totals for a geographic area because some details are suppressed.
+
+We want a single file that adds to county totals for the top level but that retains other details.
+
+This chapter prepares such a file from the previously created `qmta.rds` file.
+
+We focus on naics level 3 as having sufficient details for our purpose.
+
+We want federal, state, local, and private ownerships.
+
+We go through multiple steps of creating control totals and creating "all other" values when details don't add to totals.
+
+## Get qcew data and weed out any subtotals
+
+```{r}
+#| label: preprocess
+#| output: false
+
+qmta1 <- readRDS(fs::path(PDINTERMEDIATE, "qcewmta.rds"))
+glimpse(qmta1)
+count(qmta1, ownerf, owner)
+tmp <- count(qmta1, naics_level, naics, title)
+tmp <- qmta1 |> filter(naics=="61111")
+tmp <- qmta1 |> filter(ownerf==4, str_starts(naics, "61111"))
+
+```
+
+```{r}
+#| label: owner-control-totals
+#| output: false
+
+# verify owner totals -- government -- IDENTICAL
+qmta1 |> 
+  filter(naics_level == 1, ownerf %in% c(6, 2:4)) |> 
+  mutate(group=ifelse(ownerf==6, "total", "detail")) |> 
+  summarise(across(c(estabs, emp, payroll), sum),
+            .by=c(group))
+
+# verify owner totals -- private + government -- ALMOST IDENTICAL
+qmta1 |> 
+  filter(naics_level == 1, ownerf %in% c(1, 5, 6)) |> 
+  mutate(group=ifelse(ownerf==5, "total", "detail")) |> 
+  summarise(across(c(estabs, emp, payroll), sum),
+            .by=c(group))
+
+# get control totals ----
+controls_owner_allinds <- qmta1 |> 
+  filter(naics_level == 1, ownerf %in% 1:4)
+count(controls_owner_allinds, ownerf, owner) # 12: one for each county
+
+```
+
+## Investigate local public school data
+
+### In general
+
+The general local public schools data will be in NAICS 611110 – Elementary and Secondary Schools (or NAICS 6111)
+
+This includes:
+
+-   Public schools (funded by local, state, or federal government)
+-   Traditional K-12 education
+-   Charter schools (if publicly funded)
+
+Additional Relevant Codes (Depending on Scope):
+
+-   NAICS 611710 – Educational Support Services (if looking for administrative or support roles not directly in schools)
+-   NAICS 923110 – Administration of Education Programs (for higher-level government education administration)
+
+These all should be in owner code 4, local governments. If there are any state-run charter schools, they could show up in owner code 3, but I don't think they would be exempt if they exist so I am not worrying about them now.
+
+The QCEW has records for the 7 non-NYC counties in NAICS 6111. The numbers look plausible.
+
+It does not have records for NYC.
+
+```{r}
+#| output: true
+
+qmta1 |> 
+  filter(ownerf==4, naics == "6111") |> 
+  select(-nyc) |> 
+  gt() |> 
+  fmt_number(columns = c(estabs, emp, payroll),
+             decimals = 0)
+  
+```
+
+### NY public schools data
+
+NYC Public Schools Are Categorized Under Local Government (NAICS 92) Instead.
+
+Unlike most school districts in the U.S., the New York City Department of Education (NYCDOE) is structured as a municipal agency rather than a standalone educational institution. Therefore, its employment data is often classified under:
+
+-   NAICS 923110 – Administration of Education Programs (for central administrative roles)
+-   NAICS 611710 – Educational Support Services (for operational roles)
+-   General Local Government (NAICS 92 series) rather than traditional school classifications.
+
+Why? The NYCDOE is a unified city agency, so its employees (teachers, administrators, etc.) may be counted as local government workers rather than under the standard 611110 code.
+
+This differs from suburban or upstate NY school districts, which are typically independent entities classified under 611110.
+
+Here are all the local government records we have for NYC:
+
+```{r}
+
+codes <- c("6117", "92", "9231")
+
+qmta1 |> 
+  filter(ownerf==4, nyc) |> 
+  gt() |> 
+  fmt_number(columns = c(estabs, emp, payroll),
+             decimals = 0)
+
+```
+
+It looks like NAICS 61 in New York County must hold a large share of K-12 school employees, and for now I use it. This is not enough to include all of K-12 however -- see below. A refinement could be to bring in external data on NYCDOE establishments, employment, and payroll. But in the near term, we will understate the exemption for public schools in NYC, thus overstating tax revenue from local governments.
+
+From non-QCEW sources, here’s what we know about NYC’s public school workforce:
+
+1.  NYC Department of Education (NYCDOE) Official Reports Total employees (FY2023): \~148,000
+
+Teachers: \~78,000
+
+School administrators/staff: \~25,000
+
+Support staff (custodians, aides, etc.): \~45,000 (Source: NYCDOE Budget Reports)
+
+2.  US Census & BLS Comparisons The QCEW’s 49,990 employees in NAICS 611 (NY County) likely covers a subset of school-based staff (possibly teachers and school-level admins).
+
+The remaining \~100,000 employees are probably:
+
+Classified under NAICS 611710 (Support Services) for non-teaching roles.
+
+Spread across other boroughs’ data (possibly miscategorized).
+
+3.  Independent Estimates United Federation of Teachers (UFT) reports \~80,000 teachers alone.
+
+Total public school employment (wide estimate): 130,000–160,000.
+
+## Get industry details, and create all-other records to hit all-industry totals by owner
+
+Create an all-other record for each county to hold residuals when industry details don't add to county totals.
+
+First, we select the records
+
+### Get detail records
+
+These records have the level of detail we want for each ownership type. They are:
+
+-   Private: NAICS 3-digit
+-   Federal: NAICS 2-digit
+-   State: NAICS 2-digit
+-   Local:
+
+For NYC I will create total estimates of K12 activity. Assumptions based primarily on internet searches or convenience:
+
+-   estabs 1650
+-   emp 155e3
+-   avg employee pay 90% of Westchester's spread across the 5 counties in same proportion as all-industries private employment (simple)
+
+```{r}
+#| label: get-details
+#| output: false
+
+private <- qmta1 |> 
+  filter(ownerf == 1, naics_level %in% c(1, 3))
+
+fg <- qmta1 |> 
+  filter(ownerf == 2, naics_level %in% c(1, 2))
+
+sg <- qmta1 |> 
+  filter(ownerf == 3, naics_level %in% c(1, 2))
+
+lgedk12xnyc <- qmta1 |> 
+  filter(ownerf==4, naics == "6111")
+
+# NYC K12 assumptions:
+#   estabs 1650
+#   emp 155e3
+#   avg employee pay 90% of Westchester's
+#   spread across the 5 counties in same proportion as all-industries private employment (simple)
+
+estabs_nyc <- 1650
+emp_nyc <- 155e3
+avgpay_nyc_westchester <- .9
+
+avgpay_k12_westchester <- lgedk12xnyc |> 
+  filter(area == "Westchester") |> 
+  mutate(avgpay = payroll / emp) |> 
+  pull(avgpay)
+
+payroll_nyc <- emp_nyc * avgpay_k12_westchester * avgpay_nyc_westchester
+
+county_shares <- qmta1 |> 
+  filter(nyc, ownerf==1, naics_level==1) |> 
+  mutate(share=emp / sum(emp)) |> 
+  select(year, area, nyc, share)
+
+lgedk12nyc <- county_shares |> 
+  cross_join(lgedk12xnyc |> filter(row_number() ==1) |> select(naics, naics_level, naics, title, ownerf, owner)) |> 
+  mutate(estabs = estabs_nyc * share,
+         emp = emp_nyc * share,
+         payroll = payroll_nyc * share) |> 
+  select(-share)
+
+lgedk12 <- bind_rows(lgedk12xnyc, lgedk12nyc)
+lgedk12 |> 
+  mutate(avgpay = payroll / emp)
+
+lg <- bind_rows(
+  qmta1 |> 
+    filter(ownerf==4, naics_level==1),
+  lgedk12)
+
+stack <- bind_rows(
+  private,
+  fg,
+  sg,
+  lg) |> 
+  mutate(detail = naics_level != 1)
+summary(stack)
+
+```
+
+```{r}
+#| label: add-all-other
+#| output: false
+
+all_other1 <- stack |> 
+  mutate(across(c(estabs, emp, payroll),
+                \(x) ifelse(detail, -x, x))) |> 
+  summarise(across(c(estabs, emp, payroll), sum),
+             .by=c(year, area, nyc, ownerf, owner))
+all_other1 # we have some small negative amounts, just zero them out
+
+all_other2 <- all_other1 |> 
+  mutate(across(c(estabs, emp, payroll), \(x) ifelse(x < 0, 0, x)),
+         naics_level = 9,
+         naics = "xxxx",
+         title = "All other")
+
+qcew_atoms1 <- bind_rows(
+  stack |> filter(naics_level != 1),
+                  all_other2) |> 
+  select(-detail)
+qcew_atoms1
+summary(qcew_atoms1)
+
+```
+
+```{r}
+#| label: confirm-totals
+#| output: false
+
+controls_owner_allinds
+
+asums <- qcew_atoms1 |> 
+  summarise(across(c(estabs, emp, payroll),
+                   sum),
+            .by=c(year, area, ownerf, owner))
+
+comp <- bind_rows(
+  controls_owner_allinds |> mutate(type="control"),
+  asums |> mutate(type = "calc")) |> 
+  select(area, ownerf, owner, estabs, emp, payroll, type) |> 
+  pivot_longer(cols = c(estabs, emp, payroll)) |> 
+  pivot_wider(names_from=type) |> 
+  mutate(diff=calc - control) |> 
+  arrange(desc(abs(diff)))
+comp
+
+```
+
+```{r}
+#| label: save
+
+saveRDS(qcew_atoms1, fs::path(PDINTERMEDIATE, "qmta_atoms.rds"))
+
+```
+
+## Check odd NAICS codes
+
+```{r}
+#| output: true
+
+# check potential naicsd oddballs 491, 814, 999
+
+# 491 postal service private -- prob can't tax!!
+# 814 Private households - households that employ workers to run the household, such as cooks, maids, and gardeners -- don't tax
+# 999 Unclassified -- often new businesses
+
+noddballs <- c("491", "814", "999")
+
+qcew_atoms1 |> 
+  filter(naics %in% noddballs) |> 
+  summarise(across(c(estabs, emp, payroll),
+                   sum),
+                   .by=c(naics, title))
+  
+#   naics title                         estab avgemp    totwage
+#   <chr> <chr>                         <dbl>  <dbl>      <dbl>
+# 1 999   Unclassified                  43279  31158 2126492617
+# 2 814   NAICS 814: Private Households 14680  18716 1061019007
+# 3 491   NAICS 491: Postal Service        12     78    2531959
+
+# probably treat 999  as taxable but not 814 or 491
+
+```
+
+```{r}
+#| label: cleanup
+rm(list = ls())
+```
+
+```{r stop_here, echo=FALSE}
+knitr::knit_exit()
+```

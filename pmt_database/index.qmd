@@ -1,0 +1,50 @@
+---
+output: html_document
+editor_options: 
+  chunk_output_type: console
+---
+
+# Introduction
+
+This project creates a database that can be used to estimate policy options for the MTA payroll mobility tax (PMT).
+
+```{r stop_here, echo=FALSE}
+knitr::knit_exit()
+```
+
+## Overview
+
+Create a database calibrated to the most recent data year (2024) with summary records for \# of firms, \# of establishments, \# of employees, payroll (and average payroll per firm, establishment, and employee) for the MTA region broken down by:
+
+-   county (with the 5 counties of NYC as separate counties)
+-   3-digit NAICS industry
+-   establishment size
+
+Thus, the data has slightly less than 9k records:
+
+12 counties x \~80 industries on average x 9 size classes = 8.6k records
+
+The data are "atomistic" in the sense that there are are no subotal records -- every record is a detail record. The records sum to totals. There are no subtotal records in the database
+
+Calibrate the data to hit known QCEW totals for wages, establishments, and employment by county and industry. Ensure that sums across establishment-sizes add to QCEW totals (e.g., the sum of \# establishments, \# employees, and total payroll across the 9 establishment size groups for a county equal the QCEW total).
+
+Do not forecast the database beyond the latest year in this project. That is a separate step we do while modeling.
+
+## Data sources
+
+-   Use QCEW data for wage, establishment, and employment control totals.
+
+-   Use CBP data to allocate the QCEW data to establishment size groups
+
+-   Use SUSB data to graft information about firms to the data file
+
+-   **Quarterly Census of Employment and Wages (QCEW)** -- high-quality quarterly data \# establishments, employment, and wages by county, industry, and year. These are the totals we want to control to, before forecasting. Unfortunately, they are not available by establishment size or payroll size. Latest year is 2023.
+
+-   **County Business Patterns (CBP)** -- has \# establishments, employment, and payroll by by establishment size. Used to apportion the QCEW data to establishment sizes, while still hitting all the QCEW totals. Latest year is 2022.
+
+-   [**Statistics of United States Businesses (SUSB)**](https://www.census.gov/programs-surveys/susb.html) -- has \# of firms
+
+## Prepare input data
+
+-   QCEW -- get NY state and county records, put NYC and MTA markers on file, save as qcewstco.rds
+-   CBP --

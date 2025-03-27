@@ -1,0 +1,301 @@
+---
+output: html_document
+editor_options: 
+  chunk_output_type: console
+---
+
+{{< include _setup.qmd >}}
+
+# Get Statistics of U.S. Businesses (SUSB)
+
+-   2021 latest year as of 3/22/2025
+
+SUSB links
+
+-   [Landing page](https://www.census.gov/programs-surveys/susb.html)
+-   [Documentation](https://www.census.gov/programs-surveys/susb/technical-documentation.html)
+-   [Methodology](https://www.census.gov/programs-surveys/susb/technical-documentation/methodology.html)
+-   [Glossary](http://www.census.gov/programs-surveys/susb/about/glossary.html)
+-   [Tables](https://www.census.gov/programs-surveys/susb/data/tables.html)
+-   [State and MSA datasets](https://www.census.gov/programs-surveys/susb/data/datasets.html) Not available in dataset (csv) form for counties
+-   [2021 county data in spreadsheet form](https://www2.census.gov/programs-surveys/susb/tables/2021/county_3digitnaics_2021.xlsx)
+
+For details about the SUSB, see sections below.
+
+The SUSB data are useful because they have breakdowns of data by firm size (# of employees per firm). Unfortunately, while detailed breakdowns are available for the U.S. and the states, only broad breakdowns are available for counties.
+
+Here are the size groups for the U.S. and the states:
+
+![](images/clipboard-1847336173.png)
+
+Here are the size groups for MSAs:
+
+![](images/clipboard-1407773703.png)
+
+Here are the size groups for counties:
+
+![](images/clipboard-2636600636.png)
+
+## SUSB US-state with detailed firm-size groupings -- read from Excel and save
+
+```{r}
+#| label: get-save-susb-us-states
+#| output: false
+
+# https://www2.census.gov/programs-surveys/susb/tables/2021/us_state_naics_detailedsizes_2021.xlsx
+fname <- "us_state_naics_detailedsizes_2021.xlsx"
+susbdetail <- read_excel(fs::path(PDRAW, "susb", fname), skip=2)
+glimpse(susbdetail)
+
+susbdtl2 <- susbdetail |> 
+  select(statefips=1,
+         state=2,
+         naics=3,
+         description=4,
+         firmsize=5,
+         firms=6,
+         estabs=7,
+         emp=8,
+         empnoise=9,
+         payroll=10,
+         paynoise=11) |> 
+  mutate(payroll=payroll * 1000,
+         fscode = str_sub(firmsize, 1, 2))
+
+eststubs <- susbdtl2 |> 
+  select(fscode, firmsize) |> 
+  distinct() |> 
+  # get upper and lower bounds
+  mutate(
+    fslb = case_when(
+    fscode == "01" ~ "0",
+    str_detect(firmsize, coll("<")) ~ "0", 
+    str_detect(firmsize, coll("-")) ~ str_extract(firmsize, "[0-9,]+(?=\\-)"),
+    str_detect(firmsize, coll("+")) ~ str_extract(firmsize, "[0-9,]+(?=\\+)"),
+    .default = "00"),
+    
+    fsub = case_when(
+    fscode == "01" ~ Inf,
+    
+    # caution: upper bound when firmsize has "<" is one lower than the < amount
+    str_detect(firmsize, coll("<")) ~ 
+      str_extract(firmsize, "(?<=<)\\d{1,3}(?:,\\d{3})*") |> 
+      str_remove_all(",") |> 
+      as.numeric() - 1,
+    
+    str_detect(firmsize, coll("-")) ~ 
+      str_extract(firmsize, "(?<=-)\\d{1,3}(?:,\\d{3})*") |> 
+      str_remove_all(",") |> 
+      as.numeric(),
+    
+    str_detect(firmsize, coll("+")) ~ Inf,
+    .default = 0),
+    
+    fslb = as.numeric(str_remove_all(fslb, ",")))
+eststubs
+
+susbdtl3 <- susbdtl2 |> 
+  left_join(eststubs |> 
+              select(-firmsize), 
+            by=join_by(fscode))
+glimpse(susbdtl3)
+summary(susbdtl3)
+
+saveRDS(susbdtl3, fs::path(PDINTERMEDIATE, "susb2021_usstate_details.rds"))
+
+```
+
+## Get SUSB data for all counties in the US
+
+```{r}
+#| label: get-save-susb-counties
+#| output: false
+
+fname <- "county_3digitnaics_2021.xlsx"
+susb1 <- read_excel(fs::path(PDRAW, "susb", fname), skip=2)
+glimpse(susb1)
+count(susb1, `Enterprise Size`)
+
+# mappings for lower and upper bounds of firm size
+sizelb <- c("1" = 0, "2" = 0, "3" = 20, "4" = 100, "5" = 500)
+sizeub <- c("1" = Inf, "2" = 19, "3" = 99, "4" = 499, "5" = Inf)
+cbind(sizelb, sizeub)
+
+susb2 <- susb1 |> 
+  select(statefips=1,
+         state=2,
+         cofips=3,
+         county=4,
+         naics=5,
+         description=6,
+         firmsize=7,
+         firms=8,
+         estabs=9,
+         emp=10,
+         empnoise=11,
+         payroll=12,
+         paynoise=13) |> 
+  mutate(payroll=payroll * 1000,
+         fscode = str_sub(firmsize, 1, 1),
+         fslb = sizelb[fscode],
+         fsub = sizeub[fscode])
+
+glimpse(susb2)
+summary(susb2)
+count(susb2, fscode, firmsize, fslb, fsub) # note that we do not have the same number of recs per code
+
+saveRDS(susb2, fs::path(PDINTERMEDIATE, "susb2021_counties.rds"))
+
+```
+
+## Get MTA subset of the SUSB counties
+
+Rename variables for consistency with rest of project
+
+```{r}
+#| label: susb-mta
+#| output: false
+
+susb <- readRDS(fs::path(PDINTERMEDIATE, "susb2021_counties.rds"))
+
+susb |> 
+  filter(state=="New York") |> 
+  count(cofips, county)
+
+mta1 <- susb |> 
+  filter(state=="New York", paste0(statefips, cofips) %in% constants$mtafips) |> 
+  mutate(fscode=str_sub(firmsize, 1, 1) |> as.integer(),
+         mta=TRUE, 
+         nyc=paste0(statefips, cofips) %in% constants$nycfips)
+
+glimpse(mta1)
+count(mta1, nyc, county)
+count(mta1, naics, description)
+
+mta2 <- mta1 |> 
+  select(fipscty=cofips, nyc, area=county, snaics=naics, stitle=description, 
+         fscode, firmsize, fslb, fsub,
+         sfirms=firms, sestabs=estabs, semp=emp, spayroll=payroll) |> 
+  arrange(area, firmsize)
+glimpse(mta2)
+summary(mta2)  
+count(mta2, area)
+count(mta2, fscode, firmsize, fslb, fsub)
+
+saveRDS(mta2, fs::path(PDINTERMEDIATE, "susb2021_mta.rds"))
+
+```
+
+## Ratio of number of firms to number of establishments, MTA region, SUSB
+
+```{r}
+#| label: show-ratio
+#| output: true
+
+smta <- readRDS(fs::path(PDINTERMEDIATE, "susb2021_mta.rds"))
+
+smta |> 
+  filter(snaics=="--") |> 
+  summarise(sestabs=sum(sestabs), sfirms=sum(sfirms),
+            .by=firmsize) |> 
+  mutate(ratio = sfirms / sestabs) |> 
+  select(firmsize, ratio) |> 
+  gt() |> 
+  tab_header("Overall ratio of # of firms to # of establishments by establishment size, MTA region",
+             subtitle="Source: Statistics of U.S. Businesses (SUSB), 2021") |> 
+  fmt_number(columns = ratio, decimals = 3)
+
+
+```
+
+## About the SUSB
+
+From https://www.census.gov/programs-surveys/susb/technical-documentation/methodology.html and http://www.census.gov/programs-surveys/susb/about/glossary.html
+
+> Statistics of U.S. Businesses (SUSB) covers more than 6 million single-unit establishments and more than 2.0 million multi-unit establishments. The Business Register is the Census Bureau's source of information on employer establishments included in the SUSB program. The Business Register is a multi-relational database that contains a record for each known establishment that is located in the United States with paid employees. An establishment is a single physical location at which business is conducted or services or industrial operations are performed. An establishment is not necessarily equivalent to a company or enterprise, which may consist of one or more establishments. A single-unit enterprise owns or operates only one establishment. A multi-unit enterprise owns or operates two or more establishments. The treatment of establishments on the Business Register differs according to whether the establishment is part of a single-unit or multi-unit enterprise.
+
+**Enterprise**
+
+> An enterprise (or "company") is a business organization consisting of one or more *domestic* establishments that were specified under common ownership or control. The enterprise and the establishment are the same for single-establishment firms. Each multi-establishment company forms one enterprise - the enterprise employment and annual payroll are summed from the associated establishments. \[DJB note that this does not require operating in the same geographic area or industry.\]
+
+**DJB Note**
+
+The SUSB reports \# of firms operating in each county. However, many of the same firms will be operating in multiple counties - for example, IBM probably has offices in most counties in the MTA region and would be in the firm counts for the region. Thus, adding up the number of firms across counties will double count. As firm size increases, it is more likely we will double count (or even 12-count).
+
+**Firm**
+
+*DJB what's the difference between a firm and an enterprise? Note that SUSB data give \# of firms operating in an area by enterprise size.*
+
+> A firm is a business organization consisting of **one or more *domestic* establishments in the same geographic area and industry** that were specified under common ownership or control. The firm and the establishment are the same for single-establishment firms. *For each multi-establishment firm, establishments in the same industry within a geographic area will be counted as one firm; the firm employment and annual payroll are summed from the associated establishments.*
+
+**Enterprise Classification**
+
+> An enterprise may have establishments in many different industries. For the purpose of classifying an entire enterprise into a single industry, the classification methodology starts by excluding nonoperating establishments - establishments classified as manufacturers' sales branches and offices, establishments engaged in management of companies and enterprises (NAICS 55), and auxiliary establishments. The enterprise is then classified into the 2-digit NAICS sector in which it paid the largest share of its payroll. Then, within this 2-digit NAICS sector, the enterprise is classified into the 3-digit NAICS sub-sector in which the enterprise paid the largest share of payroll. Finally, within the assigned 3-digit NAICS sub-sector, the enterprise is classified into the 4-digit NAICS industry group with the largest share of payroll.
+
+SUSB currently has tabulations by enterprise industry for the 2012-2015 reference years.
+
+**Enterprise Size**
+
+> Enterprise size designations are determined by the summed employment of all associated establishments. Employer enterprises with zero employees are enterprises for which no associated establishments reported paid employees in the mid-March pay period but paid employees at some time during the year.
+
+**DJB NOTE:** I believe that the firm (enterprise) size is determined as the sum over all geographies, not the local geography for which we have data.
+
+**Establishment**
+
+> An establishment is a single physical location at which business is conducted or services or industrial operations are performed. It is not necessarily identical with a company or enterprise, which may consist of one or more establishments. When two or more activities are carried on at a single location under a single ownership, all activities generally are grouped together as a single establishment. The entire establishment is classified on the basis of its major activity and all data are included in that classification.
+
+> Establishment counts represent the number of locations with paid employees any time during the year. This series excludes government establishments except for government sponsored Beer, Wine, and Distilled Alcoholic Beverage Merchant Wholesalers (NAICS 4248); Beer, Wine, and Liquor Stores (NAICS 44531); Tobacco Stores (NAICS 453991); Book Publishers (511130); Monetary Authorities – Central Bank (NAICS 521110); Savings Institutions (NAICS 522120); Credit Unions (NAICS 522130); Hospitals (NAICS 622); Gambling Industries (NAICS 7132); and Casino Hotels (NAICS 721120).
+
+**Multi-Unit Enterprise**
+
+> For multi-unit enterprises a different structure connects the enterprise with its establishments via the EIN. Essentially a multi-unit enterprise is associated with a cluster of one or more EINs and EINs are associated with one or more establishments. A multi-unit enterprise consists of at least two establishments. Each enterprise is associated with at least one EIN and only one enterprise can use a given EIN. One multi-unit enterprise may have several EINs. Similarly, there is a one-to-many relationship between EINs and establishments. Each EIN can be associated with many establishments, but each establishment is associated with only one EIN. With the possibility of one-to-many relationships, there must be distinction between the enterprise, its EINs, and its establishments. A unique employer unit identification number identifies each establishment owned by a multi-unit enterprise on the Business Register.
+
+> There is less dependency on administrative record sources for multi-unit establishment information because EIN and establishment are not equivalent for multi-unit enterprises. The Census Bureau's Economic Census (conducted every five years in years ending in ‘2’ and ‘7’) initially identifies multi-unit company when a company expands to more than one establishment. Establishments for a multi-unit company are identified through the Economic Census and the annual Report of Organization survey (formerly Company Organization Survey). Geographic location, industry classification, payroll, and employment come primarily from the Economic Census and the Report of Organization. EIN-level administrative payroll and employment data are apportioned to the establishment level in cases of nonresponse or for smaller companies not selected for the Report of Organization.
+
+**Employment Services**
+
+> Historically, the permanent on-site workforce at a business location were paid employees of that establishment. This traditional practice of enterprises directly hiring employees is still the dominant employer/employee relationship in the United States. However, there are also *professional employer organizations (PEO's)* or employee-leasing companies that provide leased workers and specialized management services. These employer organizations are responsible for payroll, including withholding and remitting employment-related taxes, for some or all of the employees of their clients, and also serve as the employer of those employees for benefits and related purposes.
+
+> SUSB has shown a steady increase in PEOs and other Employment Services (NAICS 5613) establishments, as well as Payroll Services (NAICS 541214) establishments. *In these cases, employees are not always classified in the predominant industry of the client businesses.* Employment services establishments may pay these employees out of a single payroll office. *This may result in the leasing enterprise's employment and payroll data being reported in the county where the payroll office is located, thus distorting the data for that county.* In some cases, *many thousands* of employees may be paid from a single payroll office. Therefore, for geography purposes, employee-leasing establishments may be published in the “statewide” category in states where such payroll offices are located, as these establishments service multiple counties.
+
+**Selected Noise Codes**
+
+-   D: Withheld to avoid disclosing data for individual companies; data are included in higher level totals
+
+-   G: Low noise; cell value was changed by less than 2 percent by the application of noise
+
+-   H: Moderate noise; cell value was changed by 2 percent or more but less than 5 percent by the application of noise
+
+-   J: High noise; cell value was changed by 5 percent or more by the application of noise
+
+-   S: Withheld because estimate did not meet publication standards N Not available or not comparable
+
+### Boyd email conversation with Trey of SUSB, July 12, 2021 for polluters' penalty project ewd.susb\@census.gov
+
+I would like to be sure I understand more precisely what is counted. Could you please tell me if I understand correctly:
+
+Am I correct in believing that establishments are included regardless of whether they are owned by: foreign or domestic entities, for-profit or other entities (I think this is correct)
+
+*Trey: All active domestic establishments are included regardless of domestic or foreign ownership.*
+
+Am I correct in believing that these would be total receipts of these establishments, regardless of whether the sales stay in the U.S. or go overseas? If I read the glossary correctly, I think they include both.
+
+*Trey: Receipts include all revenue for the above-mentioned active establishments.*
+
+Am I correct in understanding that these receipts would include interfirm sales? If so do you have any advice for what I should look at to gain insight into the extent of these sales? Would I/O make and use tables help me understand the extent of these transactions?
+
+*Trey: Since the receipts data provided are at the establishment level, the potential exists for the double counting of receipts within multi-establishment enterprises. I believe this is what you are referring to when you reference interfirm sales. Unfortunately, there's no way using the SUSB data to measure the extent of this issue.*
+
+Any other data sources you'd recommend I look at to understand industry size, measured by receipts? I'm not aware of any other data sources. Any particular data sources you'd recommend for gaining insight into the relative size of major firms in the industry? (I am looking primarily at information for investors, such as data on revenue pulled from 10-Ks.)
+
+*Trey: No.*
+
+```{r}
+#| label: cleanup
+
+rm(list = ls())
+```
+
+```{r stop_here, echo=FALSE}
+knitr::knit_exit()
+```
