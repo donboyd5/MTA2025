@@ -86,7 +86,6 @@ f <- function(naics2, es){
 
 # speed this up !!!! ----
 pmtdb2 <- pmtdb1 |> 
-  select(-res) |> 
   mutate(naics2=str_sub(naics, 1, 2)) |> 
   rowwise() |>
   mutate(fpe=list(f(naics2, gestabs))) |> 

@@ -58,7 +58,7 @@ download.file(url, zpath, mode="wb")
 
 ```{r}
 #| label: read-save-qcew
-#| eval: false
+#| eval: true
 #| output: false
 
 # get names of the csv annual files and then read them
