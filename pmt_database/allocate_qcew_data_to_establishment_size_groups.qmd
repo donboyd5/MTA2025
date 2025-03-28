@@ -74,11 +74,14 @@ b - a # about 35 seconds
 
 saveRDS(qcew_allocated_nested, fs::path(PDINTERMEDIATE, "qcew_allocated_nested.rds")) # includes optimization results in optres
 
+qcew_allocated_nested <- readRDS(fs::path(PDINTERMEDIATE, "qcew_allocated_nested.rds")) 
+
 qcew_allocated <- qcew_allocated_nested |> 
   mutate(pay_emp = payroll / emp) |> 
   unnest(c(data, optres)) |> 
   select(-res) |> 
-  mutate(gpayroll = gestabs * gemp_est * pay_emp)
+  mutate(gemp = gestabs * gemp_est,
+         gpayroll = gemp * pay_emp)
 
 saveRDS(qcew_allocated, fs::path(PDINTERMEDIATE, "qcew_allocated.rds"))
 
