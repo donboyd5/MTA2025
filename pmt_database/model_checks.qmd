@@ -41,12 +41,19 @@ pmtdb |>
 ```
 
 ```{r}
+#| label: get-forecast-assumptions
+#| output: true
+
+source(fs::path(DMAIN, "R", "forecast_assumptions.r"))
+
+print(paste0("2023 to 2025 employment growth: ", scales::label_percent(accuracy = .1) (empgrowth)))
+print(paste0("2023 to 2025 growth in average wages per employee: ", scales::label_percent(accuracy = .1) (avgwagegrowth)))
+
+```
+
+```{r}
 #| label: baseline-model-forecast
 #| output: false
-
-# two year total growth rates; don't change estab
-empgrowth <- .035 # see NYC Council; my rough guess; https://council.nyc.gov/wp-content/uploads/2024/03/Dashboard_FY25-Prelim_EMBARGOED.pdf
-avgwagegrowth <- .04
 
 pmtfc <- pmtdb |> 
   mutate(year=2025,
@@ -72,7 +79,7 @@ mod_prep <- pmtfc |>
            gpayroll == 0 ~ TRUE, # short term fix
            .default = FALSE)
          ) |> 
-  mutate(entity_pay = gpay_firm)
+  mutate(entity_pay = gpay_estab) # or gpay_firm gpay_estab
 
 summary(mod_prep)
 

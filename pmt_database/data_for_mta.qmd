@@ -100,12 +100,19 @@ f10m <- function(entity_pay, nyc, exempt, excluded){
 ```
 
 ```{r}
+#| label: get-forecast-assumptions
+#| output: true
+
+source(fs::path(DMAIN, "R", "forecast_assumptions.r"))
+
+print(paste0("2023 to 2025 employment growth: ", scales::label_percent(accuracy = .1) (empgrowth)))
+print(paste0("2023 to 2025 growth in average wages per employee: ", scales::label_percent(accuracy = .1) (avgwagegrowth)))
+
+```
+
+```{r}
 #| label: prepare-data
 #| output: false
-
-# see NYC Council; my rough guess; https://council.nyc.gov/wp-content/uploads/2024/03/Dashboard_FY25-Prelim_EMBARGOED.pdf
-empgrowth <- .035 
-avgwagegrowth <- .04
 
 pmt2025 <- pmtdb |> 
   mutate(year=2025,

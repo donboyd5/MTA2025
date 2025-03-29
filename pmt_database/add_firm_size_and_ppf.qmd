@@ -8,94 +8,141 @@ editor_options:
 
 # Add \# of firms relative to \# of establishments
 
-Pull in data from SUSB.
+Use data from SUSB to estimate the number of firms in each county-industry-(establishment-size) cell in the PMT database.
+
+Steps:
+
+-   From SUSB, create a lookup table with average \# of firms per establishment by 2-digit industry and industry-specific establishment size group (but not by county -- the presumption, based on examination of the SUSB data, is that \# of firms per establishment varies greatly by establishment size within industry, but less so by county)
+-   For our QCEW-CBP-based PMT database, calculate average establishment size for each cell (county, industry, establishmnt-size)
+-   Match the average establishment size of each record in the PMT database against the SUSB lookup table to get the industry-average number of firms per establishment for the corresponding establishment-size group
+    -   For PMT cells that do not have an industry-specific match in the SUSB lookup table, use the all-industry (snaics == "--") values
+-   In the PMT database, multiply industry-average establishment-size-group \# of firms per establishment pulled from the SUSB lookup table by \# of establishments to get estimated \# of firms for each cell in the PMT database
+-   In the PMT database, we can now divide total payroll for a cell by estimated number of firms in the cell to get average payroll per firm. This can be used to get the tax rate for the payroll in that cell.
 
 ```{r}
 #| label: get-data
 #| output: false
 
-# pmtdb1 <- readRDS(fs::path(PDINTERMEDIATE, "test.rds"))
 pmtdb1 <- readRDS(fs::path(PDINTERMEDIATE, "qcew_allocated.rds"))
 susb <- readRDS(fs::path(PDINTERMEDIATE, "susb2021_mta.rds"))
 
 ```
 
-```{r}
-#| label: map-firm-sizes-to-estab-sizes-by-industry
-#| output: false
+## Prepare SUSB lookup table
 
-# fpe stands for firms per establishment
+```{r}
+#| label: create-susb-lookup-table
+#| output: false
 
 glimpse(susb)
 
-fpe <- susb |> 
+# get firms per establishment -- s prefix indicates the data are from susb
+firms_per_estabs <- susb |> 
   select(area, snaics, stitle, firmsize, sfirms, sestabs, semp) |> 
-  mutate(fpe=sfirms / sestabs,
-         esize=semp / sestabs, 
-         fsize=semp / sfirms,
-         ratio = fsize / esize)
+  mutate(sfirms_estabs = sfirms / sestabs,
+         semp_estabs = semp / sestabs, 
+         semp_firms = semp / sfirms,
+         sestabs_firms = sestabs / sfirms)
 
-inds <- fpe |> 
-  filter(firmsize=="1: Total") |> 
-  summarise(across(c(sfirms, sestabs, semp), sum),
-            .by=c(snaics, stitle))
+# get industries for match: 2-digit and dual-2-digit (e.g., 31-33, 44-45, 48-49) ----
+firms_per_estabs_match1 <- firms_per_estabs |> 
+  filter(nchar(snaics) == 2 |
+           str_detect(snaics, "-"))
 
-# create fpe values to save ----
-fpegroups <- fpe |> 
-  filter(nchar(snaics)==2) |> 
-  mutate(esgroup = ntile(esize, 4), # divide the records into 4 groups for each industry
+firms_per_estabs_match1 |> 
+  distinct(snaics, stitle) |> 
+  arrange(snaics) # we have 21 2-digit-like industry groups
+
+# take a quick look
+summary(firms_per_estabs_match1) # nothing missing
+
+firms_per_estabs_match1 |> 
+  summarise(n=n(),
+            sfirms_estabs=median(sfirms_estabs),
+            sestabs_firms=median(sestabs_firms), # the inverse
+            .by=firmsize) # at higher firm sizes we have more estabs per firm
+
+
+# create the look up table for firms per establishment
+susb_lookup_fpe <- firms_per_estabs_match1 |> 
+  mutate(esize_group = ntile(semp_estabs, 4), # divide the records into 4 establishment-size groups for each industry
          .by=c(snaics, stitle)) |> 
-  select(snaics, stitle, esgroup, esize, fpe) |> 
+  select(snaics, stitle, esize_group, semp_estabs, sfirms_estabs) |> 
   summarise(
-    esmin=min(esize),
-    esmax=max(esize),
-    fpemin=min(fpe),
-    fpemdn=median(fpe),
-    fpemax=max(fpe),
-    .by=c(esgroup, snaics, stitle)) |> 
-  arrange(snaics, esgroup) |> 
-  mutate(lowcut=case_when(esgroup==1 ~ 0,
-                       esgroup > 1 ~ pmean(esmin, lag(esmax)),
-                       .default = 0),
-         hicut = case_when(esgroup==4 ~ 1,
-                           esgroup < 4 ~ pmean(esmax, lead(esmin)),
-                           .default = Inf))
-fpegroups
+    semp_estabs_min = min(semp_estabs),
+    semp_estabs_max = max(semp_estabs),
+    sfirms_estabs_min = min(sfirms_estabs),
+    sfirms_estabs_mdn = median(sfirms_estabs),
+    sfirms_estabs_max = max(sfirms_estabs),
+    .by=c(snaics, stitle, esize_group)) |> 
+  arrange(snaics, esize_group) |> 
+  # get industry-specific cutpoints for establishment-size groups (# of employees per establishment)
+  mutate(lowcut = case_when(esize_group == 1 ~ 0,
+                          esize_group > 1 ~ pmean(semp_estabs_min, lag(semp_estabs_max)),
+                          .default = 0),
+         hicut = case_when(esize_group == 4 ~ Inf,
+                           esize_group < 4 ~ pmean(semp_estabs_max, lead(semp_estabs_min)),
+                           .default = Inf)) |> 
+  rename(naics_match = snaics) |> 
+  arrange(naics_match, esize_group)
+
+susb_lookup_fpe
+
+susb_lookup_fpe_inds <- count(susb_lookup_fpe, naics_match, stitle) # for checking against
 
 ```
 
-## Get firm-establishment ratios corresponding to industry and size of establishment
+## Prepare PMT database to match against SUSB lookup table
+
+Create a variable that will match against naics_match in the lookup table.
 
 ```{r}
-#| label: match
+#| label: prepare-pmtdb-with-matching-variable
 #| output: false
 
-lookup <- fpegroups |>
-  mutate(naics2=snaics) |> 
-  arrange(snaics, esgroup)
+pmtdb_prep1 <- pmtdb1 |> 
+  mutate(naics2 = str_sub(naics, 1, 2),
+         naics_match = case_when(
+           naics2 %in% c("31", "32", "33") ~ "31-33",
+           naics2 %in% c("44", "45") ~ "44-45",
+           naics2 %in% c("48", "49") ~ "48-49",
+           .default = naics2)) 
 
+check <- count(pmtdb_prep1, naics_match, naics2, naics, title) |> 
+  left_join(susb_lookup_fpe_inds |>
+              select(naics_match, stitle),
+            by = join_by(naics_match))
 
-f <- function(naics2, es){
-  val <- lookup |> 
-    filter(naics2==!!naics2) |> 
-    filter(!!es >= lowcut, !!es <= hicut) |>
-    select(lowcut, hicut, fpemdn) |> 
-    mutate(naics2=!!naics2, es=!!es)
-  return(val$fpemdn)
-}
+pmtdb_prep2 <- pmtdb_prep1 |> 
+  mutate(naics_match = ifelse(!naics_match %in% susb_lookup_fpe_inds$naics_match,
+                              "--",
+                              naics_match))
 
-# speed this up !!!! ----
-pmtdb2 <- pmtdb1 |> 
-  mutate(naics2=str_sub(naics, 1, 2)) |> 
-  rowwise() |>
-  mutate(fpe=list(f(naics2, gestabs))) |> 
-  ungroup() |> 
-   mutate(fpe=as.numeric(fpe),
-          fpe=ifelse(is.na(fpe), 1, fpe))
-summary(pmtdb2)
-pmtdb2
+check <- count(pmtdb_prep2, naics_match, naics2, naics, title) |> 
+  left_join(susb_lookup_fpe_inds |>
+              select(naics_match, stitle),
+            by = join_by(naics_match)) # we now have matches for everything
 
-saveRDS(pmtdb2, fs::path(PDINTERMEDIATE, "pmtdb_fpe.rds"))
+```
+
+## Match pmtdb and SUSB lookup to get firm-establishment ratios for corresponding industry and establishment size
+
+```{r}
+#| label: match-pmtdb-to-susb-lookup
+#| output: false
+
+summary(pmtdb_prep2)
+
+pmtdb_match <- pmtdb_prep2 |> 
+  left_join(susb_lookup_fpe |> 
+              select(naics_match, lowcut, hicut, fpe = sfirms_estabs_mdn),
+            join_by(naics_match, gemp_est >= lowcut, gemp_est <= hicut))
+summary(pmtdb_match)  
+
+pmtdb_match2 <- pmtdb_match |> 
+  select(-c(naics2, naics_match, lowcut, hicut))
+
+saveRDS(pmtdb_match2, fs::path(PDINTERMEDIATE, "pmtdb_fpe.rds"))
 
 ```
 
@@ -106,4 +153,40 @@ rm(list = ls())
 
 ```{r stop_here, echo=FALSE}
 knitr::knit_exit()
+```
+
+```{r}
+
+# explore how much does fpe vary across counties within industry
+
+look2 <- firms_per_estabs_match1 |> 
+  mutate(esize_group = ntile(semp_estabs, 4), # divide the records into 4 establishment-size groups for each industry
+         .by=c(snaics, stitle)) |> 
+  select(area, snaics, stitle, esize_group, semp_estabs, sfirms_estabs) |> 
+  summarise(
+    semp_estabs_min = min(semp_estabs),
+    semp_estabs_max = max(semp_estabs),
+    sfirms_estabs_min = min(sfirms_estabs),
+    sfirms_estabs_mdn = median(sfirms_estabs),
+    sfirms_estabs_max = max(sfirms_estabs),
+    .by=c(area, snaics, stitle, esize_group)) |> 
+  arrange(area, snaics, esize_group) |> 
+  # get industry-specific cutpoints for establishment-size groups (# of employees per establishment)
+  mutate(lowcut = case_when(esize_group == 1 ~ 0,
+                          esize_group > 1 ~ pmean(semp_estabs_min, lag(semp_estabs_max)),
+                          .default = 0),
+         hicut = case_when(esize_group == 4 ~ Inf,
+                           esize_group < 4 ~ pmean(semp_estabs_max, lead(semp_estabs_min)),
+                           .default = Inf)) |> 
+  rename(naics_match = snaics) |> 
+  arrange(naics_match, esize_group)
+
+count(look2, esize_group)
+count(look2, naics_match, stitle)
+
+look2 |> 
+  filter(naics_match == "51") |> 
+  ggplot(aes(esize_group, sfirms_estabs_mdn, colour=area)) +
+  geom_line()
+
 ```
