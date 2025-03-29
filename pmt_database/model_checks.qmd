@@ -9,6 +9,16 @@ editor_options:
 # Model checks
 
 ```{r}
+# growth rates 2023 to 2024 from 
+
+avg_wagerate_growth <- .038 # used .038 2023 to 2025
+avg_emp_growth <- .018      # used .03 2023 to 2025
+wagetax2024_target <- 2.925 * 1e9
+
+
+```
+
+```{r}
 #| label: startup
 #| output: false
 
@@ -55,10 +65,17 @@ print(paste0("2023 to 2025 growth in average wages per employee: ", scales::labe
 #| label: baseline-model-forecast
 #| output: false
 
+# .91 total calib
+empcalib <- .962
+wagecalib <- .962
+
+empgrowth <- avg_emp_growth
+avgwagegrowth <- avg_wagerate_growth
+
 pmtfc <- pmtdb |> 
-  mutate(year=2025,
-         gemp = gemp * (1 + empgrowth),
-         gpayroll = gpayroll * (1 + avgwagegrowth) * (1 + empgrowth)) |> 
+  mutate(year=2024,
+         gemp = gemp * (1 + empgrowth) * empcalib,
+         gpayroll = gpayroll * (1 + avgwagegrowth) * (1 + empgrowth) * empcalib * wagecalib) |> 
   # get per- variables
   mutate(get_pervars(gfirms, gestabs, gemp, gpayroll))
 
