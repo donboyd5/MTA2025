@@ -79,7 +79,7 @@ mod_prep <- pmtfc |>
            gpayroll == 0 ~ TRUE, # short term fix
            .default = FALSE)
          ) |> 
-  mutate(entity_pay = gpay_estab) # or gpay_firm gpay_estab
+  mutate(entity_pay = gpay_firm) # or gpay_firm gpay_estab
 
 summary(mod_prep)
 
