@@ -1,0 +1,150 @@
+---
+output: html_document
+editor_options: 
+  chunk_output_type: console
+---
+
+{{< include _setup.qmd >}}
+
+# PMT model
+
+```{r}
+#| label: functions
+
+pmtdb_forecast <- function(prob, pmtdb){
+  pmtfc <- pmtdb |> 
+    mutate(year = prob$year,
+         gemp = gemp * (1 + prob$emp_growth),
+         gpayroll = gpayroll * (1 + prob$avg_wagerate_growth) * (1 + prob$emp_growth)) |> 
+  # get per- variables
+  mutate(get_pervars(gfirms, gestabs, gemp, gpayroll))
+  
+  return(pmtfc)
+}
+
+
+```
+
+```{r}
+#| label: constants
+
+# define payroll cuts and labels
+payroll_cuts <- c(0, 500e3, seq(1e6, 2e6, 200e3), seq(2e6, 5e6, 1e6), Inf, 1.25e6, 1.75e6) |> unique() |> sort()
+paygroup_labels <- cutlabs(payroll_cuts)
+
+
+```
+
+```{r}
+#| label: problem-setup
+
+# Replace recursively with list_modify(), leaving the other elements of z alone
+# str(list_modify(x, z = list(a = 1:5)))
+
+  # mutate(altrate = case_when(
+  #   exempt ~ 0,
+  #   excluded ~ 0,
+  #   entity_pay < 312500 * 4 ~ 0,
+  #   nyc & entity_pay < 4 * 375000 ~ 0.0011,
+  #   nyc & entity_pay < 4 * 437500 ~ 0.0023,
+  #   nyc & entity_pay < 10e6 ~ 0.0060,
+  #   nyc & entity_pay >= 10e6 ~ 0.006 + 0.005,
+  #   
+  #   !nyc & entity_pay < 4 * 375000 ~ 0.0011,
+  #   !nyc & entity_pay < 4 * 437500 ~ 0.0023,
+  #   !nyc & entity_pay < 10e6 ~ 0.0034,
+  #   !nyc & entity_pay >= 10e6 ~ 0.0034 + 0.005,
+  #   .default = -99999)) |> 
+
+  #   nyc & entity_pay < 4 * 375000 ~ 0.0011,
+  #   nyc & entity_pay < 4 * 437500 ~ 0.0023,
+  #   nyc & entity_pay < 10e6 ~ 0.0060,
+plan1 <- list(
+  exempt = expression(
+    owner == "Federal Government" |
+      owner == "Local Government" & naics=="6111"),
+  excluded = expression(
+    naics %in% c("491", "814")),
+  low_pay = expression(gpay_firm < 1.25e6),
+  rates_nyc = tibble(
+    lower = c(0, 1.5e6, 1.75e6),
+    upper = lead(lower, default = Inf),
+    rate = c(0.0011, 0.0023, 0.0060))
+  )
+plan1
+plan1$rates_nyc
+
+plan2 <- list()
+
+
+prob <- list()
+prob$year <- 2025
+prob$emp_growth <- .015
+prob$avg_wagerate_growth <- .04
+prob$plan1 <- plan1
+prob$plan2 <- plan2
+
+prob
+
+
+
+```
+
+```{r}
+#| label: get-data
+
+
+pmtdb <- readRDS(fs::path(PDINTERMEDIATE, "pmtdb_calibrated.rds"))
+glimpse(pmtdb)
+
+
+
+pmtfc <- pmtdb_forecast(prob, pmtdb)
+
+tmp <- pmtfc |> 
+  mutate(exempt=eval(plan1$exempt),
+         excluded = eval(plan1$excluded),
+         low_pay = eval(plan1$low_pay)) |> 
+  fuzzy_left_join(
+    plan1$rates_nyc,
+    by = c("gpay_firm" = "lower", "gpay_firm" = "upper"),
+    match_fun = list(`>=`, `<`)
+  ) |> 
+  mutate(tax = ifelse(!(excluded | exempt | low_pay),
+                      rate * gpayroll,
+                      0))
+count(tmp, rate)
+
+library(fuzzyjoin)
+
+sum(tmp$tax)
+
+df %>%
+  fuzzy_left_join(
+    tax_brackets,
+    by = c("income" = "lower", "income" = "upper"),
+    match_fun = list(`>=`, `<`)
+  )
+
+summary(tmp)
+tmp |> 
+  filter(exempt) |> 
+  summary()
+
+```
+
+```{r}
+#| label: tax-calc
+
+pmtfc <- pmtdb |> 
+  mutate(year=2025,
+         gemp = gemp * (1 + emp_growth),
+         gpayroll = gpayroll * (1 + avg_wagerate_growth) * (1 + emp_growth)) |> 
+  # get per- variables
+  mutate(get_pervars(gfirms, gestabs, gemp, gpayroll))
+
+pmtdb |> 
+  summarise(gpayroll=sum(gpayroll), .by=c(ownerf, owner)) |> 
+  adorn_totals()
+
+```
