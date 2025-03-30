@@ -1,4 +1,8 @@
 
+
+# utilities ---------------------------------------------------------------
+
+
 # get_mtasub <- function(fips){
 #   ifelse(fips %in% constants$nycfips, "nyc", "suburbs")
 # }
@@ -25,3 +29,18 @@ getlabel <- function(paygroup, labels, rightleft="left"){
   colname <- paste0("range_", rightleft)
   labels[i, colname] |> pull()
 }
+
+
+
+# model preparation -------------------------------------------------------
+
+get_pervars <- function(gfirms, gestabs, gemp, gpayroll){
+  # calculate values per firm, per establishment, per employee
+  # typically done after forecasting payroll and employment
+  gpay_firm <- ifelse(gfirms > 0, gpayroll / gfirms, 0)
+  gpay_estab <- ifelse(gestabs > 0, gpayroll / gestabs, 0)
+  gpay_emp <- ifelse(gemp > 0, gpayroll / gemp, 0)
+  return(tibble(gpay_firm, gpay_estab, gpay_emp))
+}
+
+
