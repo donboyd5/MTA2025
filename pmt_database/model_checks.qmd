@@ -9,27 +9,10 @@ editor_options:
 # Model checks
 
 ```{r}
-# growth rates 2023 to 2024 from 
+# growth rates 2024 to 2025
 
-avg_wagerate_growth <- .038 # used .038 2023 to 2025
-avg_emp_growth <- .018      # used .03 2023 to 2025
-wagetax2024_target <- 2.925 * 1e9
-
-
-```
-
-```{r}
-#| label: startup
-#| output: false
-
-get_pervars <- function(gfirms, gestabs, gemp, gpayroll){
-  # calculate values per firm, per establishment, per employee
-  # typically done after forecasting payroll and employment
-  gpay_firm <- ifelse(gfirms > 0, gpayroll / gfirms, 0)
-  gpay_estab <- ifelse(gestabs > 0, gpayroll / gestabs, 0)
-  gpay_emp <- ifelse(gemp > 0, gpayroll / gemp, 0)
-  return(tibble(gpay_firm, gpay_estab, gpay_emp))
-}
+emp_growth <- .015
+avg_wagerate_growth <- .04
 
 ```
 
@@ -37,7 +20,8 @@ get_pervars <- function(gfirms, gestabs, gemp, gpayroll){
 #| label: get-data
 #| output: false
 
-pmtdb <- readRDS(fs::path(PDINTERMEDIATE, "pmtdb_full.rds"))
+# pmtdb <- readRDS(fs::path(PDINTERMEDIATE, "pmtdb_full.rds"))
+pmtdb <- readRDS(fs::path(PDINTERMEDIATE, "pmtdb_calibrated.rds"))
 glimpse(pmtdb)
 
 # define payroll cuts and labels
@@ -54,10 +38,8 @@ pmtdb |>
 #| label: get-forecast-assumptions
 #| output: true
 
-source(fs::path(DMAIN, "R", "forecast_assumptions.r"))
-
-print(paste0("2023 to 2025 employment growth: ", scales::label_percent(accuracy = .1) (empgrowth)))
-print(paste0("2023 to 2025 growth in average wages per employee: ", scales::label_percent(accuracy = .1) (avgwagegrowth)))
+print(paste0("2024 to 2025 employment growth: ", scales::label_percent(accuracy = .1) (emp_growth)))
+print(paste0("2024 to 2025 growth in average wages per employee: ", scales::label_percent(accuracy = .1) (avg_wagerate_growth)))
 
 ```
 
@@ -65,17 +47,11 @@ print(paste0("2023 to 2025 growth in average wages per employee: ", scales::labe
 #| label: baseline-model-forecast
 #| output: false
 
-# .91 total calib
-empcalib <- .962
-wagecalib <- .962
-
-empgrowth <- avg_emp_growth
-avgwagegrowth <- avg_wagerate_growth
 
 pmtfc <- pmtdb |> 
-  mutate(year=2024,
-         gemp = gemp * (1 + empgrowth) * empcalib,
-         gpayroll = gpayroll * (1 + avgwagegrowth) * (1 + empgrowth) * empcalib * wagecalib) |> 
+  mutate(year=2025,
+         gemp = gemp * (1 + emp_growth),
+         gpayroll = gpayroll * (1 + avg_wagerate_growth) * (1 + emp_growth)) |> 
   # get per- variables
   mutate(get_pervars(gfirms, gestabs, gemp, gpayroll))
 

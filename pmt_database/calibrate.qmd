@@ -1,0 +1,275 @@
+---
+output: html_document
+editor_options: 
+  chunk_output_type: console
+---
+
+{{< include _setup.qmd >}}
+
+# Calibrate the data to 2024
+
+The database currently is for 2023, the year of the QCEW data. To calibrate it, we do the following:
+
+-   Set assumptions:
+    -   Growth rates of employment and average wage per employee from 2023 to 2024
+    -   PMT wage-tax revenue target for 2024
+-   Simple forecast of employment and payroll to 2024
+-   Compute 2024 tax and compare to target
+-   Determine equal proportionate calibration factors for employment and average wage per employee
+-   Calculate calibrate employment and average wage per employee
+
+Save the resulting 2024 calibrated file.
+
+## Set assumptions
+
+```{r}
+#| label: assumptions
+#| output: false
+
+# growth rates 2023 to 2024 from 
+avg_emp_growth <- .018
+avg_wagerate_growth <- .038
+
+# wage tax target
+wagetax2024_target <- 2.925 * 1e9
+
+```
+
+Employment and wage-rate growth for calendar year 2024 are for the MTA as a whole, based on growth in QCEW MTA employment and wage rates for the first 3 quarters of 2024. The wage tax target is based on my recent estimate of Department of Taxation and Finance collections for 2024.
+
+Assumptions:
+
+-   Employment growth: `r scales::label_percent(accuracy = .1)(avg_emp_growth)`
+-   Growth in wages per employees: `r scales::label_percent(accuracy = .1)(avg_wagerate_growth)`
+-   PMT wage tax revenue (\$ millions): `r scales::label_comma(accuracy = 1, scale = 1e-6, prefix="$")(wagetax2024_target)`
+
+## Forecast employment and payroll to 2024
+
+```{r}
+#| label: forecast
+#| output: false
+
+pmtdb <- readRDS(fs::path(PDINTERMEDIATE, "pmtdb_full.rds"))
+glimpse(pmtdb)
+
+pmtfc <- pmtdb |> 
+  mutate(year=2024,
+         gemp = gemp * (1 + avg_emp_growth),
+         gpayroll = gpayroll * (1 + avg_wagerate_growth) * (1 + avg_emp_growth))
+
+         # |> 
+  # get per- variables
+  # mutate(get_pervars(gfirms, gestabs, gemp, gpayroll))
+
+```
+
+```{r}
+#| label: show-forecast
+#| output: true
+
+pmtfc |> 
+  summarise(gemp = sum(gemp), 
+            gpayroll = sum(gpayroll),
+            .by=c(ownerf, owner)) |> 
+  adorn_totals() |> 
+  gt() |> 
+  tab_header("Pre-calibration estimated 2024 MTA employment and payroll (in $ millions), by owner type") |> 
+  fmt_number(columns = gemp, decimals = 0) |> 
+  fmt_currency(columns = gpayroll, scale = 1e-6, decimals = 0)
+
+```
+
+## Compute 2024 payroll tax and compare to target
+
+```{r}
+#| label: calc-detailed-tax
+#| output: false
+
+mod_prep <- pmtfc |>
+  mutate(exempt = case_when(owner == "Federal Government" ~ TRUE,
+                            owner == "Local Government" & naics=="6111" ~ TRUE,
+                            .default = FALSE),
+         excluded = case_when(
+           naics %in% c("491", "814") ~ TRUE, # the oddballs Post Office and household workers
+           # gpayroll == 0 ~ TRUE, # short term fix
+           .default = FALSE)
+         )
+
+mod_calcs <- mod_prep  |> 
+  mutate(get_pervars(gfirms, gestabs, gemp, gpayroll)) |> 
+  mutate(entity_pay = gpay_firm) |> # gpay_firm or gpay_estab
+  
+  mutate(baserate = case_when(
+    exempt ~ 0,
+    excluded ~ 0,    
+    entity_pay < 312500 * 4 ~ 0,
+    nyc & entity_pay < 4 * 375000 ~ 0.0011,
+    nyc & entity_pay < 4 * 437500 ~ 0.0023,
+    nyc ~ 0.0060,
+    !nyc & entity_pay < 4 * 375000 ~ 0.0011,
+    !nyc & entity_pay < 4 * 437500 ~ 0.0023,
+    !nyc & entity_pay >= 4 * 437500 ~ 0.0034,
+    .default = -99999)) |> 
+  
+  mutate(tax2024 = baserate * gpayroll)
+
+```
+
+```{r}
+#| label: show-tax
+#| output: true
+
+tabdata <- mod_calcs |> 
+  summarise(gpayroll = sum(gpayroll),
+            tax2024=sum(tax2024),
+            .by=c(ownerf, owner)) |> 
+  adorn_totals()
+
+estimated_tax <- tabdata$tax2024[tabdata$ownerf == "Total"]
+
+tabdata |> 
+  gt() |> 
+  tab_header(md("2024 tax calculated on pre-calibration 2024 data"),
+             subtitle="$ millions") |> 
+  fmt_number(columns = -c(ownerf, owner),
+             scale = 1e-6,
+             decimals = 0)
+
+comp_data <- tibble(target = wagetax2024_target, calculated = estimated_tax) |> 
+  mutate(diff = calculated - target, pct = diff / target)
+
+comp_data |> 
+  gt() |> 
+  tab_header(md("2024 Calculated tax compared to target, $ millions"),
+             subtitle = md("Amount and percent by which calculated is above (+) or below (-) target")) |> 
+  fmt_currency(columns = c(target, calculated, diff), scale = 1e-6, decimals = 0) |> 
+  fmt_percent(columns = pct, decimals = 1)
+
+```
+
+## Calculate calibration factor that adjusts employment and wage rate by equal proportions to hit target
+
+```{r}
+#| label: calculate-calibration-factor
+#| output: false
+
+# data is mod_prep -- forecasted prepared data
+
+f <- function(calfactor, target, data){
+  mod_calcs <- data  |> 
+    mutate(gemp = gemp * calfactor,
+         gpayroll = gpayroll * calfactor) |> 
+    mutate(get_pervars(gfirms, gestabs, gemp, gpayroll)) |> 
+    mutate(entity_pay = gpay_firm) |> # gpay_firm or gpay_estab
+    mutate(baserate = case_when(
+      exempt ~ 0,
+      excluded ~ 0,    
+      entity_pay < 312500 * 4 ~ 0,
+      nyc & entity_pay < 4 * 375000 ~ 0.0011,
+      nyc & entity_pay < 4 * 437500 ~ 0.0023,
+      nyc ~ 0.0060,
+      !nyc & entity_pay < 4 * 375000 ~ 0.0011,
+      !nyc & entity_pay < 4 * 437500 ~ 0.0023,
+      !nyc & entity_pay >= 4 * 437500 ~ 0.0034,
+      .default = -99999)) |> 
+  
+  mutate(tax2024 = baserate * gpayroll)
+  
+  calculated <- sum(mod_calcs$tax2024)
+  
+  return((calculated / 1e6 - target / 1e6)^2)
+}
+
+f(1, target = wagetax2024_target, data = mod_prep)
+
+res <- optimize(f, c(.5, 1.5), target = wagetax2024_target, data = mod_prep)
+
+calibration_factor <- res$minimum
+
+```
+
+Optimization result:
+
+-   Calibration factor: `r res$minimum`
+-   Objective function: `r res$objective`
+
+## Calibrate data, verify results, and save
+
+```{r}
+#| label: calibrate
+#| output: false
+
+pmtdb_calibrated <- mod_prep |> 
+  mutate(gemp = gemp * calibration_factor,
+         gpayroll = gpayroll * calibration_factor) |> 
+  select(-c(exempt, excluded))
+
+```
+
+```{r}
+
+mod_prep <- pmtdb_calibrated |>
+  mutate(exempt = case_when(owner == "Federal Government" ~ TRUE,
+                            owner == "Local Government" & naics=="6111" ~ TRUE,
+                            .default = FALSE),
+         excluded = case_when(
+           naics %in% c("491", "814") ~ TRUE, # the oddballs Post Office and household workers
+           # gpayroll == 0 ~ TRUE, # short term fix
+           .default = FALSE)
+         )
+
+mod_calcs <- mod_prep  |> 
+  mutate(get_pervars(gfirms, gestabs, gemp, gpayroll)) |> 
+  mutate(entity_pay = gpay_firm) |> # gpay_firm or gpay_estab
+  
+  mutate(baserate = case_when(
+    exempt ~ 0,
+    excluded ~ 0,    
+    entity_pay < 312500 * 4 ~ 0,
+    nyc & entity_pay < 4 * 375000 ~ 0.0011,
+    nyc & entity_pay < 4 * 437500 ~ 0.0023,
+    nyc ~ 0.0060,
+    !nyc & entity_pay < 4 * 375000 ~ 0.0011,
+    !nyc & entity_pay < 4 * 437500 ~ 0.0023,
+    !nyc & entity_pay >= 4 * 437500 ~ 0.0034,
+    .default = -99999)) |> 
+  
+  mutate(tax2024 = baserate * gpayroll)
+
+```
+
+```{r}
+#| label: show-calibrated-results
+
+tabdata <- mod_calcs |> 
+  summarise(gpayroll = sum(gpayroll),
+            tax2024=sum(tax2024),
+            .by=c(ownerf, owner)) |> 
+  adorn_totals()
+
+tabdata |> 
+  gt() |> 
+  tab_header(md("2024 tax calculated on calibrated 2024 data"),
+             subtitle="$ millions") |> 
+  fmt_number(columns = -c(ownerf, owner),
+             scale = 1e-6,
+             decimals = 0)
+
+```
+
+```{r}
+#| label: save-calibrated-data
+#| output: false
+
+saveRDS(pmtdb_calibrated, fs::path(PDINTERMEDIATE, "pmtdb_calibrated.rds"))
+
+```
+
+```{r}
+#| label: cleanup
+rm(list = ls())
+```
+
+```{r stop_here, echo=FALSE}
+knitr::knit_exit()
+```

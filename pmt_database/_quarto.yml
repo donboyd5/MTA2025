@@ -31,8 +31,9 @@ book:
       - allocate_qcew_data_to_establishment_size_groups.qmd
       - add_firm_size_and_ppf.qmd
       - combine_private_and_public.qmd
-    - part: "Model checks"
+    - part: "Calibrate and check data"
       chapters:
+      - calibrate.qmd
       - model_checks.qmd
     - part: "Output data for MTA"
       chapters:
