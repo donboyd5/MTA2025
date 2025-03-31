@@ -12,5 +12,8 @@ x90 <- theme(axis.text.x = element_text(angle = -90, vjust = 0, hjust=0.5))
 
 # constants ---------------------------------------------------------------
 
+DDB <- here::here("pmt_database")
+PDRAW <- fs::path(DDB, "data_raw")
+PDINTERMEDIATE <- fs::path(DDB, "data_intermediate")
 
 
