@@ -31,7 +31,7 @@ avg_emp_growth <- .018
 avg_wagerate_growth <- .038
 
 # wage tax target
-wagetax2024_target <- 2.925 * 1e9
+wagetax2024_target <- 2.946 * 1e9 # pulled from data.ny.gov 3/31/2025
 
 ```
 
@@ -140,7 +140,7 @@ comp_data <- tibble(target = wagetax2024_target, calculated = estimated_tax) |>
 
 comp_data |> 
   gt() |> 
-  tab_header(md("2024 Calculated tax compared to target, $ millions"),
+  tab_header(md("2024 Calculated tax compared to target (2024 collections per 3/31/2025), $ millions"),
              subtitle = md("Amount and percent by which calculated is above (+) or below (-) target")) |> 
   fmt_currency(columns = c(target, calculated, diff), scale = 1e-6, decimals = 0) |> 
   fmt_percent(columns = pct, decimals = 1)
@@ -155,7 +155,8 @@ comp_data |>
 
 # data is mod_prep -- forecasted prepared data
 
-f <- function(calfactor, target, data){
+obj <- function(calfactor, target, data){
+  print("in objective function...")
   mod_calcs <- data  |> 
     mutate(gemp = gemp * calfactor,
          gpayroll = gpayroll * calfactor) |> 
@@ -176,13 +177,15 @@ f <- function(calfactor, target, data){
   mutate(tax2024 = baserate * gpayroll)
   
   calculated <- sum(mod_calcs$tax2024)
+  pct_err <- (calculated - target) / target
   
-  return((calculated / 1e6 - target / 1e6)^2)
+  return(pct_err^2)
 }
 
-f(1, target = wagetax2024_target, data = mod_prep)
+obj(1, target = wagetax2024_target, data = mod_prep)
 
-res <- optimize(f, c(.5, 1.5), target = wagetax2024_target, data = mod_prep)
+res <- optimize(obj, c(.9, 1.1), target = wagetax2024_target, data = mod_prep)
+res
 
 calibration_factor <- res$minimum
 

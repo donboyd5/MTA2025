@@ -35,9 +35,9 @@ book:
       chapters:
       - calibrate.qmd
       - model_checks.qmd
-    - part: "Output data for MTA"
-      chapters:
-      - data_for_mta.qmd
+    # - part: "Output data for MTA"
+    #   chapters:
+    #   - data_for_mta.qmd
   page-footer:
     center: "[Return to main MTA 2025 page](https://boyd-mta2025-links.netlify.app/)"      
 

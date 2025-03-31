@@ -36,8 +36,14 @@ qmta |>
   adorn_totals()
 
 combined <- private |> 
+  mutate(size_group = ntile(elb, length(unique(elb)))) |> 
   bind_rows(qmta |> 
-              filter(ownerf != 1))
+              filter(ownerf != 1) |> 
+              mutate(size_group = 0,
+                     elb=0, 
+                     eub=Inf))
+
+count(combined, size_group, elb, eub)
 
 ```
 
@@ -76,7 +82,7 @@ qmta |>
   summarise(across(c(estabs, emp, payroll), sum))
 
 combined3 <- combined2 |> 
-  select(year, area, nyc, ownerf, owner, naics, title, gfirms, gestabs, gemp, gpayroll)
+  select(year, area, nyc, ownerf, owner, naics, title, size_group, elb, eub, gfirms, gestabs, gemp, gpayroll)
 summary(combined3)
 glimpse(combined3)
 
