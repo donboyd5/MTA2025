@@ -19,14 +19,17 @@ Right click a link below to open in a new tab (the sites don't all yet have link
 
 -   [MTA share of state personal income tax](https://boyd-mta2025-pitshare.netlify.app/)
 
--   [Pass-Through Entity Tax (PTET) credit](https://boyd-mta2025-ptet.netlify.app/)
+-   Pass-Through Entity Tax (PTET) credit
 
+    -   [PTET analysis](https://boyd-mta2025-ptet.netlify.app/)
     -   [PTET credit](https://boyd-mta2025-ptet.netlify.app/data.html)
     -   [NYS PIT partial credit for loss due to SALT cap](https://boyd-mta2025-ptet.netlify.app/state_credit_for_salt_impact.html)
 
--   [Payroll mobility tax (PMT)](https://boyd-mta2025-pmt.netlify.app/)
+-   Payroll mobility tax (PMT)
 
--   [Payroll mobility tax database development](https://boyd-mta-pmt-database.netlify.app/)
+    -   [PMT background information](https://boyd-mta2025-pmt.netlify.app/)
+    -   [PMT analysis](https://boyd-mta2025-pmt-options.netlify.app/)
+    -   [PMT database development](https://boyd-mta-pmt-database.netlify.app/)
 
 -   [Miscellaneous estimates](https://boyd-mta2025-misc.netlify.app/)
 

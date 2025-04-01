@@ -6,7 +6,7 @@ editor_options:
 
 {{< include _setup.qmd >}}
 
-# PMT model
+# PMT model and revenue options
 
 ```{r}
 #| label: payroll-cutpoints
@@ -134,7 +134,7 @@ summary(pmtdb)
 
 ```
 
-## DOB raise top-rate option
+## DOB option: Raise top rate by 50bp on firms with payroll \>= \$10 million
 
 -   Raise top PMT rate by 50 basis points on firms with payroll \>= \$10 million
 -   No change for firms with lower payroll
@@ -167,6 +167,18 @@ prob
 
 ```
 
+### Plan 1 (2024 law) and Plan 2 descriptions (DOB option)
+
+```{r}
+#| label: show-plans
+#| output: true
+
+prob
+
+```
+
+### Summary results
+
 ```{r}
 #| label: tax-calc
 #| output: false
@@ -194,8 +206,6 @@ taxcomp |>
   mutate(diff = dob10m - tax2024)
 
 ```
-
-### Summary results
 
 ```{r}
 #| label: show-dob-results
