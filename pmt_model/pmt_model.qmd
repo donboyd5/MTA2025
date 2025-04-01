@@ -9,7 +9,18 @@ editor_options:
 # PMT model
 
 ```{r}
+#| label: payroll-cutpoints
+#| output: false
+
+# define payroll cuts and labels
+payroll_cuts <- c(0, 500e3, seq(1e6, 2e6, 200e3), seq(2e6, 5e6, 1e6), Inf, 1.25e6, 1.75e6) |> unique() |> sort()
+paygroup_labels <- cutlabs(payroll_cuts)
+
+```
+
+```{r}
 #| label: functions
+#| output: false
 
 pmtdb_forecast <- function(prob, pmtdb){
   pmtfc <- pmtdb |> 
@@ -86,8 +97,14 @@ make_taxplan <- function(shortname = NULL,
 }
 # a <- str2expression("5 < 10")
 # eval(a)
-  
-get_tax <- function(data, taxplan){
+
+```
+
+```{r}
+#| label: function-tax-calculation
+#| output: false
+
+calc_tax <- function(data, taxplan){
   df <- data |>
     mutate(
       shortname = taxplan$shortname,
@@ -95,30 +112,36 @@ get_tax <- function(data, taxplan){
       excluded = eval(taxplan$excluded),
       low_pay = eval(taxplan$low_pay)) |> 
     left_join(taxplan$rates, 
-              by = join_by(nyc, gpay_firm >= lower, gpay_firm < upper)) |> 
+              by = join_by(nyc, gpay_firm > lower, gpay_firm <= upper)) |> 
     select(-lower, -upper) |> 
-    mutate(tax = ifelse(exempt | excluded | low_pay,
+    mutate(rate = ifelse(exempt | excluded | low_pay,
                         0,
-                        rate * gpayroll))
+                        rate),
+           tax = rate * gpayroll)
   
   return(df)
 }
 
-
 ```
 
 ```{r}
-#| label: constants
+#| label: get-data
+#| output: false
 
-# define payroll cuts and labels
-payroll_cuts <- c(0, 500e3, seq(1e6, 2e6, 200e3), seq(2e6, 5e6, 1e6), Inf, 1.25e6, 1.75e6) |> unique() |> sort()
-paygroup_labels <- cutlabs(payroll_cuts)
-
+pmtdb <- readRDS(fs::path(PDINTERMEDIATE, "pmtdb_calibrated.rds"))
+glimpse(pmtdb)
+summary(pmtdb)
 
 ```
+
+## DOB raise top-rate option
+
+-   Raise top PMT rate by 50 basis points on firms with payroll \>= \$10 million
+-   No change for firms with lower payroll
 
 ```{r}
 #| label: problem-setup
+#| output: false
 
 plan2024 <- make_taxplan("tax2024")
 
@@ -142,34 +165,25 @@ prob
 # prob$emp_growth <- 0
 # prob$avg_wagerate_growth <- 0
 
-
-```
-
-```{r}
-#| label: get-data
-
-pmtdb <- readRDS(fs::path(PDINTERMEDIATE, "pmtdb_calibrated.rds"))
-glimpse(pmtdb)
-summary(pmtdb)
-
 ```
 
 ```{r}
 #| label: tax-calc
+#| output: false
 
 pmtfc <- pmtdb_forecast(prob, pmtdb)
 summary(pmtfc)
 
 taxcomp <- bind_rows(
   pmtfc |> 
-    mutate(get_tax(pick(everything()), prob$plan1)),
+    mutate(calc_tax(pick(everything()), prob$plan1)) |> 
+    mutate(basealt = "basetax"),
   pmtfc |> 
-    mutate(get_tax(pick(everything()), prob$plan2)))
+    mutate(calc_tax(pick(everything()), prob$plan2)) |> 
+    mutate(basealt = "alttax"))
 
 glimpse(taxcomp)
 count(taxcomp, shortname)
-taxcomp |> 
-  summarise(gpayroll=sum(gpayroll), .by=shortname)
 
 taxcomp |> 
   summarise(tax=sum(tax),
@@ -178,6 +192,79 @@ taxcomp |>
               values_from = tax) |> 
   adorn_totals() |> 
   mutate(diff = dob10m - tax2024)
+
+```
+
+### Summary results
+
+```{r}
+#| label: show-dob-results
+#| output: true
+
+tabdata <- taxcomp |> 
+  summarise(gpayroll = sum(gpayroll),
+            tax=sum(tax),
+            .by=c(ownerf, owner, basealt)) |> 
+  pivot_wider(names_from = basealt,
+              values_from = tax) |> 
+  select(ownerf, owner, gpayroll, basetax, alttax) |> 
+  arrange(ownerf) |> 
+  adorn_totals() |> 
+  mutate(change = alttax - basetax)
+
+tabdata |> 
+  gt() |> 
+  tab_header(md("50bp PMT increase for **firms** with payroll > $10m, NYC+Suburbs combined"),
+             subtitle="$ millions, 2025 levels") |> 
+  fmt_number(columns = -c(ownerf, owner),
+             scale = 1e-6,
+             decimals = 0) |> 
+  fmt_currency(columns = -c(ownerf, owner),
+               rows = c(1, nrow(tabdata)),
+               scale = 1e-6,
+               decimals = 0)
+
+```
+
+### Results broken down by NYC and suburbs
+
+```{r}
+#| label: show-dob-geographic-details
+#| output: true
+
+tabdata <- taxcomp |> 
+  summarise(tax=sum(tax),
+            .by=c(nyc, ownerf, owner, basealt)) |> 
+  mutate(nyc=ifelse(nyc, "nyc", "suburbs")) |> 
+  pivot_wider(names_from = basealt,
+              values_from = tax) |> 
+  mutate(change = alttax - basetax) |> 
+  pivot_wider(names_from = nyc,
+              values_from = c(basetax, alttax, change)) |> 
+  arrange(ownerf) |> 
+  adorn_totals() |> 
+  mutate(base_total = basetax_nyc + basetax_suburbs,
+         alt_total = alttax_nyc + alttax_suburbs,
+         change_total = change_nyc + change_suburbs,
+         nyc_change_pct=change_nyc / change_total) |> 
+  relocate(base_total, .after = basetax_suburbs) |> 
+  relocate(alt_total, .after = alttax_suburbs)
+tabdata
+
+tabdata |> 
+  gt() |> 
+  tab_header(md("50bp PMT increase for **firms** with payroll > $10m"),
+             subtitle="$ millions, 2025 levels") |> 
+  fmt_number(columns = -c(ownerf, owner,nyc_change_pct),
+             scale = 1e-6,
+             decimals = 0) |> 
+  fmt_currency(columns = -c(ownerf, owner,nyc_change_pct),
+               rows = c(1, nrow(tabdata)),
+               scale = 1e-6,
+               decimals = 0) |> 
+  fmt_percent(columns=nyc_change_pct,
+              decimals = 1) |> 
+  sub_missing(missing_text = "--")
 
 ```
 
