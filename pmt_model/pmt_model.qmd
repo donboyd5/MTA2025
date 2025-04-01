@@ -167,16 +167,6 @@ prob
 
 ```
 
-### Plan 1 (2024 law) and Plan 2 descriptions (DOB option)
-
-```{r}
-#| label: show-plans
-#| output: true
-
-prob
-
-```
-
 ### Summary results
 
 ```{r}
@@ -259,7 +249,7 @@ tabdata <- taxcomp |>
          nyc_change_pct=change_nyc / change_total) |> 
   relocate(base_total, .after = basetax_suburbs) |> 
   relocate(alt_total, .after = alttax_suburbs)
-tabdata
+# tabdata
 
 tabdata |> 
   gt() |> 
@@ -275,6 +265,16 @@ tabdata |>
   fmt_percent(columns=nyc_change_pct,
               decimals = 1) |> 
   sub_missing(missing_text = "--")
+
+```
+
+### Plan 1 (2024 law) and Plan 2 (DOB option) details
+
+```{r}
+#| label: show-plans
+#| output: true
+
+prob
 
 ```
 

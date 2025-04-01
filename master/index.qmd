@@ -27,9 +27,9 @@ Right click a link below to open in a new tab (the sites don't all yet have link
 
 -   Payroll mobility tax (PMT)
 
-    -   [PMT background information](https://boyd-mta2025-pmt.netlify.app/)
-    -   [PMT analysis](https://boyd-mta2025-pmt-options.netlify.app/)
+    -   [PMT options analysis](https://boyd-mta2025-pmt-options.netlify.app/)
     -   [PMT database development](https://boyd-mta-pmt-database.netlify.app/)
+    -   [PMT background information](https://boyd-mta2025-pmt.netlify.app/)
 
 -   [Miscellaneous estimates](https://boyd-mta2025-misc.netlify.app/)
 
