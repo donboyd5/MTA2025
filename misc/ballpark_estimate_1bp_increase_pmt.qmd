@@ -1,7 +1,0 @@
----
-output: html_document
-editor_options: 
-  chunk_output_type: console
----
-
-# Ballpark estimate 1 basis point increase in top PMT rate

@@ -31,9 +31,18 @@ Right click a link below to open in a new tab (the sites don't all yet have link
     -   [PMT database development](https://boyd-mta-pmt-database.netlify.app/)
     -   [PMT background information](https://boyd-mta2025-pmt.netlify.app/)
 
--   [Miscellaneous estimates and analyses](https://boyd-mta2025-misc.netlify.app/)
+-   [Miscellaneous estimates and analyses](https://boyd-mta2025-misc.netlify.app/) See the miscellaneous page for the following (and possibly more). Some items have their own subpage, and others are on a miscellaneous page.
 
-    -   [Sales tax revenue option estimates](https://boyd-mta2025-misc.netlify.app/sales_tax.html)
-    -   [Wage growth in the MTA region through several recessions](https://boyd-mta-wage-growth.netlify.app/)
+    -   Wage growth in the MTA region through several recessions (4/9/2025)
+    -   PTET itemized deduction credit analysis (3/19/2025)
+    -   Sales tax revenue option estimates (3/12/2025)\
+    -   PTET credit estimation (2/21/2025)
+    -   Data excise tax estimation (2/20/2025)
+    -   PMT revenue options (2/17/2025)
+    -   Internet Marketplace Act estimating notes (2/11/2025)
+    -   Distribution of tax burden (12/18/2024)
+    -   Regional distribution of taxes and spending (12/17/2024)
+    -   Ballpark estimate 1 basis point increase in top PMT rate (12/13/2024)
+    -   Analysis of MTA November 2024 forecast (10/17/2024)
 
 <!-- -   [This site (links)](https://boyd-mta2025-links.netlify.app/) -->

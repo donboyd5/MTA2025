@@ -1,0 +1,49 @@
+---
+output: html_document
+editor_options: 
+  chunk_output_type: console
+---
+
+# Miscellaneous analyses
+
+## PTET itemized deduction credit analysis (3/19/2025)
+
+-   [associated Excel file](files/PTET_itemized_deduction_credit/NY_IRS_data_2017and2022_salt_2025-03-19.xlsx)
+
+## PTET credit estimation (2/21/2025)
+
+-   [pdf of estimating notes](files/PTET%20Credit/Pass-through%20entity%20tax%20(PTET)%20-%20Estimate%20notes%20-%20Dynalist_2025-02-21.pdf)
+-   [associated Excel file](files/PTET%20Credit/22in33ny_djb.xlsx)
+
+## Data excise tax estimation (2/20/2025)
+
+-   [pdf of estimating notes](files/data_excise_tax/Data%20excise%20tax%20-%20Estimate%20notes%20-%20Dynalist_2025-02-20.pdf)
+
+## PMT revenue options (2/17/2025)
+
+-   [pdf of estimating notes](files/PMT%20options/Payroll%20mobility%20tax%20(PMT)%20-%20Estimate%20notes_2025-02-17_v2.pdf)
+-   [option writeup and appendix](files/PMT%20options/PMT%20options%20and%20appendix_2025-02-17_v2.pdf)
+
+## Internet Marketplace Act estimating notes (2/11/2025)
+
+-   [pdf of estimating notes](files/Internet%20Marketplace%20Act/Internet%20Marketplace%20Act%20-%20Estimate%20notes_2025-02-11.pdf)
+
+## Distribution of tax burden (12/18/2024)
+
+-   [pdf of memo](files/distribution%20of%20tax%20burden/Boyd%20Willens%20Distribution%20of%20tax%20burden%202024-12-18.pdf)
+
+## Regional distribution of taxes and spending (12/17/2024)
+
+-   [pdf of memo](files/Regional%20distribution%20of%20taxes%20and%20spending\Federal%20state%20and%20MTA%20regional%20distribution%20of%20taxes%20and%20spending_2014-12-17.pdf)
+
+## Ballpark estimate 1 basis point increase in top PMT rate (12/13/2024)
+
+-   [pdf of email response](files/1%20bp%20on%20pmt%20wages%20nese%20nyc%20and%20suburban/2024-12-13-We%20are%20in%20the%20same%20ballpark%20for%20a%201%20bp%20increase%20in%20large-employer%20PMT%20+%20self-employment%20increase.pdf)
+
+-   [associated Excel spreadsheet](files/1%20bp%20on%20pmt%20wages%20nese%20nyc%20and%20suburban/Boyd%20notes%201bp%20pmt%20increase_2024-12-13.xlsx)
+
+## Analysis of MTA November 2024 forecast (10/17/2024)
+
+-   [pdf of memo](files/analysis%20of%20mta%20Nov%202024%20pmt%20forecast/boyd%20Analysis%20MTA%20PMT%20for%20November%202024%20FinPlan_2024-10-17.pdf)
+-   [associated Excel spreadsheet](files/analysis%20of%20mta%20Nov%202024%20pmt%20forecast/Boyd_2024_PMT_Forecast_2024-10-17_revenue_updated.xlsx)
+-   [email discussion](files/analysis%20of%20mta%20Nov%202024%20pmt%20forecast/2024-10-03-MTA%20Payroll%20Mobility%20Tax.pdf)
