@@ -31,8 +31,9 @@ Right click a link below to open in a new tab (the sites don't all yet have link
     -   [PMT database development](https://boyd-mta-pmt-database.netlify.app/)
     -   [PMT background information](https://boyd-mta2025-pmt.netlify.app/)
 
--   [Miscellaneous estimates](https://boyd-mta2025-misc.netlify.app/)
+-   [Miscellaneous estimates and analyses](https://boyd-mta2025-misc.netlify.app/)
 
     -   [Sales tax revenue option estimates](https://boyd-mta2025-misc.netlify.app/sales_tax.html)
+    -   [Wage growth in the MTA region through several recessions](https://boyd-mta-wage-growth.netlify.app/)
 
 <!-- -   [This site (links)](https://boyd-mta2025-links.netlify.app/) -->
