@@ -4,9 +4,9 @@ project:
   
 execute:
   eval: true
-  echo: false
+  echo: true
   output: false
-  freeze: auto  # auto, true, or false
+  freeze: false  # auto, true, or false
 
 book:
   title: "Develop PMT database"
