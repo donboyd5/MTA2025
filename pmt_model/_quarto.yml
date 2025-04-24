@@ -17,6 +17,7 @@ book:
   chapters:
     - index.qmd
     - pmt_model.qmd
+    - make_spreadsheet_options_menu.qmd
   page-footer:
     center: "[Return to main MTA 2025 page](https://boyd-mta2025-links.netlify.app/)"      
 
