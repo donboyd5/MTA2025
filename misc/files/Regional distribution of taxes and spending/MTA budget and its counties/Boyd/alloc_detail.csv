@@ -1,0 +1,253 @@
+vname,columnid,measure,year,value
+mmtoa,Metropolitan Mass Transportation Operating Assistance (MMTOA),accrual,2016,1668002900.37
+mmtoa,Metropolitan Mass Transportation Operating Assistance (MMTOA),accrual,2017,1668002887.565068
+mmtoa,Metropolitan Mass Transportation Operating Assistance (MMTOA),accrual,2018,1686555999.98
+mmtoa,Metropolitan Mass Transportation Operating Assistance (MMTOA),accrual,2019,1823692200.01
+mmtoa,Metropolitan Mass Transportation Operating Assistance (MMTOA),accrual,2020,1563993923.21
+mmtoa,Metropolitan Mass Transportation Operating Assistance (MMTOA),accrual,2021,2247450899
+mmtoa,Metropolitan Mass Transportation Operating Assistance (MMTOA),accrual,2022,2601034199.9994316
+mmtoa,Metropolitan Mass Transportation Operating Assistance (MMTOA),cash,2016,1668002999.9538386
+mmtoa,Metropolitan Mass Transportation Operating Assistance (MMTOA),cash,2017,1668003000.0328221
+mmtoa,Metropolitan Mass Transportation Operating Assistance (MMTOA),cash,2018,1686555999.98
+mmtoa,Metropolitan Mass Transportation Operating Assistance (MMTOA),cash,2019,1823691613
+mmtoa,Metropolitan Mass Transportation Operating Assistance (MMTOA),cash,2020,1563993932.03
+mmtoa,Metropolitan Mass Transportation Operating Assistance (MMTOA),cash,2021,2247450899
+mmtoa,Metropolitan Mass Transportation Operating Assistance (MMTOA),cash,2022,2601034199.9994316
+pbt,Petroleum Business Tax (PBT),accrual,2016,634112597.09
+pbt,Petroleum Business Tax (PBT),accrual,2017,606013000
+pbt,Petroleum Business Tax (PBT),accrual,2018,632800000
+pbt,Petroleum Business Tax (PBT),accrual,2019,649100000
+pbt,Petroleum Business Tax (PBT),accrual,2020,503410700
+pbt,Petroleum Business Tax (PBT),accrual,2021,525652998
+pbt,Petroleum Business Tax (PBT),accrual,2022,598763121.1440253
+pbt,Petroleum Business Tax (PBT),cash,2016,617455000
+pbt,Petroleum Business Tax (PBT),cash,2017,617070850
+pbt,Petroleum Business Tax (PBT),cash,2018,630700000
+pbt,Petroleum Business Tax (PBT),cash,2019,648600000
+pbt,Petroleum Business Tax (PBT),cash,2020,565110700
+pbt,Petroleum Business Tax (PBT),cash,2021,584552984
+pbt,Petroleum Business Tax (PBT),cash,2022,596884768.5199275
+mrt1,MRT-1,accrual,2016,330084681.08
+mrt1,MRT-1,accrual,2017,314425599.42999995
+mrt1,MRT-1,accrual,2018,316575980.56
+mrt1,MRT-1,accrual,2019,332018325.4
+mrt1,MRT-1,accrual,2020,303372599.36
+mrt1,MRT-1,accrual,2021,419261308.27000004
+mrt1,MRT-1,accrual,2022,388174395.2396469
+mrt1,MRT-1,cash,2016,327059928.67999995
+mrt1,MRT-1,cash,2017,321882315.91
+mrt1,MRT-1,cash,2018,308938580.51
+mrt1,MRT-1,cash,2019,328299456.53
+mrt1,MRT-1,cash,2020,307705183.59000003
+mrt1,MRT-1,cash,2021,410309456.2300001
+mrt1,MRT-1,cash,2022,395930501.0542709
+mrt2,MRT-2,accrual,2016,130034096.96
+mrt2,MRT-2,accrual,2017,138297309.18
+mrt2,MRT-2,accrual,2018,131202515.81
+mrt2,MRT-2,accrual,2019,135576325.07999998
+mrt2,MRT-2,accrual,2020,161168398.54000002
+mrt2,MRT-2,accrual,2021,238223445.76
+mrt2,MRT-2,accrual,2022,230397980.93098938
+mrt2,MRT-2,cash,2016,130497283.90999998
+mrt2,MRT-2,cash,2017,139477974.57
+mrt2,MRT-2,cash,2018,131600670.62999998
+mrt2,MRT-2,cash,2019,133439004.99
+mrt2,MRT-2,cash,2020,155028820.94
+mrt2,MRT-2,cash,2021,237338336.66
+mrt2,MRT-2,cash,2022,230767803.49771285
+urban,Urban Tax,accrual,2016,771476268.609
+urban,Urban Tax,accrual,2017,539132538.6
+urban,Urban Tax,accrual,2018,699707124.871
+urban,Urban Tax,accrual,2019,641349911.7
+urban,Urban Tax,accrual,2020,352705335.3
+urban,Urban Tax,accrual,2021,512748420.29999995
+urban,Urban Tax,accrual,2022,574972035.8627826
+urban,Urban Tax,cash,2016,811013894.3
+urban,Urban Tax,cash,2017,585519143.0799999
+urban,Urban Tax,cash,2018,656004627.9
+urban,Urban Tax,cash,2019,668451037.5
+urban,Urban Tax,cash,2020,377048736.9
+urban,Urban Tax,cash,2021,429296634.90000004
+urban,Urban Tax,cash,2022,652919247.8827827
+pmt,Payroll Mobility Tax (PMT),accrual,2016,1361198999.76
+pmt,Payroll Mobility Tax (PMT),accrual,2017,1450877000
+pmt,Payroll Mobility Tax (PMT),accrual,2018,1424870904
+pmt,Payroll Mobility Tax (PMT),accrual,2019,1646700979.7987998
+pmt,Payroll Mobility Tax (PMT),accrual,2020,1526469525.2846713
+pmt,Payroll Mobility Tax (PMT),accrual,2021,1715310341.1499999
+pmt,Payroll Mobility Tax (PMT),accrual,2022,1781612064.554839
+pmt,Payroll Mobility Tax (PMT),cash,2016,1372776999.9210522
+pmt,Payroll Mobility Tax (PMT),cash,2017,1435622000
+pmt,Payroll Mobility Tax (PMT),cash,2018,1482855127
+pmt,Payroll Mobility Tax (PMT),cash,2019,1560497979.76
+pmt,Payroll Mobility Tax (PMT),cash,2020,1560809961.78
+pmt,Payroll Mobility Tax (PMT),cash,2021,1713220008.42
+pmt,Payroll Mobility Tax (PMT),cash,2022,1781612064.554839
+pmtoffset,Payroll Mobility Tax Replacement Funds,accrual,2016,309250000
+pmtoffset,Payroll Mobility Tax Replacement Funds,accrual,2017,244250000
+pmtoffset,Payroll Mobility Tax Replacement Funds,accrual,2018,244250000
+pmtoffset,Payroll Mobility Tax Replacement Funds,accrual,2019,244250000
+pmtoffset,Payroll Mobility Tax Replacement Funds,accrual,2020,195400000
+pmtoffset,Payroll Mobility Tax Replacement Funds,accrual,2021,293100000
+pmtoffset,Payroll Mobility Tax Replacement Funds,accrual,2022,244250000
+pmtoffset,Payroll Mobility Tax Replacement Funds,cash,2016,309250000
+pmtoffset,Payroll Mobility Tax Replacement Funds,cash,2017,244250000
+pmtoffset,Payroll Mobility Tax Replacement Funds,cash,2018,244250000
+pmtoffset,Payroll Mobility Tax Replacement Funds,cash,2019,244250000
+pmtoffset,Payroll Mobility Tax Replacement Funds,cash,2020,195400000
+pmtoffset,Payroll Mobility Tax Replacement Funds,cash,2021,293100000
+pmtoffset,Payroll Mobility Tax Replacement Funds,cash,2022,244250000
+mtaaid,MTA Aid,accrual,2016,300311000
+mtaaid,MTA Aid,accrual,2017,291908000
+mtaaid,MTA Aid,accrual,2018,295944000
+mtaaid,MTA Aid,accrual,2019,283463273.90999997
+mtaaid,MTA Aid,accrual,2020,218867906.86
+mtaaid,MTA Aid,accrual,2021,263925457.06
+mtaaid,MTA Aid,accrual,2022,258948052.02872595
+mtaaid,MTA Aid,cash,2016,300311000
+mtaaid,MTA Aid,cash,2017,306203000
+mtaaid,MTA Aid,cash,2018,272600000
+mtaaid,MTA Aid,cash,2019,311021273.90999997
+mtaaid,MTA Aid,cash,2020,248844393.97
+mtaaid,MTA Aid,cash,2021,263345430.18
+mtaaid,MTA Aid,cash,2022,258948052.02872595
+fhvsurcharge,For-Hire Vehicle (FHV) Surcharge,accrual,2016,NA
+fhvsurcharge,For-Hire Vehicle (FHV) Surcharge,accrual,2017,NA
+fhvsurcharge,For-Hire Vehicle (FHV) Surcharge,accrual,2018,0
+fhvsurcharge,For-Hire Vehicle (FHV) Surcharge,accrual,2019,336438379.26
+fhvsurcharge,For-Hire Vehicle (FHV) Surcharge,accrual,2020,222115256.98000002
+fhvsurcharge,For-Hire Vehicle (FHV) Surcharge,accrual,2021,248278281.23000002
+fhvsurcharge,For-Hire Vehicle (FHV) Surcharge,accrual,2022,300000000
+fhvsurcharge,For-Hire Vehicle (FHV) Surcharge,cash,2016,NA
+fhvsurcharge,For-Hire Vehicle (FHV) Surcharge,cash,2017,NA
+fhvsurcharge,For-Hire Vehicle (FHV) Surcharge,cash,2018,0
+fhvsurcharge,For-Hire Vehicle (FHV) Surcharge,cash,2019,336438379.26
+fhvsurcharge,For-Hire Vehicle (FHV) Surcharge,cash,2020,222115256.98000002
+fhvsurcharge,For-Hire Vehicle (FHV) Surcharge,cash,2021,235810205.43
+fhvsurcharge,For-Hire Vehicle (FHV) Surcharge,cash,2022,300000000
+mansion,Real Property Transfer Tax Surcharge (Mansion Tax),accrual,2016,NA
+mansion,Real Property Transfer Tax Surcharge (Mansion Tax),accrual,2017,NA
+mansion,Real Property Transfer Tax Surcharge (Mansion Tax),accrual,2018,NA
+mansion,Real Property Transfer Tax Surcharge (Mansion Tax),accrual,2019,73834414.53
+mansion,Real Property Transfer Tax Surcharge (Mansion Tax),accrual,2020,176454132.15
+mansion,Real Property Transfer Tax Surcharge (Mansion Tax),accrual,2021,374486855.65000004
+mansion,Real Property Transfer Tax Surcharge (Mansion Tax),accrual,2022,414671284.4481617
+mansion,Real Property Transfer Tax Surcharge (Mansion Tax),cash,2016,NA
+mansion,Real Property Transfer Tax Surcharge (Mansion Tax),cash,2017,NA
+mansion,Real Property Transfer Tax Surcharge (Mansion Tax),cash,2018,NA
+mansion,Real Property Transfer Tax Surcharge (Mansion Tax),cash,2019,58052947.95
+mansion,Real Property Transfer Tax Surcharge (Mansion Tax),cash,2020,176454132.15
+mansion,Real Property Transfer Tax Surcharge (Mansion Tax),cash,2021,374486855.65000004
+mansion,Real Property Transfer Tax Surcharge (Mansion Tax),cash,2022,414671284.4481617
+sutinternet,Internet Marketplace Tax - State,accrual,2016,NA
+sutinternet,Internet Marketplace Tax - State,accrual,2017,NA
+sutinternet,Internet Marketplace Tax - State,accrual,2018,NA
+sutinternet,Internet Marketplace Tax - State,accrual,2019,85132025.66999999
+sutinternet,Internet Marketplace Tax - State,accrual,2020,260000000.04000002
+sutinternet,Internet Marketplace Tax - State,accrual,2021,344900450.62
+sutinternet,Internet Marketplace Tax - State,accrual,2022,325623999.65999997
+sutinternet,Internet Marketplace Tax - State,cash,2016,NA
+sutinternet,Internet Marketplace Tax - State,cash,2017,NA
+sutinternet,Internet Marketplace Tax - State,cash,2018,NA
+sutinternet,Internet Marketplace Tax - State,cash,2019,85132025.66999999
+sutinternet,Internet Marketplace Tax - State,cash,2020,260000000.04000002
+sutinternet,Internet Marketplace Tax - State,cash,2021,344900450.62
+sutinternet,Internet Marketplace Tax - State,cash,2022,325623999.65999997
+pbt_mmtoa,Metropolitan Mass Transportation Operating Assistance (MMTOA),accrual,2016,59774426.460764095
+sut_mmtoa,Metropolitan Mass Transportation Operating Assistance (MMTOA),accrual,2016,719763135.1515148
+franchise_mmtoa,Metropolitan Mass Transportation Operating Assistance (MMTOA),accrual,2016,32439564.773472525
+fransurcharge_mmtoa,Metropolitan Mass Transportation Operating Assistance (MMTOA),accrual,2016,856025773.9842483
+pbt_mmtoa,Metropolitan Mass Transportation Operating Assistance (MMTOA),accrual,2017,59928738.36675832
+sut_mmtoa,Metropolitan Mass Transportation Operating Assistance (MMTOA),accrual,2017,740296179.8246616
+franchise_mmtoa,Metropolitan Mass Transportation Operating Assistance (MMTOA),accrual,2017,33940489.307575844
+fransurcharge_mmtoa,Metropolitan Mass Transportation Operating Assistance (MMTOA),accrual,2017,833837480.0660723
+pbt_mmtoa,Metropolitan Mass Transportation Operating Assistance (MMTOA),accrual,2018,55866082.529514365
+sut_mmtoa,Metropolitan Mass Transportation Operating Assistance (MMTOA),accrual,2018,743302962.4689623
+franchise_mmtoa,Metropolitan Mass Transportation Operating Assistance (MMTOA),accrual,2018,29353365.396863483
+fransurcharge_mmtoa,Metropolitan Mass Transportation Operating Assistance (MMTOA),accrual,2018,858033589.5846599
+pbt_mmtoa,Metropolitan Mass Transportation Operating Assistance (MMTOA),accrual,2019,60124395.80919247
+sut_mmtoa,Metropolitan Mass Transportation Operating Assistance (MMTOA),accrual,2019,781454866.4484922
+franchise_mmtoa,Metropolitan Mass Transportation Operating Assistance (MMTOA),accrual,2019,33510628.163558014
+fransurcharge_mmtoa,Metropolitan Mass Transportation Operating Assistance (MMTOA),accrual,2019,948602309.5887573
+pbt_mmtoa,Metropolitan Mass Transportation Operating Assistance (MMTOA),accrual,2020,45360659.79484951
+sut_mmtoa,Metropolitan Mass Transportation Operating Assistance (MMTOA),accrual,2020,642211446.5691851
+franchise_mmtoa,Metropolitan Mass Transportation Operating Assistance (MMTOA),accrual,2020,24057677.86690399
+fransurcharge_mmtoa,Metropolitan Mass Transportation Operating Assistance (MMTOA),accrual,2020,852364138.9790616
+pbt_mmtoa,Metropolitan Mass Transportation Operating Assistance (MMTOA),accrual,2021,58011125.76905982
+sut_mmtoa,Metropolitan Mass Transportation Operating Assistance (MMTOA),accrual,2021,838472066.1653847
+franchise_mmtoa,Metropolitan Mass Transportation Operating Assistance (MMTOA),accrual,2021,26412350.308760684
+fransurcharge_mmtoa,Metropolitan Mass Transportation Operating Assistance (MMTOA),accrual,2021,1324555356.7567947
+pbt_mmtoa,Metropolitan Mass Transportation Operating Assistance (MMTOA),accrual,2022,58913571.913916916
+sut_mmtoa,Metropolitan Mass Transportation Operating Assistance (MMTOA),accrual,2022,972073936.5796292
+franchise_mmtoa,Metropolitan Mass Transportation Operating Assistance (MMTOA),accrual,2022,22583535.90033482
+fransurcharge_mmtoa,Metropolitan Mass Transportation Operating Assistance (MMTOA),accrual,2022,1547463155.605551
+pbt_mmtoa,Metropolitan Mass Transportation Operating Assistance (MMTOA),cash,2016,59774430.02944305
+sut_mmtoa,Metropolitan Mass Transportation Operating Assistance (MMTOA),cash,2016,719763178.1231283
+franchise_mmtoa,Metropolitan Mass Transportation Operating Assistance (MMTOA),cash,2016,32439566.71019361
+fransurcharge_mmtoa,Metropolitan Mass Transportation Operating Assistance (MMTOA),cash,2016,856025825.0910735
+pbt_mmtoa,Metropolitan Mass Transportation Operating Assistance (MMTOA),cash,2017,59928742.407549046
+sut_mmtoa,Metropolitan Mass Transportation Operating Assistance (MMTOA),cash,2017,740296229.7403119
+franchise_mmtoa,Metropolitan Mass Transportation Operating Assistance (MMTOA),cash,2017,33940491.59606745
+fransurcharge_mmtoa,Metropolitan Mass Transportation Operating Assistance (MMTOA),cash,2017,833837536.2888939
+pbt_mmtoa,Metropolitan Mass Transportation Operating Assistance (MMTOA),cash,2018,55866082.529514365
+sut_mmtoa,Metropolitan Mass Transportation Operating Assistance (MMTOA),cash,2018,743302962.4689623
+franchise_mmtoa,Metropolitan Mass Transportation Operating Assistance (MMTOA),cash,2018,29353365.396863483
+fransurcharge_mmtoa,Metropolitan Mass Transportation Operating Assistance (MMTOA),cash,2018,858033589.5846599
+pbt_mmtoa,Metropolitan Mass Transportation Operating Assistance (MMTOA),cash,2019,60124376.45635344
+sut_mmtoa,Metropolitan Mass Transportation Operating Assistance (MMTOA),cash,2019,781454614.9138192
+franchise_mmtoa,Metropolitan Mass Transportation Operating Assistance (MMTOA),cash,2019,33510617.377157856
+fransurcharge_mmtoa,Metropolitan Mass Transportation Operating Assistance (MMTOA),cash,2019,948602004.2526695
+pbt_mmtoa,Metropolitan Mass Transportation Operating Assistance (MMTOA),cash,2020,45360660.05065678
+sut_mmtoa,Metropolitan Mass Transportation Operating Assistance (MMTOA),cash,2020,642211450.1908776
+franchise_mmtoa,Metropolitan Mass Transportation Operating Assistance (MMTOA),cash,2020,24057678.002575055
+fransurcharge_mmtoa,Metropolitan Mass Transportation Operating Assistance (MMTOA),cash,2020,852364143.7858908
+pbt_mmtoa,Metropolitan Mass Transportation Operating Assistance (MMTOA),cash,2021,58011125.76905982
+sut_mmtoa,Metropolitan Mass Transportation Operating Assistance (MMTOA),cash,2021,838472066.1653847
+franchise_mmtoa,Metropolitan Mass Transportation Operating Assistance (MMTOA),cash,2021,26412350.308760684
+fransurcharge_mmtoa,Metropolitan Mass Transportation Operating Assistance (MMTOA),cash,2021,1324555356.7567947
+pbt_mmtoa,Metropolitan Mass Transportation Operating Assistance (MMTOA),cash,2022,58913571.913916916
+sut_mmtoa,Metropolitan Mass Transportation Operating Assistance (MMTOA),cash,2022,972073936.5796292
+franchise_mmtoa,Metropolitan Mass Transportation Operating Assistance (MMTOA),cash,2022,22583535.90033482
+fransurcharge_mmtoa,Metropolitan Mass Transportation Operating Assistance (MMTOA),cash,2022,1547463155.605551
+licensereg_mtaaid,MTA Aid,accrual,2016,177745208.52610704
+taxicab_mtaaid,MTA Aid,accrual,2016,66195451.75148711
+autorental_mtaaid,MTA Aid,accrual,2016,56370339.72240581
+licensereg_mtaaid,MTA Aid,accrual,2017,189630008.2361016
+taxicab_mtaaid,MTA Aid,accrual,2017,56999194.234728895
+autorental_mtaaid,MTA Aid,accrual,2017,45278797.52916953
+licensereg_mtaaid,MTA Aid,accrual,2018,192203846.15384614
+taxicab_mtaaid,MTA Aid,accrual,2018,53018307.6923077
+autorental_mtaaid,MTA Aid,accrual,2018,50721846.15384616
+licensereg_mtaaid,MTA Aid,accrual,2019,187091508.59960458
+taxicab_mtaaid,MTA Aid,accrual,2019,45503567.1197195
+autorental_mtaaid,MTA Aid,accrual,2019,50868198.1906759
+licensereg_mtaaid,MTA Aid,accrual,2020,163773877.60987437
+taxicab_mtaaid,MTA Aid,accrual,2020,16501593.301970007
+autorental_mtaaid,MTA Aid,accrual,2020,38592435.94815566
+licensereg_mtaaid,MTA Aid,accrual,2021,192830782.89666915
+taxicab_mtaaid,MTA Aid,accrual,2021,14651599.51637109
+autorental_mtaaid,MTA Aid,accrual,2021,56443074.64695976
+licensereg_mtaaid,MTA Aid,accrual,2022,189194161.70951253
+taxicab_mtaaid,MTA Aid,accrual,2022,14375283.06716847
+autorental_mtaaid,MTA Aid,accrual,2022,55378607.25204497
+licensereg_mtaaid,MTA Aid,cash,2016,177745208.52610704
+taxicab_mtaaid,MTA Aid,cash,2016,66195451.75148711
+autorental_mtaaid,MTA Aid,cash,2016,56370339.72240581
+licensereg_mtaaid,MTA Aid,cash,2017,198916362.04529858
+taxicab_mtaaid,MTA Aid,cash,2017,59790496.56829101
+autorental_mtaaid,MTA Aid,cash,2017,47496141.38641044
+licensereg_mtaaid,MTA Aid,cash,2018,177042847.50337383
+taxicab_mtaaid,MTA Aid,cash,2018,48836234.81781377
+autorental_mtaaid,MTA Aid,cash,2018,46720917.678812414
+licensereg_mtaaid,MTA Aid,cash,2019,205280347.39649543
+taxicab_mtaaid,MTA Aid,cash,2019,49927375.83888138
+autorental_mtaaid,MTA Aid,cash,2019,55813550.674623184
+licensereg_mtaaid,MTA Aid,cash,2020,186204601.24386707
+taxicab_mtaaid,MTA Aid,cash,2020,18761677.048406973
+autorental_mtaaid,MTA Aid,cash,2020,43878115.677725986
+licensereg_mtaaid,MTA Aid,cash,2021,192407000.21720567
+taxicab_mtaaid,MTA Aid,cash,2021,14619399.812526083
+autorental_mtaaid,MTA Aid,cash,2021,56319030.15026826
+licensereg_mtaaid,MTA Aid,cash,2022,189194161.70951253
+taxicab_mtaaid,MTA Aid,cash,2022,14375283.06716847
+autorental_mtaaid,MTA Aid,cash,2022,55378607.25204497

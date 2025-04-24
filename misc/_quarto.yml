@@ -11,7 +11,7 @@ execute:
 # rm _book/bill_outline.html; quarto render bill_outline.qmd  
 
 book:
-  title: "MTA Miscellaneous estimates"
+  title: "MTA Miscellaneous estimates and analyses"
   subtitle: ""
   author: "Don Boyd"
   date: today
@@ -19,6 +19,10 @@ book:
   chapters:
     - index.qmd
     - sales_tax.qmd
+    - mta_wage_growth.qmd
+    - misc_analyses.qmd
+  page-footer:
+    center: "[Return to main MTA 2025 page](https://boyd-mta2025-links.netlify.app/)"        
       
 format:
   html:

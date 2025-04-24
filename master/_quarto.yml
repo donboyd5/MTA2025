@@ -13,6 +13,11 @@ format:
     theme: cosmo
     toc: true
 
+# useful reminders of quarto commands:
+# quarto publish netlify --no-render
+# quarto publish netlify --no-browser --no-prompt
+# quarto publish netlify --no-render --no-browser --no-prompt 
+
 # ```{r stop_here, echo=FALSE}
 # knitr::knit_exit()
 # ```

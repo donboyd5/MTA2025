@@ -1,0 +1,9 @@
+---
+output: html_document
+editor_options: 
+  chunk_output_type: console
+---
+
+# Payroll Mobility Tax (PMT) revenue options model
+
+Calculate tax under two sets of tax rules and compare.
