@@ -21,3 +21,11 @@ data/
 !for_mta/
 
 master/_site/
+
+pmt_model/data_for_mta/pmt_options_lookup_2025-04-24.xlsx
+
+pmt_model/data_for_mta/pmt_options_lookup_simple_2025-04-24.xlsx
+
+pmt_model/data_for_mta/pmt_options_lookup_v2_2025-04-24.xlsx
+
+pmt_model/data_for_mta/test2.xlsx

@@ -7,3 +7,185 @@ editor_options:
 {{< include _setup.qmd >}}
 
 # Make spreadsheet options menu
+
+```{r}
+#| label: setup
+#| output: false
+
+library(openxlsx2)
+source(fs::path(DMAIN, "R", "taxrules_and_forecast_functions.R"))
+
+```
+
+```{r}
+#| label: get-data
+#| output: false
+
+pmtdb <- readRDS(fs::path(PDINTERMEDIATE, "pmtdb_calibrated.rds"))
+glimpse(pmtdb)
+summary(pmtdb)
+
+```
+
+```{r}
+#| label: problem-setup
+#| output: false
+
+plan2024 <- make_taxplan("tax2024")
+
+plan1bp <- plan2024
+plan1bp$rates$rate <- plan1bp$rates$rate + .0001
+
+
+prob <- list()
+prob$year <- 2025
+prob$emp_growth <- .015
+prob$avg_wagerate_growth <- .04
+prob$plan1 <- plan2024
+prob$plan2 <- plan1bp
+
+prob
+
+# prob$emp_growth <- 0
+# prob$avg_wagerate_growth <- 0
+
+```
+
+```{r}
+#| label: payroll-cutpoints
+#| output: false
+
+# define payroll cuts and labels
+legal_cuts <- 4 * c(312.5e3, 375e3, 437.5e3)
+
+(payroll_cuts <- c(0, 500e3, seq(2e6, 10e6, 1e6), Inf, legal_cuts) |> unique() |> sort())
+paygroup_labels <- cutlabs(payroll_cuts)
+
+```
+
+```{r}
+pmtfc <- pmtdb_forecast(prob, pmtdb)
+summary(pmtfc)
+
+glimpse(pmtfc)
+
+for_mta_prep1 <- pmtfc |> 
+  mutate(calc_tax(pick(everything()), prob$plan1)) |> 
+  mutate(taxability = case_when(excluded | exempt ~ "untaxable",
+                                low_pay ~ "untaxed",
+                                .default = "taxable"),
+         tax1bp = .0001 * gpayroll * (taxability == "taxable"))
+
+for_mta_prep <- for_mta_prep1 |> 
+  left_join(paygroup_labels |> 
+              select(paygroup, lb, ub, paylabel = range_left), 
+            # rstudio shows syntax error on between -- it does not like bounds -- but it's valid
+            by = join_by(between(gpay_firm, lb, ub, bounds = "[)"))) |> 
+  select(-c(lb, ub, exempt, excluded, low_pay, shortname, rate))
+
+glimpse(for_mta_prep)
+
+for_mta_all <- for_mta_prep |> 
+  mutate(area=ifelse(nyc, "NYC", "suburbs"),
+         owner = ifelse(ownerf == 1, "private", "public")) |> 
+  summarise(tax1bp = sum(tax1bp),
+            .by=c(taxability, area, owner, paygroup, paylabel)) |> 
+  arrange(paygroup, paylabel, taxability, area) |> 
+  pivot_wider(names_from = c(owner, area, taxability), values_from = tax1bp, values_fill = 0) |> 
+  select(paygroup, paylabel, contains("_taxable"))
+
+wb <- wb_workbook()$
+  add_worksheet()$
+  add_data(x = for_mta_all)
+
+fnbase <- "test2"
+fname <- paste0(fnbase, ".xlsx")
+fpath <- fs::path(DMAIN, "data_for_mta", fname)
+openxlsx2::wb_save(wb, file = fpath, overwrite = TRUE)
+
+```
+
+```{r}
+#| label: write-mta-data
+#| output: false
+
+
+template_fname <- "template_options_lookup.xlsx"
+template_path <- fs::path(DMAIN, "data_for_mta", template_fname)
+
+src_note_header <- "Underlying data sources and estimation for 2024:"
+src_note1 <- "Quarterly Census of Employment and Wages (QCEW) 2023 for establishments, employment, and payroll by county, industry, and ownership."
+src_note2 <- "Values in each county-industry-ownership group allocated to firm-size groups based on patterns in County Business Patterns (CBP) 2022 and Statistics of U.S. Businessses (SUSB) 2021."
+src_note3 <- "Database moved forward to 2024 using QCEW growth rates for the first 3 quarters of 2024."
+
+fc_note_header <- "Forecast notes -- growth rates from 2024 to 2025:"
+fc_data1 <- tibble(h="employment", value=prob$emp_growth)
+fc_data2 <- tibble(h="average wages per employee", value=prob$avg_wagerate_growth)
+
+wb <- openxlsx2::wb_load(template_path, sheet = "lookup")
+
+notes_start <- 30
+
+wb$
+  # data
+  add_data(x = for_mta_all, start_row = 3)$
+  # data notes
+  add_data(x = src_note_header, 
+           dims = wb_dims(rows = notes_start, cols = "A"))$
+  add_data(x = src_note1, 
+           dims = wb_dims(rows = notes_start + 1, cols = "B"))$
+  add_data(x = src_note2, 
+           dims = wb_dims(rows = notes_start + 2, cols = "B"))$
+  add_data(x = src_note3, 
+           dims = wb_dims(rows = notes_start + 3, cols = "B"))$  
+  # forecast notes
+  add_data(x = fc_note_header, 
+           dims = wb_dims(rows = notes_start + 5, cols = "A"))$
+  add_data(x = fc_data1, 
+           col_names = FALSE,
+           dims = wb_dims(rows = notes_start + 6, cols = "B"))$
+  add_data(x = fc_data2, 
+           col_names = FALSE,
+           dims = wb_dims(rows = notes_start + 7, cols = "B"))
+
+fnbase <- "pmt_options_lookup_v2"
+fname <- paste0(fnbase, "_", Sys.Date(), ".xlsx")
+fpath <- fs::path(DMAIN, "data_for_mta", fname)
+openxlsx2::wb_save(wb, file = fpath, overwrite = TRUE)
+
+
+
+# firstrow <- 6
+# 
+# wb <- openxlsx2::wb_add_data(
+#   wb = wb,
+#   sheet = "database",
+#   x = for_mta,
+#   start_row = firstrow,
+#   col_names = FALSE,
+#   apply_cell_style = FALSE
+# )
+# 
+# fmt_dims <- wb_dims(cols = c("K", "L", "M", "N", "Q", "R", "S"), rows = firstrow:(firstrow + nrow(for_mta) - 1))
+# wb <- wb_add_numfmt(
+#   wb,
+#   sheet = "database",
+#   dims = fmt_dims,
+#   numfmt = "#,##0"
+# )
+# 
+# fmt_dims <- wb_dims(cols = c("O", "P"), rows = firstrow:(firstrow + nrow(for_mta) - 1))
+# wb <- wb_add_numfmt(
+#   wb,
+#   sheet = "database",
+#   dims = fmt_dims,
+#   numfmt = "0.000%"
+# )
+# 
+# fnbase <- "pmt_summary_database_with_base_and_dob_tax"
+# fname <- paste0(fnbase, "_", Sys.Date(), ".xlsx")
+# fpath <- fs::path(DMAIN, "data_for_mta", fname)
+# openxlsx2::wb_save(wb, file = fpath, overwrite = TRUE)
+# 
+
+```
