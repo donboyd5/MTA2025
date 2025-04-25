@@ -61,12 +61,15 @@ legal_cuts <- 4 * c(312.5e3, 375e3, 437.5e3)
 (payroll_cuts <- c(0, 500e3, seq(2e6, 10e6, 1e6), Inf, legal_cuts) |> unique() |> sort())
 paygroup_labels <- cutlabs(payroll_cuts)
 
-(payroll_cuts2 <- c(0, 2e6, 5e6, 10e6, Inf, legal_cuts) |> unique() |> sort())
-paygroup_labels2 <- cutlabs(payroll_cuts2)
+
+(payroll_cuts_collapsed <- c(0, 2e6, 5e6, 10e6, Inf, legal_cuts) |> unique() |> sort())
+paygroup_labels_collapsed <- cutlabs(payroll_cuts_collapsed)
 
 ```
 
 ```{r}
+#| label: prepare-data
+
 pmtfc <- pmtdb_forecast(prob, pmtdb)
 summary(pmtfc)
 
@@ -74,34 +77,113 @@ glimpse(pmtfc)
 
 mta1 <- pmtfc |> 
   mutate(calc_tax(pick(everything()), prob$plan1)) |> 
-  mutate(taxability = case_when(excluded | exempt ~ "untaxable",
+  rename(taxnow = tax) |> 
+  mutate(bpnow = rate * 10000,
+         area=ifelse(nyc, "NYC", "suburbs"),
+         owner = ifelse(ownerf == 1, "private", "public"),
+         taxability = case_when(excluded | exempt ~ "untaxable",
                                 low_pay ~ "untaxed",
                                 .default = "taxable"),
-         tax1bp = .0001 * gpayroll * (taxability == "taxable"))
+         tax1bp = .0001 * gpayroll * (taxability == "taxable")) |> 
+  mutate(taxnow = taxnow / 1e6,
+         tax1bp = tax1bp / 1e6) |> 
+  filter(taxability == "taxable")
 
-mta2 <- mta1 |> 
-  left_join(paygroup_labels2 |> 
+mta_collapsed <- mta1 |> 
+  left_join(paygroup_labels_collapsed |> 
               select(paygroup, lb, ub, paylabel = range_left), 
             # rstudio shows syntax error on between -- it does not like bounds -- but it's valid
             by = join_by(between(gpay_firm, lb, ub, bounds = "[)"))) |> 
-  select(-c(lb, ub, exempt, excluded, low_pay, shortname, rate))
+   summarise(taxnow = sum(taxnow),
+             bpnow = mean(bpnow),
+             tax1bp = sum(tax1bp),
+            .by=c(owner, area, paygroup, paylabel)) |> 
+  arrange(owner, area, paygroup)
+mta_collapsed
+sum(mta_collapsed$taxnow)
 
-glimpse(mta2)
+mta_details <- mta1 |> 
+  left_join(paygroup_labels |> # paygroup_labels, not paygroup_labels_collapsed
+              select(paygroup, lb, ub, paylabel = range_left), 
+            # rstudio shows syntax error on between -- it does not like bounds -- but it's valid
+            by = join_by(between(gpay_firm, lb, ub, bounds = "[)"))) |> 
+   summarise(taxnow = sum(taxnow),
+             bpnow = mean(bpnow),
+             tax1bp = sum(tax1bp),
+            .by=c(owner, area, paygroup, paylabel)) |> 
+  arrange(owner, area, paygroup)
+mta_details
 
-mta3 <- mta2 |> 
-  mutate(area=ifelse(nyc, "NYC", "suburbs"),
-         owner = ifelse(ownerf == 1, "private", "public")) |> 
-  summarise(taxnow = sum(tax),
-            tax1bp = sum(tax1bp),
-            .by=c(taxability, area, owner, paygroup, paylabel)) |> 
-  arrange(taxability, paygroup, paylabel, area) 
+sum(mta_details$taxnow)
 
-sum(mta3$taxnow)
+mta_flipped <- mta_collapsed |> 
+  pivot_longer(cols = c(taxnow, tax1bp, bpnow)) |> 
+  pivot_wider(names_from = c(owner, area), values_fill = 0) |> 
+  mutate(private_mta = ifelse(name != "bpnow", 
+                              private_NYC + private_suburbs,
+                              NA_real_),
+         public_mta = ifelse(name != "bpnow", 
+                             public_NYC + public_suburbs,
+                             NA_real_),
+         name = factor(name, levels = c("tax1bp", "taxnow", "bpnow"))) |> 
+  relocate(private_mta, .after = private_suburbs) |> 
+  mutate(NYC = ifelse(name != "bpnow", 
+                      private_NYC + public_NYC,
+                      NA_real_),
+         suburbs = ifelse(name != "bpnow", 
+                          private_suburbs + public_suburbs,
+                          NA_real_),
+         mta = ifelse(name != "bpnow", 
+                      NYC + suburbs,
+                      NA_real_)) |> 
+  arrange(name, paygroup)
 
-mta3 |> 
-  pivot_wider(names_from = c(owner, area, taxability), values_from = tax1bp, values_fill = 0) |> 
-  select(paygroup, paylabel, contains("_taxable"))
+mta_flipped
 
+```
+
+```{r}
+
+options("openxlsx2.numFmt" = "#,##0.00")
+# options("openxlsx2.minWidth" = NULL)
+
+wb <- wb_workbook()
+
+wb$
+  add_worksheet("flipped_collapsed")$
+  add_data(x = mta_flipped)$
+  set_col_widths(cols = 2, widths = 25)$
+  set_col_widths(cols = 4:12, widths = 14)$
+  add_worksheet("collapsed")$
+  add_data(x = mta_collapsed)$
+  set_col_widths(cols = 4, widths = 25)$
+  set_col_widths(cols = 5:7, widths = 14)$
+  add_worksheet("details")$
+  add_data(x = mta_details)$
+  set_col_widths(cols = 4, widths = 25)$
+  set_col_widths(cols = 5:7, widths = 14)
+
+# wb_open(wb)
+
+```
+
+```{r}
+#| label: write-data
+
+fnbase <- "pmt_options_lookup"
+fname <- paste0(fnbase, "_", Sys.Date(), ".xlsx")
+fpath <- fs::path(DMAIN, "data_for_mta", fname)
+openxlsx2::wb_save(wb, file = fpath, overwrite = TRUE)
+
+```
+
+```{r}
+#| label: cleanup
+rm(list = ls())
+```
+
+```{r stop_here, echo=FALSE}
+knitr::knit_exit()
 ```
 
 ```{r}

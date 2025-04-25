@@ -289,7 +289,7 @@ for_mta |>
 -   No change for firms with lower payroll
 
 ```{r}
-#| label: problem-setup
+#| label: problem-setup-ex3
 #| output: false
 
 plan2024 <- make_taxplan("tax2024")
