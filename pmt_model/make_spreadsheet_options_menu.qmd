@@ -94,21 +94,11 @@ for_mta_all <- for_mta_prep |>
   pivot_wider(names_from = c(owner, area, taxability), values_from = tax1bp, values_fill = 0) |> 
   select(paygroup, paylabel, contains("_taxable"))
 
-wb <- wb_workbook()$
-  add_worksheet()$
-  add_data(x = for_mta_all)
-
-fnbase <- "test2"
-fname <- paste0(fnbase, ".xlsx")
-fpath <- fs::path(DMAIN, "data_for_mta", fname)
-openxlsx2::wb_save(wb, file = fpath, overwrite = TRUE)
-
 ```
 
 ```{r}
 #| label: write-mta-data
 #| output: false
-
 
 template_fname <- "template_options_lookup.xlsx"
 template_path <- fs::path(DMAIN, "data_for_mta", template_fname)
@@ -116,19 +106,19 @@ template_path <- fs::path(DMAIN, "data_for_mta", template_fname)
 src_note_header <- "Underlying data sources and estimation for 2024:"
 src_note1 <- "Quarterly Census of Employment and Wages (QCEW) 2023 for establishments, employment, and payroll by county, industry, and ownership."
 src_note2 <- "Values in each county-industry-ownership group allocated to firm-size groups based on patterns in County Business Patterns (CBP) 2022 and Statistics of U.S. Businessses (SUSB) 2021."
-src_note3 <- "Database moved forward to 2024 using QCEW growth rates for the first 3 quarters of 2024."
+src_note3 <- "Database moved forward from 2023 to 2024 using QCEW growth rates for the first 3 quarters of 2024."
 
-fc_note_header <- "Forecast notes -- growth rates from 2024 to 2025:"
+fc_note_header <- "Forecast notes -- assumed growth rates from 2024 to 2025:"
 fc_data1 <- tibble(h="employment", value=prob$emp_growth)
 fc_data2 <- tibble(h="average wages per employee", value=prob$avg_wagerate_growth)
 
 wb <- openxlsx2::wb_load(template_path, sheet = "lookup")
 
-notes_start <- 30
+notes_start <- nrow(for_mta_all) + 7
 
 wb$
   # data
-  add_data(x = for_mta_all, start_row = 3)$
+  add_data(x = for_mta_all, start_row = 4)$
   # data notes
   add_data(x = src_note_header, 
            dims = wb_dims(rows = notes_start, cols = "A"))$
@@ -148,44 +138,14 @@ wb$
            col_names = FALSE,
            dims = wb_dims(rows = notes_start + 7, cols = "B"))
 
+wb$
+  add_font(dims = "A4:F4", bold = TRUE)$
+  add_font(dims = wb_dims(rows = c(notes_start, notes_start + 5), cols = "A"), bold = TRUE)$
+  add_numfmt(dims = wb_dims(rows = notes_start + c(6, 7), cols = "C"), numfmt = "0.000%")
+
 fnbase <- "pmt_options_lookup_v2"
 fname <- paste0(fnbase, "_", Sys.Date(), ".xlsx")
 fpath <- fs::path(DMAIN, "data_for_mta", fname)
 openxlsx2::wb_save(wb, file = fpath, overwrite = TRUE)
-
-
-
-# firstrow <- 6
-# 
-# wb <- openxlsx2::wb_add_data(
-#   wb = wb,
-#   sheet = "database",
-#   x = for_mta,
-#   start_row = firstrow,
-#   col_names = FALSE,
-#   apply_cell_style = FALSE
-# )
-# 
-# fmt_dims <- wb_dims(cols = c("K", "L", "M", "N", "Q", "R", "S"), rows = firstrow:(firstrow + nrow(for_mta) - 1))
-# wb <- wb_add_numfmt(
-#   wb,
-#   sheet = "database",
-#   dims = fmt_dims,
-#   numfmt = "#,##0"
-# )
-# 
-# fmt_dims <- wb_dims(cols = c("O", "P"), rows = firstrow:(firstrow + nrow(for_mta) - 1))
-# wb <- wb_add_numfmt(
-#   wb,
-#   sheet = "database",
-#   dims = fmt_dims,
-#   numfmt = "0.000%"
-# )
-# 
-# fnbase <- "pmt_summary_database_with_base_and_dob_tax"
-# fname <- paste0(fnbase, "_", Sys.Date(), ".xlsx")
-# fpath <- fs::path(DMAIN, "data_for_mta", fname)
-# openxlsx2::wb_save(wb, file = fpath, overwrite = TRUE)
-# 
 
 ```

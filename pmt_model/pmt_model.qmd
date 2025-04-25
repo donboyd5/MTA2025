@@ -283,6 +283,147 @@ for_mta |>
 
 ```
 
+## Example 3: Increase rate by 36 bps in entire region for all PRIVATE and PUBLIC employers greater than \$10 million, exempt all with payroll less than \$2 MM
+
+-   Raise top PMT rate by 50 basis points on firms with payroll \>= \$10 million
+-   No change for firms with lower payroll
+
+```{r}
+#| label: problem-setup
+#| output: false
+
+plan2024 <- make_taxplan("tax2024")
+
+ex3 <- make_taxplan("ex3", 
+             lower_nyc = c(0, 2e6, 10e6),
+             rates_nyc = c(0.0, 0.006, .006 + .0036),
+             lower_burbs = c(0, 2e6, 10e6),
+             rates_burbs = c(0.0, 0.0034, 0.0034 + .0036),
+             description = "Increase rate by 36 bps in entire region >= $10m, exempt < 2m")
+
+# plandob <- make_taxplan("dob10m", 
+#              lower_nyc = c(0, 1.5e6, 1.75e6, 10e6),
+#              rates_nyc = c(0.0011, 0.0023, 0.006, 0.011),
+#              lower_burbs = c(0, 1.5e6, 1.75e6, 10e6),
+#              rates_burbs = c(0.0011, 0.0023, 0.0034, 0.0084),
+#              description = "DOB rate increase for payroll >= $10m")
+
+
+prob <- list()
+prob$year <- 2025
+prob$emp_growth <- .015
+prob$avg_wagerate_growth <- .04
+prob$plan1 <- plan2024
+prob$plan2 <- ex3
+
+prob
+
+# prob$emp_growth <- 0
+# prob$avg_wagerate_growth <- 0
+
+```
+
+### Summary results
+
+```{r}
+#| label: tax-calcx3
+#| output: false
+
+pmtfc <- pmtdb_forecast(prob, pmtdb)
+summary(pmtfc)
+
+taxcomp <- bind_rows(
+  pmtfc |> 
+    mutate(calc_tax(pick(everything()), prob$plan1)) |> 
+    mutate(basealt = "basetax"),
+  pmtfc |> 
+    mutate(calc_tax(pick(everything()), prob$plan2)) |> 
+    mutate(basealt = "alttax"))
+
+glimpse(taxcomp)
+count(taxcomp, shortname)
+
+taxcomp |> 
+  summarise(tax=sum(tax),
+            .by=c(ownerf, owner, shortname)) |> 
+  pivot_wider(names_from = shortname,
+              values_from = tax) |> 
+  adorn_totals() |> 
+  mutate(diff = ex3 - tax2024)
+
+```
+
+```{r}
+#| label: show-dob-results
+#| output: true
+
+tabdata <- taxcomp |> 
+  summarise(gpayroll = sum(gpayroll),
+            tax=sum(tax),
+            .by=c(ownerf, owner, basealt)) |> 
+  pivot_wider(names_from = basealt,
+              values_from = tax) |> 
+  select(ownerf, owner, gpayroll, basetax, alttax) |> 
+  arrange(ownerf) |> 
+  adorn_totals() |> 
+  mutate(change = alttax - basetax)
+
+tabdata |> 
+  gt() |> 
+  tab_header(md("50bp PMT increase for **firms** with payroll > $10m, NYC+Suburbs combined"),
+             subtitle="$ millions, 2025 levels") |> 
+  fmt_number(columns = -c(ownerf, owner),
+             scale = 1e-6,
+             decimals = 0) |> 
+  fmt_currency(columns = -c(ownerf, owner),
+               rows = c(1, nrow(tabdata)),
+               scale = 1e-6,
+               decimals = 0)
+
+```
+
+### Results broken down by NYC and suburbs
+
+```{r}
+#| label: show-dob-geographic-details
+#| output: true
+
+tabdata <- taxcomp |> 
+  summarise(tax=sum(tax),
+            .by=c(nyc, ownerf, owner, basealt)) |> 
+  mutate(nyc=ifelse(nyc, "nyc", "suburbs")) |> 
+  pivot_wider(names_from = basealt,
+              values_from = tax) |> 
+  mutate(change = alttax - basetax) |> 
+  pivot_wider(names_from = nyc,
+              values_from = c(basetax, alttax, change)) |> 
+  arrange(ownerf) |> 
+  adorn_totals() |> 
+  mutate(base_total = basetax_nyc + basetax_suburbs,
+         alt_total = alttax_nyc + alttax_suburbs,
+         change_total = change_nyc + change_suburbs,
+         nyc_change_pct=change_nyc / change_total) |> 
+  relocate(base_total, .after = basetax_suburbs) |> 
+  relocate(alt_total, .after = alttax_suburbs)
+# tabdata
+
+tabdata |> 
+  gt() |> 
+  tab_header(md("50bp PMT increase for **firms** with payroll > $10m"),
+             subtitle="$ millions, 2025 levels") |> 
+  fmt_number(columns = -c(ownerf, owner,nyc_change_pct),
+             scale = 1e-6,
+             decimals = 0) |> 
+  fmt_currency(columns = -c(ownerf, owner,nyc_change_pct),
+               rows = c(1, nrow(tabdata)),
+               scale = 1e-6,
+               decimals = 0) |> 
+  fmt_percent(columns=nyc_change_pct,
+              decimals = 1) |> 
+  sub_missing(missing_text = "--")
+
+```
+
 ```{r}
 #| label: cleanup
 rm(list = ls())
