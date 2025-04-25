@@ -354,7 +354,7 @@ taxcomp |>
 ```
 
 ```{r}
-#| label: show-dob-results
+#| label: show-ex3-results
 #| output: true
 
 tabdata <- taxcomp |> 
@@ -370,7 +370,7 @@ tabdata <- taxcomp |>
 
 tabdata |> 
   gt() |> 
-  tab_header(md("50bp PMT increase for **firms** with payroll > $10m, NYC+Suburbs combined"),
+  tab_header(md("Increase rate by 36 bps in entire region >= $10m, exempt < 2m"),
              subtitle="$ millions, 2025 levels") |> 
   fmt_number(columns = -c(ownerf, owner),
              scale = 1e-6,

@@ -61,6 +61,9 @@ legal_cuts <- 4 * c(312.5e3, 375e3, 437.5e3)
 (payroll_cuts <- c(0, 500e3, seq(2e6, 10e6, 1e6), Inf, legal_cuts) |> unique() |> sort())
 paygroup_labels <- cutlabs(payroll_cuts)
 
+(payroll_cuts2 <- c(0, 2e6, 5e6, 10e6, Inf, legal_cuts) |> unique() |> sort())
+paygroup_labels2 <- cutlabs(payroll_cuts2)
+
 ```
 
 ```{r}
@@ -69,28 +72,33 @@ summary(pmtfc)
 
 glimpse(pmtfc)
 
-for_mta_prep1 <- pmtfc |> 
+mta1 <- pmtfc |> 
   mutate(calc_tax(pick(everything()), prob$plan1)) |> 
   mutate(taxability = case_when(excluded | exempt ~ "untaxable",
                                 low_pay ~ "untaxed",
                                 .default = "taxable"),
          tax1bp = .0001 * gpayroll * (taxability == "taxable"))
 
-for_mta_prep <- for_mta_prep1 |> 
-  left_join(paygroup_labels |> 
+mta2 <- mta1 |> 
+  left_join(paygroup_labels2 |> 
               select(paygroup, lb, ub, paylabel = range_left), 
             # rstudio shows syntax error on between -- it does not like bounds -- but it's valid
             by = join_by(between(gpay_firm, lb, ub, bounds = "[)"))) |> 
   select(-c(lb, ub, exempt, excluded, low_pay, shortname, rate))
 
-glimpse(for_mta_prep)
+glimpse(mta2)
 
-for_mta_all <- for_mta_prep |> 
+mta3 <- mta2 |> 
   mutate(area=ifelse(nyc, "NYC", "suburbs"),
          owner = ifelse(ownerf == 1, "private", "public")) |> 
-  summarise(tax1bp = sum(tax1bp),
+  summarise(taxnow = sum(tax),
+            tax1bp = sum(tax1bp),
             .by=c(taxability, area, owner, paygroup, paylabel)) |> 
-  arrange(paygroup, paylabel, taxability, area) |> 
+  arrange(taxability, paygroup, paylabel, area) 
+
+sum(mta3$taxnow)
+
+mta3 |> 
   pivot_wider(names_from = c(owner, area, taxability), values_from = tax1bp, values_fill = 0) |> 
   select(paygroup, paylabel, contains("_taxable"))
 
