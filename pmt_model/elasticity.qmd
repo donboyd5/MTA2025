@@ -1,0 +1,108 @@
+---
+output: html_document
+editor_options: 
+  chunk_output_type: console
+---
+
+{{< include _setup.qmd >}}
+
+# Elasticity
+
+```{r}
+#| label: setup
+#| output: false
+
+source(fs::path(DMAIN, "R", "taxrules_and_forecast_functions.R"))
+
+```
+
+```{r}
+#| label: get-data
+#| output: false
+
+pmtdb <- readRDS(fs::path(PDINTERMEDIATE, "pmtdb_calibrated.rds"))
+glimpse(pmtdb)
+summary(pmtdb)
+
+```
+
+```{r}
+#| label: problem-setup
+#| output: false
+
+plan2024 <- make_taxplan("tax2024")
+
+plan1bp <- plan2024
+plan1bp$rates$rate <- plan1bp$rates$rate + .0001
+
+plandob <- make_taxplan("dob10m", 
+             lower_nyc = c(0, 1.5e6, 1.75e6, 10e6),
+             rates_nyc = c(0.0011, 0.0023, 0.006, 0.011),
+             lower_burbs = c(0, 1.5e6, 1.75e6, 10e6),
+             rates_burbs = c(0.0011, 0.0023, 0.0034, 0.0084),
+             description = "DOB rate increase for payroll >= $10m")
+
+ex3 <- make_taxplan("ex3", 
+             lower_nyc = c(0, 2e6, 10e6),
+             rates_nyc = c(0.0, 0.006, .006 + .0036),
+             lower_burbs = c(0, 2e6, 10e6),
+             rates_burbs = c(0.0, 0.0034, 0.0034 + .0036),
+             description = "Increase rate by 36 bps in entire region >= $10m, exempt < 2m")
+
+
+
+prob <- list()
+prob$year <- 2025
+prob$emp_growth <- .01
+prob$avg_wagerate_growth <- .0185
+prob$plan1 <- plan2024
+prob$plan2 <- plandob
+
+prob
+
+# prob$emp_growth <- 0
+# prob$avg_wagerate_growth <- 0
+
+
+
+```
+
+```{r}
+
+
+f <- function(year, pmtdb){
+  
+  prob <- list()
+  prob$year <- year
+  prob$emp_growth <- 1.01^(year - 2024) - 1
+  prob$avg_wagerate_growth <- 1.0185^(year - 2024) - 1
+  prob$plan1 <- ex3
+  
+  print(prob$year)
+  
+  pmtfc <- pmtdb_forecast(prob, pmtdb)
+
+  taxres <- pmtfc |> 
+    mutate(calc_tax(pick(everything()), prob$plan1))
+  
+  return(tibble(year, tax = sum(taxres$tax)))
+}
+
+f(2026, pmtdb)
+
+
+df <- purrr::map(2025:2044, f, pmtdb) |> 
+  list_rbind()
+
+df |> 
+  summarise(taxsum=sum(tax) / 1e6, .by=year) |> 
+  mutate(paypch = ifelse(year == 2025, 0, 1.01 * 1.0185 - 1),
+         taxpch = ifelse(year == 2025, 0, taxsum / lag(taxsum) - 1),
+         cumulative_paypch = cumprod(1 + paypch),
+         cumulative_taxpch = cumprod(1 + taxpch))
+
+
+
+
+
+```

@@ -12,7 +12,6 @@ editor_options:
 #| label: setup
 #| output: false
 
-library(openxlsx2)
 source(fs::path(DMAIN, "R", "taxrules_and_forecast_functions.R"))
 
 ```
@@ -39,8 +38,8 @@ plan1bp$rates$rate <- plan1bp$rates$rate + .0001
 
 prob <- list()
 prob$year <- 2025
-prob$emp_growth <- .015
-prob$avg_wagerate_growth <- .04
+prob$emp_growth <- .01
+prob$avg_wagerate_growth <- .0185
 prob$plan1 <- plan2024
 prob$plan2 <- plan1bp
 
@@ -61,7 +60,6 @@ legal_cuts <- 4 * c(312.5e3, 375e3, 437.5e3)
 (payroll_cuts <- c(0, 500e3, seq(2e6, 10e6, 1e6), Inf, legal_cuts) |> unique() |> sort())
 paygroup_labels <- cutlabs(payroll_cuts)
 
-
 (payroll_cuts_collapsed <- c(0, 2e6, 5e6, 10e6, Inf, legal_cuts) |> unique() |> sort())
 paygroup_labels_collapsed <- cutlabs(payroll_cuts_collapsed)
 
@@ -74,6 +72,10 @@ pmtfc <- pmtdb_forecast(prob, pmtdb)
 summary(pmtfc)
 
 glimpse(pmtfc)
+sum(pmtfc$gpayroll) # 684296052215
+sum(pmtdb$gpayroll) # 665214377788
+
+sum(pmtfc$gpayroll) / sum(pmtdb$gpayroll)
 
 mta1 <- pmtfc |> 
   mutate(calc_tax(pick(everything()), prob$plan1)) |> 

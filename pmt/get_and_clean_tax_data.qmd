@@ -31,6 +31,7 @@ https://www.tax.ny.gov/research/collections/monthly_tax_collections.htm
 
 -->
 ```
+
 ## Monthly Tax Department collections data
 
 The Tax Department reports monthly collections for each state tax on two state websites that do not appear to be integrated (that is, they need not be consistent with each other):
@@ -105,6 +106,7 @@ fn <- "New_York_State__Local__and_Local_Purpose_Taxes_and_Fees_Collected_Monthly
 
 # fpath <- file.path(here::here("data", "dtf", fn))
 fpath <- path(here::here("data", "dtf", "monthly", fn))
+
 
 download.file(url, destfile=fpath, mode="wb")
 
@@ -461,6 +463,9 @@ fn <- "New_York_State__Local__and_Local_Purpose_Taxes_and_Fees_Collected_Monthly
 
 fpath <- path(here::here("data", "dtf", "monthly", fn))
 
+fpath <- "C:/Users/donbo/Downloads/New_York_State__Local__and_Local_Purpose_Taxes_and_Fees_Collected_Monthly_by_the_Department_of_Taxation_and_Finance__Beginning_April_1996_20250425.csv"
+
+
 df <- vroom(fpath)
 glimpse(df)
 skim(df)
@@ -611,6 +616,17 @@ pmtfixed |>
   scale_y_continuous(name="$ millions", labels = label_comma(scale=1e-3)) +
   ggtitle("Original and adjusted values of the PMT wage tax") +
   theme_bw()
+
+```
+
+```{r}
+
+pmtfixed |> 
+  filter(year >= 2024) |> 
+  filter(vname %in% c("pmt_nese_net", "pmt_wage")) |> 
+  select(date, vname, value) |> 
+  pivot_wider(names_from = vname)
+
 
 ```
 
