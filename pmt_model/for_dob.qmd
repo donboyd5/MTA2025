@@ -1,0 +1,153 @@
+---
+title: "for_dob"
+format: html
+---
+
+<!-- wage<=312,500 -->
+
+<!-- 312500<wage<=375,000 -->
+
+<!-- 375000<wage<=437,500 -->
+
+<!-- 437500 <wage<=1,750,000 -->
+
+<!-- 1750000<wage<=2,500,000 -->
+
+<!-- 2500000<wage<=5,000,000 -->
+
+<!-- 5000000<wage<=25,000,000 -->
+
+<!-- 25,000,000<wage -->
+
+```{r}
+#| label: setup
+#| output: false
+
+source(fs::path(DMAIN, "R", "taxrules_and_forecast_functions.R"))
+
+# a <- str2expression("5 < 10")
+# eval(a)
+
+```
+
+```{r}
+
+
+# define payroll cuts and labels
+legal_cuts <- 4 * c(312.5e3, 375e3, 437.5e3)
+
+(payroll_cuts <- c(0, 10e6, Inf, legal_cuts) |> unique() |> sort())
+paygroup_labels <- cutlabs(payroll_cuts)
+
+
+```
+
+```{r}
+#| label: get-data
+#| output: false
+
+pmtdb <- readRDS(fs::path(PDINTERMEDIATE, "pmtdb_calibrated.rds"))
+glimpse(pmtdb)
+summary(pmtdb)
+
+# walk back to 2023
+prob <- list()
+prob$year <- 2023
+prob$emp_growth <- -.018
+prob$avg_wagerate_growth <- -.038
+prob$plan1 <- plan2024
+prob$plan2 <- plan2024
+
+prob
+
+pmtfc <- pmtdb_forecast(prob, pmtdb)
+summary(pmtfc)
+
+
+
+dob1 <- pmtfc |> 
+  mutate(calc_tax(pick(everything()), prob$plan1))
+
+dob2 <- dob1 |> 
+  left_join(paygroup_labels |> 
+              select(paygroup, lb, ub, paylabel = range_left), 
+            # rstudio shows syntax error on between -- it does not like bounds -- but it's valid
+            by = join_by(between(gpay_firm, lb, ub, bounds = "[)"))) |> 
+  select(-c(lb, ub))
+glimpse(dob2)
+sum(dob2$tax)
+
+dob3 <- dob2 |> 
+  filter(!exempt, !excluded) |> 
+  mutate(owngroup = ifelse(ownerf==1, "private", "slg")) |> 
+  summarise(wages=sum(gpayroll),
+            tax = sum(tax), .by=c(paygroup, paylabel, owngroup, nyc)) |> 
+  arrange(owngroup, desc(nyc), paygroup)
+dob3
+sum(dob3$wages)
+sum(dob3$tax)
+
+dob3 |> 
+  write_xlsx(fs::path(DMAIN, "for_dob", "2023_taxable_wages_and_current_law_tax_boyd.xlsx"))
+
+
+
+
+```
+
+```{r}
+#| label: get-data2
+#| output: false
+
+# 2024 levels
+
+pmtdb <- readRDS(fs::path(PDINTERMEDIATE, "pmtdb_calibrated.rds"))
+glimpse(pmtdb)
+summary(pmtdb)
+
+# walk back to 2023
+prob <- list()
+prob$year <- 2024
+prob$emp_growth <- 0
+prob$avg_wagerate_growth <- 0
+prob$plan1 <- plan2024
+prob$plan2 <- plan2024
+
+prob
+
+pmtfc <- pmtdb_forecast(prob, pmtdb)
+summary(pmtfc)
+
+
+dob1 <- pmtfc |> 
+  mutate(calc_tax(pick(everything()), prob$plan1))
+
+dob2 <- dob1 |> 
+  left_join(paygroup_labels |> 
+              select(paygroup, lb, ub, paylabel = range_left), 
+            # rstudio shows syntax error on between -- it does not like bounds -- but it's valid
+            by = join_by(between(gpay_firm, lb, ub, bounds = "[)"))) |> 
+  select(-c(lb, ub))
+glimpse(dob2)
+sum(dob2$tax)
+
+dob2 |> 
+  filter(excluded) |> 
+  summarise(gpayroll = sum(gpayroll),
+            .by=c(naics, title))
+
+dob3 <- dob2 |> 
+  filter(!exempt, !excluded) |> 
+  mutate(owngroup = ifelse(ownerf==1, "private", "slg")) |> 
+  summarise(wages=sum(gpayroll),
+            tax = sum(tax), .by=c(paygroup, paylabel, owngroup, nyc)) |> 
+  arrange(owngroup, desc(nyc), paygroup)
+dob3
+sum(dob3$wages)
+sum(dob3$tax)
+
+dob3 |> 
+  write_xlsx(fs::path(DMAIN, "for_dob", "2023_taxable_wages_and_current_law_tax_boyd.xlsx"))
+
+
+```

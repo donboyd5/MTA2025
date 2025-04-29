@@ -282,14 +282,209 @@ Changes private
 
 ```{r}
 
-plan2024 <- make_taxplan("tax2024")
+make_taxplan2 <- function(shortname = NULL, 
+                         lower_nyc = NULL,
+                         rates_nyc = NULL, 
+                         lower_burbs = NULL, 
+                         rates_burbs = NULL, 
+                         exempt = NULL,
+                         excluded = NULL,
+                         low_pay = NULL,
+                         description = NULL){
+  taxplan <- tax2024
+  if(shortname == "tax2024") return(tax2024)
+  
+  taxplan$shortname <- shortname
+  taxplan$description <- ifelse(is.null(description), shortname, description)
+  
+  if(!is.null(exempt)) taxplan$exempt <- expression(exempt)
+  # if(!is.null(excluded)) taxplan$excluded <- expression(excluded)
+  if (!is.null(excluded)) {
+  taxplan$excluded <- parse(text = excluded)  # Converts string to expression
+}
+  if(!is.null(low_pay)) taxplan$low_pay <- expression(low_pay)
+  
+  if(!is.null(rates_nyc)){
+    nyc <- tibble(nyc=rep(TRUE, length(rates_nyc)),
+                  lower = lower_nyc,
+                  rate = rates_nyc)|> 
+      mutate(upper = lead(lower, default = Inf))
+    taxplan$rates <- taxplan$rates |> 
+      filter(!nyc) |> 
+      bind_rows(nyc)
+  }
+  
+  if(!is.null(rates_burbs)){
+    burbs <- tibble(nyc=rep(FALSE, length(rates_burbs)),
+                    lower = lower_burbs,
+                    rate = rates_burbs)|> 
+      mutate(upper = lead(lower, default = Inf))
+    taxplan$rates <- taxplan$rates |> 
+      filter(nyc) |> 
+      bind_rows(burbs)
+  }  
+  
+  return(taxplan)
+}
 
-plandob <- make_taxplan("dob2025",
+xcl <- '(naics %in% c("491", "814")) | ((ownerf %in% 3:4) & !nyc)'
+
+make_taxplan2(shortname="test")
+make_taxplan2(shortname="test",
+              excluded = xcl)
+
+
+```
+
+## NEW approach here
+
+```{r}
+#| label: tax-plans
+
+make_taxplan("tax2024")
+
+rates1 <- read_excel(fs::path(DMAIN, "taxplans", "taxplans.xlsx"), skip=2)
+rates <- rates1 |> 
+  filter(!is.na(ownerf)) |> 
+  pivot_longer(-c(ownerf, owner_short, nyc, lower, upper),
+               names_to = "shortname",
+               values_to = "rate")
+rates
+count(rates, shortname, rate)
+
+exempt <- expression(
+  owner == "Federal Government" |
+    (owner == "Local Government") & naics=="6111")
+
+excluded <- expression(naics %in% c("491", "814"))
+low_pay <- expression(gpay_firm < 1.25e6)
+
+
+prob <- list()
+prob$year <- 2025
+prob$rates <- rates
+prob$exempt <- exempt
+prob$excluded <- excluded
+prob$low_pay <- low_pay
+
+# DOB's 4.1% wage growth
+prob$emp_growth <- .01
+prob$avg_wagerate_growth <- .031
+# Kevin Willen's growth rates
+# prob$emp_growth <- .01
+# prob$avg_wagerate_growth <- .0185
+
+
+pmtfc <- pmtdb_forecast(prob, pmtdb)
+summary(pmtfc)
+
+prob$rates
+
+df <- pmtfc |>
+    mutate(
+      exempt = eval(prob$exempt),
+      excluded = eval(prob$excluded),
+      low_pay = eval(prob$low_pay),
+      gpay_firm = ifelse(gpay_firm == 0, 1e-12, gpay_firm)) |> 
+    left_join(prob$rates, 
+              by = join_by(ownerf, nyc, gpay_firm > lower, gpay_firm <= upper)) |> 
+    select(-lower, -upper) |> 
+    mutate(rate = ifelse(exempt | excluded | low_pay,
+                         0,
+                         rate),
+           tax = rate * gpayroll)
+  
+
+glimpse(df)
+count(df, rate)
+df |> 
+  summarise(tax = sum(tax), .by=shortname) |> 
+  gt()
+
+
+```
+
+```{r}
+
+calc_tax <- function(data, taxplan){
+  df <- data |>
+    mutate(
+      shortname = taxplan$shortname,
+      exempt = eval(taxplan$exempt),
+      excluded = eval(taxplan$excluded),
+      low_pay = eval(taxplan$low_pay)) |> 
+    left_join(taxplan$rates, 
+              by = join_by(nyc, gpay_firm > lower, gpay_firm <= upper)) |> 
+    select(-lower, -upper) |> 
+    mutate(rate = ifelse(exempt | excluded | low_pay,
+                         0,
+                         rate),
+           tax = rate * gpayroll)
+  
+  return(df)
+}
+
+
+```
+
+```{r}
+#| label: key-option
+
+
+plannow <- make_taxplan2("now",
+             lower_nyc = c(0, 1.5e6, 1.75e6, 10e6),
+             rates_nyc = c(0.0011, 0.0023, 0.006, 0.006),
+             lower_burbs = c(0, 1.5e6, 1.75e6, 10e6),
+             rates_burbs = c(0.0011, 0.0023, 0.0034, 0.0034),
+             description = "tax now")
+
+
+xcl <- '(naics %in% c("491", "814")) | ((ownerf %in% 3:4) & !nyc)'
+plandob <- make_taxplan2("dob2025",
              lower_nyc = c(0, 1.5e6, 1.75e6, 10e6),
              rates_nyc = c(0.00055, 0.00115, 0.006, 0.00895),
              lower_burbs = c(0, 1.5e6, 1.75e6, 10e6),
              rates_burbs = c(0.00055, 0.00115, 0.0034, 0.00635),
-             description = "DOB 2025-04-28 plan")
+             excluded = xcl,
+             description = "DOB 2025-04-28 plan DOB growth")
+
+plannow$rates |>
+  left_join(plandob$rates |> rename(ratenew=rate),
+            by = join_by(nyc, lower, upper)) |> 
+  mutate(change = ratenew - rate)
+
+prob <- list()
+prob$year <- 2025
+prob$emp_growth <- .01
+prob$avg_wagerate_growth <- .031 # gives 4.1% wage growth
+prob$plan1 <- plannow
+prob$plan2 <- plandob
+
+prob
+
+pmtfc <- pmtdb_forecast(prob, pmtdb)
+summary(pmtfc)
+
+
+taxcomp <- bind_rows(
+  pmtfc |> 
+    mutate(calc_tax(pick(everything()), prob$plan1)) |> 
+    mutate(basealt = "basetax"),
+  pmtfc |> 
+    mutate(calc_tax(pick(everything()), prob$plan2)) |> 
+    mutate(basealt = "alttax"))
+
+glimpse(taxcomp)
+count(taxcomp, shortname)
+
+taxcomp |> 
+  summarise(tax=sum(tax),
+            .by=c(ownerf, owner, basealt)) |> 
+  pivot_wider(names_from = basealt,
+              values_from = tax) |> 
+  adorn_totals() |> 
+  mutate(diff = alttax - basetax)
+
 
 
 
@@ -375,257 +570,6 @@ tabdata |>
 #| output: true
 
 prob
-
-```
-
-## Save data for MTA
-
-```{r}
-#| label: payroll-cutpoints
-#| output: false
-
-# define payroll cuts and labels
-legal_cuts <- 4 * c(312.5e3, 375e3, 437.5e3)
-
-(payroll_cuts <- c(0, 500e3, seq(1e6, 2e6, 200e3), seq(2e6, 10e6, 500e3), Inf, legal_cuts) |> unique() |> sort())
-paygroup_labels <- cutlabs(payroll_cuts)
-
-```
-
-```{r}
-#| label: prepare-mta-data
-#| output: false
-
-glimpse(taxcomp)
-count(taxcomp, shortname, basealt)
-
-for_mta_prep <- taxcomp |> 
-  left_join(paygroup_labels |> 
-              select(paygroup, lb, ub, paylabel = range_left), 
-            # rstudio shows syntax error on between -- it does not like bounds -- but it's valid
-            by = join_by(between(gpay_firm, lb, ub, bounds = "[)"))) |> 
-  select(-c(lb, ub)) |> 
-  arrange(year, naics, exempt, excluded, paygroup, paylabel, desc(nyc), area, desc(basealt)) 
-
-# check <- for_mta_prep |> 
-#   filter(area=="Bronx", ownerf==1, paygroup==1, !low_pay, naics==236)
-
-
-for_mta <- for_mta_prep |> 
-  mutate(area=ifelse(nyc, "NYC", area)) |> 
-  summarise(across(c(gfirms, gestabs, gemp, gpayroll, tax), sum),
-            .by=c(basealt, year, excluded, exempt, low_pay, nyc, area, ownerf, owner, paygroup, paylabel, rate)) |>
-  pivot_wider(names_from = basealt, values_from = c(rate, tax)) |> 
-  mutate(taxchange = tax_alttax - tax_basetax) |> 
-  arrange(year, paygroup, paylabel, excluded, exempt, low_pay, desc(nyc), area)
-
-summary(for_mta)
-sum(for_mta$taxchange)
-
-```
-
-```{r}
-#| label: write-mta-data
-#| output: false
-
-library(openxlsx2)
-
-template_fname <- "template_database_summary.xlsx"
-template_path <- fs::path(DMAIN, "data_for_mta", template_fname)
-
-wb <- openxlsx2::wb_load(template_path, sheet = "database")
-
-firstrow <- 6
-
-wb <- openxlsx2::wb_add_data(
-  wb = wb,
-  sheet = "database",
-  x = for_mta,
-  start_row = firstrow,
-  col_names = FALSE,
-  apply_cell_style = FALSE
-)
-
-fmt_dims <- wb_dims(cols = c("K", "L", "M", "N", "Q", "R", "S"), rows = firstrow:(firstrow + nrow(for_mta) - 1))
-wb <- wb_add_numfmt(
-  wb,
-  sheet = "database",
-  dims = fmt_dims,
-  numfmt = "#,##0"
-)
-
-fmt_dims <- wb_dims(cols = c("O", "P"), rows = firstrow:(firstrow + nrow(for_mta) - 1))
-wb <- wb_add_numfmt(
-  wb,
-  sheet = "database",
-  dims = fmt_dims,
-  numfmt = "0.000%"
-)
-
-fnbase <- "pmt_summary_database_with_base_and_dob_tax"
-fname <- paste0(fnbase, "_", Sys.Date(), ".xlsx")
-fpath <- fs::path(DMAIN, "data_for_mta", fname)
-openxlsx2::wb_save(wb, file = fpath, overwrite = TRUE)
-
-
-```
-
-## Show summary of data file prepared for MTA
-
-```{r}
-#| label: show-mta-data-summary
-#| output: true
-
-for_mta |> 
-  summarise(across(c(gpayroll, tax_basetax, tax_alttax, taxchange), sum),
-            .by=c(ownerf, owner)) |> 
-  arrange(ownerf) |> 
-  adorn_totals() |>  
-  gt() |> 
-  tab_header("Payroll and tax amounts, 2024 law and DOB proposal for 50bp increase firms with >= $10m payroll",
-             subtitle = "MTA region") |> 
-  fmt_number(columns = gpayroll:taxchange, decimals = 0)
-
-```
-
-## Example 3: Increase rate by 36 bps in entire region for all PRIVATE and PUBLIC employers greater than \$10 million, exempt all with payroll less than \$2 MM
-
--   Raise top PMT rate by 50 basis points on firms with payroll \>= \$10 million
--   No change for firms with lower payroll
-
-```{r}
-#| label: problem-setup-ex3
-#| output: false
-
-plan2024 <- make_taxplan("tax2024")
-
-ex3 <- make_taxplan("ex3", 
-             lower_nyc = c(0, 2e6, 10e6),
-             rates_nyc = c(0.0, 0.006, .006 + .0036),
-             lower_burbs = c(0, 2e6, 10e6),
-             rates_burbs = c(0.0, 0.0034, 0.0034 + .0036),
-             description = "Increase rate by 36 bps in entire region >= $10m, exempt < 2m")
-
-# plandob <- make_taxplan("dob10m", 
-#              lower_nyc = c(0, 1.5e6, 1.75e6, 10e6),
-#              rates_nyc = c(0.0011, 0.0023, 0.006, 0.011),
-#              lower_burbs = c(0, 1.5e6, 1.75e6, 10e6),
-#              rates_burbs = c(0.0011, 0.0023, 0.0034, 0.0084),
-#              description = "DOB rate increase for payroll >= $10m")
-
-
-prob <- list()
-prob$year <- 2025
-prob$emp_growth <- .015
-prob$avg_wagerate_growth <- .04
-prob$plan1 <- plan2024
-prob$plan2 <- ex3
-
-prob
-
-# prob$emp_growth <- 0
-# prob$avg_wagerate_growth <- 0
-
-```
-
-### Summary results
-
-```{r}
-#| label: tax-calcx3
-#| output: false
-
-pmtfc <- pmtdb_forecast(prob, pmtdb)
-summary(pmtfc)
-
-taxcomp <- bind_rows(
-  pmtfc |> 
-    mutate(calc_tax(pick(everything()), prob$plan1)) |> 
-    mutate(basealt = "basetax"),
-  pmtfc |> 
-    mutate(calc_tax(pick(everything()), prob$plan2)) |> 
-    mutate(basealt = "alttax"))
-
-glimpse(taxcomp)
-count(taxcomp, shortname)
-
-taxcomp |> 
-  summarise(tax=sum(tax),
-            .by=c(ownerf, owner, shortname)) |> 
-  pivot_wider(names_from = shortname,
-              values_from = tax) |> 
-  adorn_totals() |> 
-  mutate(diff = ex3 - tax2024)
-
-```
-
-```{r}
-#| label: show-ex3-results
-#| output: true
-
-tabdata <- taxcomp |> 
-  summarise(gpayroll = sum(gpayroll),
-            tax=sum(tax),
-            .by=c(ownerf, owner, basealt)) |> 
-  pivot_wider(names_from = basealt,
-              values_from = tax) |> 
-  select(ownerf, owner, gpayroll, basetax, alttax) |> 
-  arrange(ownerf) |> 
-  adorn_totals() |> 
-  mutate(change = alttax - basetax)
-
-tabdata |> 
-  gt() |> 
-  tab_header(md("Increase rate by 36 bps in entire region >= $10m, exempt < 2m"),
-             subtitle="$ millions, 2025 levels") |> 
-  fmt_number(columns = -c(ownerf, owner),
-             scale = 1e-6,
-             decimals = 0) |> 
-  fmt_currency(columns = -c(ownerf, owner),
-               rows = c(1, nrow(tabdata)),
-               scale = 1e-6,
-               decimals = 0)
-
-```
-
-### Results broken down by NYC and suburbs
-
-```{r}
-#| label: show-dob-geographic-details
-#| output: true
-
-tabdata <- taxcomp |> 
-  summarise(tax=sum(tax),
-            .by=c(nyc, ownerf, owner, basealt)) |> 
-  mutate(nyc=ifelse(nyc, "nyc", "suburbs")) |> 
-  pivot_wider(names_from = basealt,
-              values_from = tax) |> 
-  mutate(change = alttax - basetax) |> 
-  pivot_wider(names_from = nyc,
-              values_from = c(basetax, alttax, change)) |> 
-  arrange(ownerf) |> 
-  adorn_totals() |> 
-  mutate(base_total = basetax_nyc + basetax_suburbs,
-         alt_total = alttax_nyc + alttax_suburbs,
-         change_total = change_nyc + change_suburbs,
-         nyc_change_pct=change_nyc / change_total) |> 
-  relocate(base_total, .after = basetax_suburbs) |> 
-  relocate(alt_total, .after = alttax_suburbs)
-# tabdata
-
-tabdata |> 
-  gt() |> 
-  tab_header(md("50bp PMT increase for **firms** with payroll > $10m"),
-             subtitle="$ millions, 2025 levels") |> 
-  fmt_number(columns = -c(ownerf, owner,nyc_change_pct),
-             scale = 1e-6,
-             decimals = 0) |> 
-  fmt_currency(columns = -c(ownerf, owner,nyc_change_pct),
-               rows = c(1, nrow(tabdata)),
-               scale = 1e-6,
-               decimals = 0) |> 
-  fmt_percent(columns=nyc_change_pct,
-              decimals = 1) |> 
-  sub_missing(missing_text = "--")
 
 ```
 
