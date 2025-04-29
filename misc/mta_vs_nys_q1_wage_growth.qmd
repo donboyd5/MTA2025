@@ -1,0 +1,218 @@
+---
+title: "mta_vs_nys"
+format: html
+---
+
+```{r}
+
+
+DMAIN <- here::here("pmt_model")
+
+libs <- function(){
+  source(fs::path(DMAIN, "R", "libraries.r"))
+  source(fs::path(DMAIN, "R", "libraries_ts.r"))
+}
+
+suppressPackageStartupMessages(libs())
+  
+source(fs::path(DMAIN, "R", "constants.r"))
+source(fs::path(DMAIN, "R", "functions.r"))
+
+
+# County names as found in the NYSDOL QCEW
+constants$mtaregion <- read_csv("area
+Bronx County
+Kings County
+New York County
+Queens County
+Richmond County
+
+Dutchess County
+Nassau County
+Orange County
+Putnam County
+Rockland County
+Suffolk County
+Westchester County
+", show_col_types = FALSE)
+
+constants$nyc <- constants$mtaregion |> 
+  slice_head(n=5)
+
+
+```
+
+```{r}
+#| label: read-save-qcew
+#| eval: true
+#| output: false
+
+# get names of the csv annual files and then read them
+fname <- "qcew.zip"
+# zpath <- fs::path(PDRAW, fname)
+zpath <- paste0(PDRAW, "/", fname)
+zfiles <- zip::zip_list(zpath)
+
+csvfiles <- zfiles |> 
+  filter(str_starts(filename, "qcew_quarter_")) |> 
+  pull(filename)
+
+# read directly from the zip file
+system.time(df <- vroom(purrr::map(csvfiles, \(x)  unz(zpath, x)))) # 12 secs
+# obj_size(df)
+
+df2 <- df |> 
+  rename_with(str_to_lower)
+
+# count(df2, areatype)
+# count(df2, areatype, owner)
+
+df3 <- df2 |> 
+  filter(areatype %in% c("State", "County")) |> 
+  mutate(areatype=str_to_lower(areatype)) |> 
+  mutate(mta=area %in% constants$mtaregion$area,
+         nyc=area %in% constants$nyc$area)
+glimpse(df3)
+
+df4 <- df3 |> 
+  filter((areatype=="state") | 
+           mta,
+         owner %in% c("Total Private and Government", "Private")) |> 
+  select(areatype, area, year, quarter, naics, naics_level, naics_title, owner, totwage)
+
+tmp <- count(df4, naics_level, naics, naics_title)
+
+tmp <- df4 |> filter(year==max(year), quarter==2, naics=="523", owner=="Total Private and Government")
+tmp |> summarise(totwage=sum(totwage), .by=areatype)
+
+
+tmp |> filter(str_detect(naics_title, "Finan"))
+tmp |> filter(str_starts(naics, "523"))
+count(df4, area)
+
+
+df5 <- df4 |> 
+  filter(naics == "00" | naics %in% c("523", "5231")) |> 
+  summarise(totwage = sum(totwage),
+            .by = c(year, quarter, areatype, owner, naics, naics_title)) |> 
+  mutate(date = yq(paste(year, quarter, sep = "-"))) |> 
+  select(-year, -quarter)
+# count(df5, date, year, quarter)
+df5 |> filter(date==max(date))
+
+df6 <- df5 |> 
+  mutate(areatype = ifelse(areatype == "county", "mta", areatype),
+         industry = case_when(naics == "00" ~ "total",
+                              naics == "523" ~ "finance",
+                              naics == "5231" ~ "securities",
+                              .default = "ERROR"),
+         owner = case_when(owner=="Private" ~ "private",
+                           owner == "Total Private and Government" ~ "all",
+                           .default = "ERROR"))
+df6 |> filter(date==max(date))  
+count(df6, areatype)
+count(df6, industry)
+
+df7 <- df6 |> 
+  filter(owner == "all") |> 
+  select(areatype, industry, date, totwage) |> 
+  arrange(areatype, industry, date) |> 
+  mutate(pch=totwage / lag(totwage, 4) - 1, .by=c(areatype, industry))
+glimpse(df7)
+
+finshare <- df7 |> 
+  filter(industry %in% c("finance", "total")) |> 
+  select(areatype, industry, date, totwage) |> 
+  pivot_wider(names_from = industry, values_from = totwage) |> 
+  mutate(finshare = finance / total)
+
+finshare |> 
+  filter(quarter(date) ==1) |> 
+  ggplot(aes(date, finshare, colour = areatype)) +
+  geom_line(linewidth = 1) +
+  geom_point(size = 1.5) +
+  scale_y_continuous(name = "percent", breaks = seq(.1, .5, .02), labels = scales::label_percent(accuracy=.1)) +
+  ggtitle("Finance wages (NAICS 523) as % of total wages (all industries)") +
+  theme_bw()
+
+
+count(df7, areatype)
+tmp2 <- df7 |> filter(industry=="finance") |> arrange(date, areatype)
+tmp <- df7 |> 
+  filter(industry=="securities")
+
+
+df7 |> 
+  filter(industry=="finance") |> 
+  ggplot(aes(date, pch, colour=areatype)) +
+  geom_line()
+
+df7 |> 
+  filter(industry=="total") |> 
+  ggplot(aes(date, pch, colour=areatype)) +
+  geom_line()
+
+df7 |> 
+  filter(industry=="securities") |> 
+  ggplot(aes(date, pch, colour=areatype)) +
+  geom_line()
+
+df7 |> 
+  filter(industry %in% c("finance", "total")) |> 
+  filter(quarter(date)==1) |> 
+  ggplot(aes(date, pch, colour=areatype)) +
+  geom_line() +
+  geom_point() +
+  geom_hline(yintercept = 0) +
+  scale_y_continuous(breaks = seq(-1, 1, .05)) + #, labels = scales::percent_format)
+  facet_wrap(~industry, ncol=1)
+
+# DOL site
+# nys 523 2023q1 	$42,595,236,101
+df7 |> filter(date=="2023-01-01", industry=="finance") # 42,595,236,101
+df4 |> filter(year==2023, quarter==1, mta, naics=="523") # 42,595,236,101
+df3 |> 
+  filter((areatype=="county"), mta,
+         owner %in% c("Total Private and Government"),
+         year==2023, quarter==1, naics=="523")
+# DOL site 
+# NY County 523 2023q1 $40,256,987,103
+# New York County 40256987103
+
+
+  # pivot_wider(names_from = industry, values_from = totwage) |> 
+  # arrange(areatype, date) |> 
+  # mutate(across(c(total, finance, securities),
+  #               list(pch = \(x) x / lag(x) - 1)),
+  #        .by=areatype)
+
+df7 |> 
+  filter(industry %in% c("finance", "total")) |> 
+  filter(year(date) < 2020) |> 
+  filter(quarter(date)==1) |> 
+  select(-totwage) |> 
+  pivot_wider(names_from = c(industry, areatype), values_from = pch) |> 
+  select(date, finance=finance_state, state=total_state, mta=total_mta) |> 
+  mutate(diff=mta - state) |>
+  filter(abs(finance) > .15) |> 
+  # filter(finance > 0) |> 
+  arrange(desc(abs(finance))) |> 
+  gt() |> 
+  tab_header("Wage growth in NYS and MTA region when finance sector has large swings",
+             subtitle = html("% change in wages in first quarter vs. year earlier<br>Sorted by absolute % change in finance"))  |> 
+  tab_spanner("Total wages (all industries)", columns = c(state, mta, diff)) |> 
+  cols_label(date = "",
+             finance = html("NYS Finance wages<br>(NAICS 523)"),
+             state = "NYS",
+             mta = "MTA region",
+             diff = html("MTA growth<br>minus<br>NYS growth")
+             ) |> 
+  fmt_date(columns = date,
+    date_style = "y") |> 
+  fmt_percent(columns = finance:diff,
+              decimals = 1) |> 
+  tab_source_note("Source: NYSDOL QCEW wages")
+  
+
+
+```

@@ -1,0 +1,172 @@
+---
+title: "qcew_vs_tax_payments"
+format: html
+---
+
+# Compare QCEW and tax payments
+
+```{r}
+
+
+DMAIN <- here::here("pmt_model")
+
+libs <- function(){
+  source(fs::path(DMAIN, "R", "libraries.r"))
+  source(fs::path(DMAIN, "R", "libraries_ts.r"))
+}
+
+suppressPackageStartupMessages(libs())
+  
+source(fs::path(DMAIN, "R", "constants.r"))
+source(fs::path(DMAIN, "R", "functions.r"))
+
+```
+
+## Get tax department data on the wage tax
+
+```{r}
+
+pmt <- readRDS(here::here("data", "mta_pmt_collections.rds"))
+glimpse(pmt)
+count(pmt, vname, tax)
+
+wagetax <- pmt |> 
+  filter(vname=="pmt_wage")
+
+# wagetax |> 
+#   ggplot(aes(date, value)) +
+#   geom_line()
+
+# wagetax |> filter(year(date) %in% 2009:2011) # data starts 2009-Oct
+
+wagetax2 <- wagetax |> 
+  select(date, wagetax=value) |> 
+  filter(date >= "2009-10-02") |> 
+  arrange(date) |> 
+  mutate(wtma12=btools::ma(wagetax, 12))
+
+wagetax2 |> filter(month(date)==12) |> mutate(tax=wtma12 * 12)
+
+wagetax2 |> 
+  filter(year(date) %in% 2011:2021) |> 
+  pivot_longer(-date) |> 
+  ggplot(aes(date, value, colour = name)) +
+  geom_line() +
+  ggtitle("PMT wage tax level: monthly and 12m trailing ma")
+
+wagetax2 |> 
+  filter(year(date) %in% 2011:2021) |> 
+  pivot_longer(-date) |> 
+  arrange(name, date) |> 
+  mutate(pch = value / lag(value, 12) - 1, .by=name) |> 
+  ggplot(aes(date, pch, colour = name)) +
+  geom_line() +
+  scale_y_continuous(breaks = seq(-1, 1, .02)) +
+  geom_hline(yintercept = 0) +
+  ggtitle("% change in PMT wage tax: monthly and 12m trailing ma")
+
+```
+
+## Get QCEW annual 2010+, construct tax base,
+
+```{r}
+
+qcew <- readRDS(fs::path(PDINTERMEDIATE, "qcewstco.rds"))
+glimpse(qcew)
+# qcew <- readRDS(fs::path(PDINTERMEDIATE, "qcewmta.rds"))
+count(qcew, year)
+# count(qcew, ownerf, owner)
+count(qcew, owner)
+count(qcew, naics_level, naics, title)
+
+# -   NAICS 923110 – Administration of Education Programs (for central administrative roles)
+# -   NAICS 611710 – Educational Support Services (for operational roles)
+# -   General Local Government (NAICS 92 series) rather than traditional school classifications.
+
+
+# do 2010 and 2011
+
+qcew2 <- qcew |> 
+  filter(year %in% 2010:2011, mta) |> 
+  mutate(owner = stringr::word(owner, 1) |> stringr::str_to_lower()) |> 
+  filter(owner %in% c("local", "state", "private")) |> 
+  filter(!(owner=="private" & naics %in% c("491", "814")))
+
+qcew3 <- qcew2 |> 
+  filter(naics_level == 3) |>
+  summarise(totwage=sum(totwage),
+            .by=c(year)) |> 
+  mutate(tax = totwage * .0034)
+qcew3
+
+# A tibble: 2 × 3
+#    year      totwage         tax
+#   <dbl>        <dbl>       <dbl>
+# 1  2010 346962872796 1179673768.
+# 2  2011 361949887679 1230629618.
+
+# qcew3 <- qcew2 |> 
+#   filter(naics_level == 3) |> 
+#   filter(!(owner=="private" & naics %in% c("491", "814"))) |> 
+#   filter(!(owner == "local" & naics == "611")) |> 
+#   filter(totwage >= ())
+#   summarise(totwage=sum(totwage),
+#             .by=c(year, owner))
+
+
+```
+
+```{r}
+
+qcew3
+wagetax2 |> filter(year(date) %in% 2010:2011)
+
+# 2010: 1179673768 115624.
+taxcoll <- 115624.*12*1000  # 1,387,488,000
+qcewtax <- 1179673768       # 1,179,673,768 
+taxcoll / qcewtax  # 1.176
+
+# 2011: 1230629618. 117295.
+taxcoll <- 117295.*12*1000 # 1407540000
+qcewtax <- 1230629618
+taxcoll / qcewtax  # 1.144
+
+```
+
+## comparison
+
+```{r}
+
+cytax <- wagetax |> 
+  select(date, wagetax=value) |> 
+  filter(date >= "2009-10-02") |> 
+  arrange(date) |> 
+  mutate(taxsum = btools::ma(wagetax, 12) * 12 * 1000) |> 
+  filter(month(date) == 12, year(date) > 2009) |> 
+  mutate(year = year(date)) |> 
+  select(year, wagetax=taxsum)
+
+cywages1 <- qcew |> 
+  filter(year %in% 2010:2023, mta) |> 
+  mutate(owner = stringr::word(owner, 1) |> stringr::str_to_lower()) |> 
+  filter(owner %in% c("local", "state", "private"), naics=="00")
+
+cywages2 <- cywages1 |> 
+  summarise(totwage = sum(totwage), .by=c(year, owner)) |> 
+  pivot_wider(names_from = owner, values_from = totwage)
+
+comp <- cytax |> 
+  left_join(cywages2, by = join_by(year)) |> 
+  mutate(across(c(state, local, private),
+                \(x) ifelse(year == 2024,
+                            x[year == 2023] * 1.06,
+                            x)))
+
+comp |> 
+  write_xlsx(here::here("pmt_model", "data_for_mta", "cy_wages_and_pmt_wagetax.xlsx"))
+
+```
+
+```{r}
+
+```
