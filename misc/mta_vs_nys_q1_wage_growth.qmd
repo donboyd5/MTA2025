@@ -43,9 +43,8 @@ constants$nyc <- constants$mtaregion |>
 ```
 
 ```{r}
-#| label: read-save-qcew
-#| eval: true
-#| output: false
+#| label: get-qcew
+
 
 # get names of the csv annual files and then read them
 fname <- "qcew.zip"
@@ -79,6 +78,17 @@ df4 <- df3 |>
            mta,
          owner %in% c("Total Private and Government", "Private")) |> 
   select(areatype, area, year, quarter, naics, naics_level, naics_title, owner, totwage)
+
+
+```
+
+## Examine q1 mta vs nys
+
+```{r}
+#| label: q1-mta-nys
+#| eval: true
+#| output: false
+
 
 tmp <- count(df4, naics_level, naics, naics_title)
 
@@ -213,6 +223,99 @@ df7 |>
               decimals = 1) |> 
   tab_source_note("Source: NYSDOL QCEW wages")
   
+```
 
+## q1 vs q234 and annual
+
+```{r}
+
+qtrs1 <- df4 |> 
+  filter(areatype=="county", naics=="00", owner=="Total Private and Government")
+count(qtrs1, year, quarter)
+
+qtrs2 <- qtrs1 |> 
+  filter(year < 2024) |> 
+  mutate(qgroup = case_when(quarter == 1 ~ "q1",
+                            quarter %in% 2:4 ~ "q234",
+                            .default = "ERROR")) |> 
+  summarise(n = n(),
+            totwage=sum(totwage), .by=c(year, qgroup))
+
+qtrs3 <- qtrs2 |> 
+  select(-n) |> 
+  pivot_wider(names_from = qgroup, values_from = totwage) |> 
+  arrange(year) |> 
+  mutate(total = q1 + q234,
+         across(c(q1, q234, total),
+                list(pch = \(x) x / lag(x) - 1)),
+         qdiff = q234_pch - q1_pch,
+         adiff = total_pch - q1_pch)
+qtrs3
+
+qtrs3 |> 
+  filter(q1_pch >= .1)
+
+```
+
+## Overall wage growth in years when the first quarter growth was high
+
+```{r}
+
+tab <- qtrs3 |> 
+  filter(year > 2000) |> 
+  gt() |> 
+  tab_header("Wage growth in MTA region in 1st quarter and rest of year",
+             subtitle = "Based on all years from 2001 through 2023")  |> 
+  tab_spanner("Total wages (all industries), $ millions", columns = c(q1, q234, total)) |>
+  tab_spanner("Percent change from same period year ago", columns = c(q1_pch, q234_pch, total_pch)) |> 
+  cols_label(year = "Calendar year",
+             q1 = "Quarter 1",
+             q234 = "Remaining quarters",
+             total = "Annual total",
+             q1_pch = "Quarter 1",
+             q234_pch = "Remaining quarters",
+             total_pch = "Annual total",
+             qdiff = html("Quarters 2-4 minus quarter 1 growth"),
+             adiff = html("Full year minus quarter 1 growth"),
+             ) |> 
+  fmt_number(columns = c(q1, q234, total),
+             scale = 1e-6,
+             decimals = 0) |> 
+  fmt_percent(columns = c(q1_pch, q234_pch, total_pch, qdiff, adiff),
+              decimals = 1) |> 
+  tab_source_note("Source: NYSDOL QCEW wages")
+tab
+# ggsave(here::here("misc", "wagegrowth_q1roy.png"), p) 
+
+
+tab <- qtrs3 |> 
+  filter(year > 2000) |> 
+  filter(q1_pch >= .1) |> 
+  gt() |> 
+  tab_header("Wage growth in MTA region in 1st quarter and rest of year",
+             subtitle = "Years between 2001 and 2023 with first-quarter growth >= 10%")  |> 
+  tab_spanner("Total wages (all industries), $ millions", columns = c(q1, q234, total)) |>
+  tab_spanner("Percent change from same period year ago", columns = c(q1_pch, q234_pch, total_pch)) |> 
+  cols_label(year = "Calendar year",
+             q1 = "Quarter 1",
+             q234 = "Remaining quarters",
+             total = "Annual total",
+             q1_pch = "Quarter 1",
+             q234_pch = "Remaining quarters",
+             total_pch = "Annual total",
+             qdiff = html("Quarters 2-4 minus quarter 1 growth"),
+             adiff = html("Full year minus quarter 1 growth"),
+             ) |> 
+  fmt_number(columns = c(q1, q234, total),
+             scale = 1e-6,
+             decimals = 0) |> 
+  fmt_percent(columns = c(q1_pch, q234_pch, total_pch, qdiff, adiff),
+              decimals = 1) |> 
+  tab_source_note("Source: NYSDOL QCEW wages")
+tab  
+
+```
+
+```{r}
 
 ```
